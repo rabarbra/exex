@@ -8,41 +8,45 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/psimonen/elf-explorer/internal/binfile"
+	"github.com/psimonen/elf-explorer/internal/config"
 	"github.com/psimonen/elf-explorer/internal/disasm"
 )
 
 type mode int
 
 const (
-	modeHeader mode = iota
+	modeInfo mode = iota
 	modeSections
 	modeSymbols
 	modeDisasm
+	modeHex
+	modeLibs
 )
 
 func (m mode) String() string {
 	switch m {
-	case modeHeader:
-		return "Header"
+	case modeInfo:
+		return "Info"
 	case modeSections:
 		return "Sections"
 	case modeSymbols:
 		return "Symbols"
 	case modeDisasm:
 		return "Disasm"
+	case modeHex:
+		return "Hex"
+	case modeLibs:
+		return "Libs"
 	}
 	return "?"
 }
-
-// disasmWindow caps the number of bytes we decode at once. Big enough to fill
-// a screen comfortably, small enough to keep redraws snappy.
-const disasmWindow = 4096
 
 // Model is the root Bubble Tea model.
 type Model struct {
@@ -75,6 +79,23 @@ type Model struct {
 	showSource bool
 	srcVP      viewport.Model
 
+	// Navigation history for the disasm view: the last `historyCap` jump
+	// targets, with `historyPos` indicating where in that ring we are. Left
+	// arrow steps back, right arrow steps forward.
+	history    []uint64
+	historyPos int
+
+	// Hex view.
+	hexBase    uint64
+	hexData    []byte
+	hexSection *elf.Section
+	hexCur     int // byte offset into hexData
+	hexTop     int // first row's byte offset (multiple of bytesPerHexRow)
+
+	// Libs view.
+	libsCur int
+	libsTop int
+
 	// Go-to-address modal.
 	gotoInput  textinput.Model
 	gotoActive bool
@@ -82,6 +103,9 @@ type Model struct {
 	// Transient status message displayed in the footer.
 	status      string
 	statusError bool
+
+	// User-configurable keymap for the top-level dispatch.
+	keys keyMap
 }
 
 func New(f *binfile.File) (*Model, error) {
@@ -90,6 +114,16 @@ func New(f *binfile.File) (*Model, error) {
 		// Don't fail — the user can still browse header/sections/symbols.
 		d = nil
 	}
+
+	// Load user config and overlay it before constructing styles/keymap.
+	// A missing config file is fine (zero Config); a malformed one surfaces.
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	ApplyColors(cfg.Colors)
+	keys := defaultKeyMap()
+	keys.applyConfig(cfg.Keys)
 
 	filter := textinput.New()
 	filter.Placeholder = "type to filter…"
@@ -104,11 +138,12 @@ func New(f *binfile.File) (*Model, error) {
 	m := &Model{
 		file:          f,
 		dis:           d,
-		mode:          modeHeader,
+		mode:          modeInfo,
 		sections:      f.Sections,
 		symbolsFilter: filter,
 		gotoInput:     gotoInput,
 		showSource:    true,
+		keys:          keys,
 	}
 	m.headerVP = viewport.New(0, 0)
 	m.srcVP = viewport.New(0, 0)
@@ -137,24 +172,6 @@ func (m *Model) recomputeSymbols() {
 	}
 }
 
-// loadDisasmAt fills disasmInst by decoding a window starting at addr.
-func (m *Model) loadDisasmAt(addr uint64) {
-	if m.dis == nil {
-		m.setStatus("no disassembler for this architecture", true)
-		return
-	}
-	buf, err := m.file.ReadAt(addr, disasmWindow)
-	if err != nil {
-		m.setStatus(err.Error(), true)
-		return
-	}
-	m.disasmAddr = addr
-	m.disasmInst = disasm.Range(m.dis, buf, addr, 0)
-	m.disasmCur = 0
-	m.disasmTop = 0
-	m.mode = modeDisasm
-	m.status = ""
-}
 
 func (m *Model) setStatus(s string, isError bool) {
 	m.status = s
@@ -221,30 +238,36 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	switch key {
-	case "ctrl+c", "q":
+	switch m.keys[key] {
+	case actionQuit:
 		return m, tea.Quit
-	case "1":
-		m.mode = modeHeader
+	case actionViewInfo:
+		m.mode = modeInfo
 		return m, nil
-	case "2":
+	case actionViewSections:
 		m.mode = modeSections
 		return m, nil
-	case "3":
+	case actionViewSymbols:
 		m.mode = modeSymbols
 		return m, nil
-	case "4":
+	case actionViewDisasm:
 		if m.dis == nil {
 			m.setStatus("no disassembler for this architecture", true)
 			return m, nil
 		}
 		m.mode = modeDisasm
 		return m, nil
-	case "g":
+	case actionViewHex:
+		m.mode = modeHex
+		return m, nil
+	case actionViewLibs:
+		m.mode = modeLibs
+		return m, nil
+	case actionGoto:
 		m.gotoActive = true
 		m.gotoInput.Focus()
 		return m, nil
-	case "tab":
+	case actionToggleSource:
 		if m.mode == modeDisasm {
 			m.showSource = !m.showSource
 		}
@@ -258,7 +281,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSymbols(key)
 	case modeDisasm:
 		return m.updateDisasm(key)
-	case modeHeader:
+	case modeHex:
+		return m.updateHex(key)
+	case modeLibs:
+		return m.updateLibs(key)
+	case modeInfo:
 		var cmd tea.Cmd
 		m.headerVP, cmd = m.headerVP.Update(msg)
 		return m, cmd
@@ -286,14 +313,22 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 		m.sectionsCur = len(m.sections) - 1
 	case "enter":
 		sec := m.sections[m.sectionsCur]
-		if sec.Flags&elf.SHF_EXECINSTR != 0 && m.dis != nil {
+		if binfile.IsExecSection(sec) && m.dis != nil {
 			m.loadDisasmAt(sec.Addr)
 		} else {
-			m.setStatus(fmt.Sprintf("section %s is not executable", sec.Name), true)
+			m.openHexForSection(sec)
 		}
+	case "a":
+		sec := m.sections[m.sectionsCur]
+		m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), sec.Addr), "address")
+	case "s":
+		sec := m.sections[m.sectionsCur]
+		m.copyToClipboard(sec.Name, "section name")
 	}
 	return m, nil
 }
+
+
 
 func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 	switch key {
@@ -325,43 +360,80 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("symbol %s has no address", sym.Name), true)
 			return m, nil
 		}
-		m.loadDisasmAt(sym.Addr)
+		m.openSymbol(sym)
+	case "a":
+		if len(m.symbolsFiltered) == 0 {
+			return m, nil
+		}
+		sym := m.file.Symbols[m.symbolsFiltered[m.symbolsCur]]
+		m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), sym.Addr), "address")
+	case "s":
+		if len(m.symbolsFiltered) == 0 {
+			return m, nil
+		}
+		sym := m.file.Symbols[m.symbolsFiltered[m.symbolsCur]]
+		m.copyToClipboard(sym.Name, "symbol")
 	}
 	return m, nil
 }
 
-func (m *Model) updateDisasm(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "up", "k":
-		if m.disasmCur > 0 {
-			m.disasmCur--
+// openSymbol opens a symbol in the most appropriate view:
+//   - FUNC                  → disasm
+//   - OBJECT/TLS/COMMON     → hex view of the *whole containing section*,
+//                             with the cursor parked on the symbol's bytes
+//                             (so the user can scroll around adjacent data)
+//   - SECTION               → hex view of the whole section
+//   - NOTYPE                → exec section ⇒ disasm; else hex (whole section)
+func (m *Model) openSymbol(sym binfile.Symbol) {
+	switch sym.Type {
+	case elf.STT_FUNC:
+		m.loadDisasmAt(sym.Addr)
+	case elf.STT_OBJECT, elf.STT_TLS, elf.STT_COMMON:
+		m.openHexInSectionAt(sym.Addr, sym.Size)
+	case elf.STT_SECTION:
+		if sec := m.file.SectionAt(sym.Addr); sec != nil {
+			m.openHexForSection(sec)
+		} else {
+			m.openHexAt(sym.Addr, sym.Size)
 		}
-	case "down", "j":
-		if m.disasmCur < len(m.disasmInst)-1 {
-			m.disasmCur++
+	default:
+		if sec := m.file.SectionAt(sym.Addr); sec != nil && binfile.IsExecSection(sec) {
+			m.loadDisasmAt(sym.Addr)
+		} else {
+			m.openHexInSectionAt(sym.Addr, sym.Size)
 		}
-		// Auto-load next window when near the end.
-		if m.disasmCur >= len(m.disasmInst)-1 && len(m.disasmInst) > 0 {
-			last := m.disasmInst[len(m.disasmInst)-1]
-			next := last.Addr + uint64(len(last.Bytes))
-			if _, err := m.file.ReadAt(next, 1); err == nil {
-				saved := m.disasmCur
-				m.loadDisasmAt(next)
-				m.mode = modeDisasm // loadDisasmAt sets mode; explicit for clarity
-				m.disasmCur = saved
-				_ = saved
-			}
-		}
-	case "pgup":
-		m.disasmCur = max(0, m.disasmCur-m.bodyHeight())
-	case "pgdown":
-		m.disasmCur = min(len(m.disasmInst)-1, m.disasmCur+m.bodyHeight())
-	case "home":
-		m.disasmCur = 0
-	case "end", "G":
-		m.disasmCur = len(m.disasmInst) - 1
 	}
-	return m, nil
+}
+
+// openHexInSectionAt opens the hex viewer on the section containing addr,
+// then seeks the cursor to addr (and best-effort to the start of the
+// symbol's row in the visible window). If addr isn't inside any allocated
+// section it falls back to a windowed read of just `size` bytes.
+func (m *Model) openHexInSectionAt(addr, size uint64) {
+	sec := m.file.SectionAt(addr)
+	if sec == nil {
+		m.openHexAt(addr, size)
+		return
+	}
+	m.openHexForSection(sec)
+	off := int(addr - sec.Addr)
+	if off < 0 || off >= len(m.hexData) {
+		return
+	}
+	m.hexCur = off
+	// Align the top row to the cursor's row so the symbol is immediately
+	// visible after the jump.
+	m.hexTop = (off / bytesPerHexRow) * bytesPerHexRow
+}
+
+// copyToClipboard puts text on the system clipboard and reports success or
+// failure to the user via the status footer.
+func (m *Model) copyToClipboard(text, what string) {
+	if err := clipboard.WriteAll(text); err != nil {
+		m.setStatus(fmt.Sprintf("clipboard: %v", err), true)
+		return
+	}
+	m.setStatus(fmt.Sprintf("copied %s: %s", what, text), false)
 }
 
 func (m *Model) handleGoto(val string) {
@@ -421,14 +493,18 @@ func (m *Model) View() string {
 	parts := []string{m.renderTabs()}
 	body := ""
 	switch m.mode {
-	case modeHeader:
-		body = m.renderHeader()
+	case modeInfo:
+		body = m.renderInfo()
 	case modeSections:
 		body = m.renderSections()
 	case modeSymbols:
 		body = m.renderSymbols()
 	case modeDisasm:
 		body = m.renderDisasm()
+	case modeHex:
+		body = m.renderHex()
+	case modeLibs:
+		body = m.renderLibs()
 	}
 	parts = append(parts, body, m.renderFooter())
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
@@ -450,10 +526,12 @@ func (m *Model) renderTabs() string {
 	}
 	tabs := []string{
 		titleStyle.Render(" elf-explorer "),
-		render("1·Header", m.mode == modeHeader),
+		render("1·Info", m.mode == modeInfo),
 		render("2·Sections", m.mode == modeSections),
 		render("3·Symbols", m.mode == modeSymbols),
 		render("4·Disasm", m.mode == modeDisasm),
+		render("5·Hex", m.mode == modeHex),
+		render("6·Libs", m.mode == modeLibs),
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
 	pad := m.width - lipgloss.Width(row)
@@ -466,14 +544,18 @@ func (m *Model) renderTabs() string {
 func (m *Model) renderFooter() string {
 	var help string
 	switch m.mode {
-	case modeHeader:
-		help = "1/2/3/4 switch · g goto · q quit"
+	case modeInfo:
+		help = "1-6 switch view · g goto · q quit"
 	case modeSections:
-		help = "↑/↓ move · Enter disasm · g goto · q quit"
+		help = "↑/↓ move · Enter view (disasm or hex) · g goto · q quit"
 	case modeSymbols:
 		help = "↑/↓ move · / filter · Enter jump · g goto · q quit"
 	case modeDisasm:
-		help = "↑/↓ move · Tab source pane · g goto · q quit"
+		help = "↑/↓ scroll · ←/→ history · Enter follow · a copy addr · s copy sym · Tab source · g goto · q quit"
+	case modeHex:
+		help = "←/↓/↑/→ move · a copy addr · s copy sym · g goto · q quit"
+	case modeLibs:
+		help = "↑/↓ move · q quit"
 	}
 	left := footerStyle.Render(help)
 	right := ""
@@ -499,26 +581,74 @@ func (m *Model) bodyHeight() int {
 	return m.height - 2
 }
 
-func (m *Model) renderHeader() string {
-	lines := m.file.HeaderInfo()
+func (m *Model) renderInfo() string {
 	var b strings.Builder
-	for _, l := range lines {
-		idx := strings.IndexByte(l, ':')
-		if idx < 0 {
-			b.WriteString(l)
-		} else {
+	kv := func(k, v string) {
+		b.WriteString(headerKey.Render(padKey(k, 14)))
+		b.WriteString(" ")
+		b.WriteString(v)
+		b.WriteString("\n")
+	}
+
+	// Core ELF header.
+	for _, l := range m.file.HeaderInfo() {
+		if idx := strings.IndexByte(l, ':'); idx >= 0 {
 			b.WriteString(headerKey.Render(l[:idx+1]))
 			b.WriteString(l[idx+1:])
+		} else {
+			b.WriteString(l)
 		}
 		b.WriteString("\n")
 	}
+
 	if m.dis != nil {
-		b.WriteString("\n")
-		b.WriteString(headerKey.Render("Disassembler:"))
-		b.WriteString(" " + m.dis.Name())
-		b.WriteString("\n")
+		kv("Disassembler:", m.dis.Name())
 	}
+
+	if info := m.file.Info; info != nil {
+		b.WriteString("\n")
+		if info.Interp != "" {
+			kv("Interpreter:", info.Interp)
+		}
+		if info.SoName != "" {
+			kv("SONAME:", info.SoName)
+		}
+		if len(info.RPath) > 0 {
+			kv("RPATH:", strings.Join(info.RPath, ":"))
+		}
+		if len(info.RunPath) > 0 {
+			kv("RUNPATH:", strings.Join(info.RunPath, ":"))
+		}
+		if info.BuildID != "" {
+			kv("Build ID:", info.BuildID)
+		}
+		kv("Stripped:", fmt.Sprintf("%v", info.Stripped))
+		kv("Static-linked:", fmt.Sprintf("%v", info.StaticLinked))
+		if info.Libc.Kind != "" {
+			val := info.Libc.Kind
+			if info.Libc.Version != "" {
+				val += " " + info.Libc.Version
+			}
+			if info.Libc.Source != "" {
+				val += "  " + footerStyle.Render("("+info.Libc.Source+")")
+			}
+			kv("Libc:", val)
+		}
+		if len(info.DynamicLibs) > 0 {
+			kv("Needed libs:", fmt.Sprintf("%d (press 6 to view)", len(info.DynamicLibs)))
+		}
+	}
+
 	return padBody(b.String(), m.width, m.bodyHeight())
+}
+
+// padKey right-pads a key label to a fixed column, ignoring the trailing colon
+// for alignment purposes.
+func padKey(s string, w int) string {
+	if len(s) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-len(s))
 }
 
 func (m *Model) renderSections() string {
@@ -558,7 +688,7 @@ func (m *Model) renderSections() string {
 		if i == m.sectionsCur {
 			b.WriteString(tableSelStyle.Render(line))
 		} else {
-			b.WriteString(tableRowStyle.Render(line))
+			b.WriteString(styleForSection(s).Render(line))
 		}
 		b.WriteString("\n")
 	}
@@ -608,135 +738,13 @@ func (m *Model) renderSymbols() string {
 		if i == m.symbolsCur {
 			rows.WriteString(tableSelStyle.Render(line))
 		} else {
-			rows.WriteString(symbolNameStyle.Render(line))
+			rows.WriteString(styleForSymbol(s.Type, s.Bind).Render(line))
 		}
 		rows.WriteString("\n")
 	}
 	return padBody(rows.String(), m.width, bodyH)
 }
 
-func (m *Model) renderDisasm() string {
-	bodyH := m.bodyHeight()
-	if len(m.disasmInst) == 0 {
-		msg := "no disassembly loaded — press g to go to an address, or pick a symbol from view 3"
-		return padBody(msg+"\n", m.width, bodyH)
-	}
-	leftW := m.width
-	rightW := 0
-	if m.showSource {
-		leftW = m.width / 2
-		rightW = m.width - leftW
-	}
-
-	left := m.renderDisasmPane(leftW, bodyH)
-	if rightW == 0 {
-		return left
-	}
-	right := m.renderSourcePane(rightW, bodyH)
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-}
-
-func (m *Model) renderDisasmPane(w, h int) string {
-	if m.disasmCur < m.disasmTop {
-		m.disasmTop = m.disasmCur
-	} else if m.disasmCur >= m.disasmTop+h {
-		m.disasmTop = m.disasmCur - h + 1
-	}
-	end := m.disasmTop + h
-	if end > len(m.disasmInst) {
-		end = len(m.disasmInst)
-	}
-
-	var b strings.Builder
-	for i := m.disasmTop; i < end; i++ {
-		inst := m.disasmInst[i]
-		line := fmt.Sprintf(" %s  %s  %s",
-			addrStyle.Render(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), inst.Addr)),
-			bytesHex(inst.Bytes, 8),
-			mnemonicStyle.Render(inst.Text),
-		)
-		// Symbol prefix if instruction starts at a known symbol address.
-		if sym, ok := m.file.SymbolAt(inst.Addr); ok && sym.Addr == inst.Addr {
-			tag := symbolNameStyle.Render("<" + sym.Name + ">:")
-			b.WriteString(padRight(" "+tag, w))
-			b.WriteString("\n")
-			h--
-			if h <= 0 {
-				break
-			}
-		}
-		plain := stripANSI(line)
-		if lipgloss.Width(plain) < w {
-			line += strings.Repeat(" ", w-lipgloss.Width(plain))
-		} else if lipgloss.Width(plain) > w {
-			// hard truncate to keep right pane aligned
-			line = truncateANSI(line, w)
-		}
-		if i == m.disasmCur {
-			line = tableSelStyle.Render(stripANSI(line))
-			if lipgloss.Width(line) < w {
-				line += strings.Repeat(" ", w-lipgloss.Width(line))
-			}
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return padBody(b.String(), w, m.bodyHeight())
-}
-
-func (m *Model) renderSourcePane(w, h int) string {
-	border := lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).BorderForeground(lipgloss.Color("240"))
-	inner := w - 1
-	if inner < 8 {
-		inner = w
-	}
-
-	if len(m.disasmInst) == 0 {
-		return border.Render(padBody("", inner, h))
-	}
-	addr := m.disasmInst[m.disasmCur].Addr
-	file, line := m.file.LookupAddr(addr)
-	if file == "" {
-		body := "no source mapping for 0x" + fmt.Sprintf("%x", addr)
-		return border.Render(padBody(body+"\n", inner, h))
-	}
-	src := m.file.SourceLines(file)
-	if src == nil {
-		body := fmt.Sprintf("%s:%d (source file not found)\n", file, line)
-		return border.Render(padBody(body, inner, h))
-	}
-
-	var b strings.Builder
-	b.WriteString(infoStyle.Render(fmt.Sprintf("%s:%d", file, line)))
-	b.WriteString("\n")
-	half := (h - 1) / 2
-	from := line - half
-	if from < 1 {
-		from = 1
-	}
-	to := from + h - 2
-	if to > len(src) {
-		to = len(src)
-		from = to - (h - 2)
-		if from < 1 {
-			from = 1
-		}
-	}
-	for i := from; i <= to; i++ {
-		var content string
-		if i-1 >= 0 && i-1 < len(src) {
-			content = src[i-1]
-		}
-		prefix := srcLineNoStyle.Render(fmt.Sprintf("%5d  ", i))
-		ln := prefix + content
-		if i == line {
-			ln = srcCurLineStyle.Render(padRight(stripANSI(ln), inner))
-		}
-		b.WriteString(ln)
-		b.WriteString("\n")
-	}
-	return border.Render(padBody(b.String(), inner, h))
-}
 
 // ---- helpers ----
 
@@ -755,7 +763,8 @@ func min(a, b int) int {
 
 // bytesHex renders up to maxN bytes as space-separated, per-byte-coloured hex.
 // The output is padded with plain spaces to a fixed visible width so columns
-// line up regardless of how many bytes the instruction occupied.
+// line up regardless of how many bytes the instruction occupied. Uses the
+// precomputed byteHex table to avoid re-rendering ANSI codes on every byte.
 func bytesHex(b []byte, maxN int) string {
 	if len(b) > maxN {
 		b = b[:maxN]
@@ -765,7 +774,7 @@ func bytesHex(b []byte, maxN int) string {
 		if i > 0 {
 			sb.WriteByte(' ')
 		}
-		sb.WriteString(byteFG[x].Render(fmt.Sprintf("%02x", x)))
+		sb.WriteString(byteHex[x])
 	}
 	visible := len(b)*3 - 1
 	if len(b) == 0 {

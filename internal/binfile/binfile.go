@@ -18,10 +18,12 @@ type File struct {
 	ELF       *elf.File
 	Sections  []*elf.Section
 	Symbols   []Symbol // sorted by Name
+	Info      *Info    // dynamic linker / libc / build-id (populated by loadInfo)
 	symByAddr []Symbol // sorted by Addr
 	dwarf     *dwarf.Data
-	lines     []lineEntry         // sorted by Addr
-	sources   map[string][]string // resolved file -> lines
+	lines     []lineEntry             // sorted by Addr
+	sources   map[string][]string     // resolved file -> lines
+	secCache  map[*elf.Section][]byte // memoised sec.Data() — sections can be MBs
 }
 
 type Symbol struct {
@@ -49,6 +51,7 @@ func Open(path string) (*File, error) {
 		ELF:      ef,
 		Sections: ef.Sections,
 		sources:  map[string][]string{},
+		secCache: map[*elf.Section][]byte{},
 	}
 
 	// Symbols: merge static + dynamic, dedupe by (name, addr).
@@ -91,6 +94,8 @@ func Open(path string) (*File, error) {
 		f.dwarf = d
 		f.lines = loadLines(d)
 	}
+
+	f.loadInfo()
 	return f, nil
 }
 
@@ -173,17 +178,86 @@ func (f *File) SectionAt(addr uint64) *elf.Section {
 	return nil
 }
 
+// IsMapped reports whether addr falls inside any allocated section. Cheap —
+// it never loads section data. Used in tight rendering loops where we just
+// want to know "is this a follow-able address inside this binary?".
+func (f *File) IsMapped(addr uint64) bool {
+	return f.SectionAt(addr) != nil
+}
+
+// NextAllocSectionAfter returns the allocated section with the smallest Addr
+// strictly greater than addr, or nil if none. Used by the hex view to step
+// over inter-section gaps when scrolling forward.
+func (f *File) NextAllocSectionAfter(addr uint64) *elf.Section {
+	var best *elf.Section
+	for _, s := range f.Sections {
+		if s.Type == elf.SHT_NULL || s.Flags&elf.SHF_ALLOC == 0 || s.Size == 0 {
+			continue
+		}
+		if s.Addr > addr && (best == nil || s.Addr < best.Addr) {
+			best = s
+		}
+	}
+	return best
+}
+
+// PrevAllocSectionBefore returns the allocated section with the largest Addr
+// strictly less than addr, or nil if none.
+func (f *File) PrevAllocSectionBefore(addr uint64) *elf.Section {
+	var best *elf.Section
+	for _, s := range f.Sections {
+		if s.Type == elf.SHT_NULL || s.Flags&elf.SHF_ALLOC == 0 || s.Size == 0 {
+			continue
+		}
+		if s.Addr < addr && (best == nil || s.Addr > best.Addr) {
+			best = s
+		}
+	}
+	return best
+}
+
+// NextExecSectionAfter is like NextAllocSectionAfter but limited to sections
+// whose contents make sense to disassemble.
+func (f *File) NextExecSectionAfter(addr uint64) *elf.Section {
+	var best *elf.Section
+	for _, s := range f.Sections {
+		if !IsExecSection(s) {
+			continue
+		}
+		if s.Addr > addr && (best == nil || s.Addr < best.Addr) {
+			best = s
+		}
+	}
+	return best
+}
+
+// PrevExecSectionBefore is like PrevAllocSectionBefore but limited to
+// executable sections.
+func (f *File) PrevExecSectionBefore(addr uint64) *elf.Section {
+	var best *elf.Section
+	for _, s := range f.Sections {
+		if !IsExecSection(s) {
+			continue
+		}
+		if s.Addr < addr && (best == nil || s.Addr > best.Addr) {
+			best = s
+		}
+	}
+	return best
+}
+
 // ReadAt reads up to n bytes from the loaded image starting at virtual addr.
+// Section data is memoised: subsequent reads from the same section are O(1).
 func (f *File) ReadAt(addr uint64, n int) ([]byte, error) {
 	sec := f.SectionAt(addr)
 	if sec == nil {
 		return nil, fmt.Errorf("address 0x%x not mapped to any allocated section", addr)
 	}
-	off := int64(addr - sec.Addr)
-	data, err := sec.Data()
+	data, err := f.cachedSectionData(sec)
 	if err != nil {
 		return nil, err
 	}
+	off := int64(addr - sec.Addr)
 	if off >= int64(len(data)) {
 		return nil, fmt.Errorf("address 0x%x is past section end", addr)
 	}
@@ -192,6 +266,21 @@ func (f *File) ReadAt(addr uint64, n int) ([]byte, error) {
 		end = int64(len(data))
 	}
 	return data[off:end], nil
+}
+
+// cachedSectionData returns sec.Data() with memoisation. Sections in real
+// binaries can be megabytes — repeatedly reading them through sec.Data() for
+// each rendered line tanks the disasm view's framerate.
+func (f *File) cachedSectionData(sec *elf.Section) ([]byte, error) {
+	if d, ok := f.secCache[sec]; ok {
+		return d, nil
+	}
+	d, err := sec.Data()
+	if err != nil {
+		return nil, err
+	}
+	f.secCache[sec] = d
+	return d, nil
 }
 
 // SourceLines returns the source file's lines, searching common locations.

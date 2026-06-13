@@ -1,0 +1,66 @@
+# elf-explorer configuration example.
+#
+# Save this to $XDG_CONFIG_HOME/elf-explorer/config.yaml (or
+# $HOME/.config/elf-explorer/config.yaml) and edit. Every field is optional —
+# unset entries keep their built-in defaults, so you only need to include the
+# parts you want to override.
+#
+# Colour values use lipgloss syntax: either a #RRGGBB hex string or an ANSI
+# 256-colour index (e.g. "203"). See
+# https://www.ditig.com/256-colors-cheat-sheet for the index palette.
+#
+# Keys use Bubble Tea's key strings: "ctrl+c", "tab", "enter", "left",
+# "pgdown", letter and digit literals. Any binding can be a single value
+# (`quit: q`) or a list (`quit: [q, ctrl+c]`).
+
+colors:
+  # ---- Disassembly: instruction-class mnemonic colour --------------------
+  instruction_call: "39"      # `call`, `bl`, `jal`
+  instruction_ret: "203"      # `ret`, `iret`
+  instruction_jump_unconditional: "220"
+  instruction_jump_conditional: "213"
+  instruction_syscall: "84"
+  instruction_nop: "240"
+  instruction_mnemonic_default: "117"
+
+  # ---- Disassembly: address columns + operand links ----------------------
+  address_column: "214"                      # left-most "0x401234" column
+  address_link_intra_function: "85"          # local jump targets
+  address_link_inter_function: "51"          # cross-function calls / PLT
+
+  # ---- Sticky "current symbol" banner above the disasm scroller ----------
+  sticky_symbol_banner_fg: "231"
+  sticky_symbol_banner_bg: "236"
+
+  # ---- Symbol-table view (by ELF symbol type) ----------------------------
+  symbol_function: "84"        # STT_FUNC
+  symbol_data_object: "75"     # STT_OBJECT
+  symbol_source_file: "245"    # STT_FILE
+  symbol_section: "213"        # STT_SECTION
+  symbol_tls: "177"            # STT_TLS
+  symbol_common: "215"         # STT_COMMON
+  symbol_other: "250"          # STT_NOTYPE and friends
+
+  # ---- Section-table view (by section semantics) -------------------------
+  section_executable_code: "84"    # .text, .plt, .init
+  section_writable_data: "75"      # .data, .bss, .got
+  section_readonly_data: "117"     # .rodata, .interp
+  section_tls: "177"
+  section_debug_info: "240"        # .debug_*, .zdebug_*
+  section_note: "245"              # .note.*
+  section_symbol_table: "213"      # SYMTAB / DYNSYM / STRTAB
+  section_dynamic_linking: "141"   # DYNAMIC / HASH / GNU_VERSYM*
+  section_relocations: "173"       # REL / RELA
+
+keys:
+  quit: [q, ctrl+c]
+  goto: g
+  view_info: "1"
+  view_sections: "2"
+  view_symbols: "3"
+  view_disasm: "4"
+  view_hex: "5"
+  view_libs: "6"
+  toggle_source: tab
+  copy_address: a
+  copy_symbol: s

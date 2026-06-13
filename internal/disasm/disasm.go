@@ -5,10 +5,27 @@ package disasm
 import (
 	"debug/elf"
 	"fmt"
+	"strings"
 
 	"golang.org/x/arch/arm64/arm64asm"
 	"golang.org/x/arch/riscv64/riscv64asm"
 	"golang.org/x/arch/x86/x86asm"
+)
+
+// InstClass classifies an instruction's high-level role so the UI can colour
+// it appropriately. Classification is done from the rendered mnemonic, which
+// keeps the logic uniform across architectures (and means GAS pseudos like
+// `ret` and `j` on RISC-V get picked up correctly).
+type InstClass uint8
+
+const (
+	ClassOther InstClass = iota
+	ClassCall
+	ClassRet
+	ClassJumpCond
+	ClassJumpUnc
+	ClassSyscall
+	ClassNop
 )
 
 // Inst is one decoded instruction.
@@ -16,6 +33,58 @@ type Inst struct {
 	Addr  uint64
 	Bytes []byte
 	Text  string
+	Class InstClass
+}
+
+// Classify maps a rendered instruction's mnemonic to an InstClass. Exported so
+// callers that already hold an Inst.Text (e.g. after Range) can re-classify.
+func Classify(text string) InstClass {
+	text = strings.TrimSpace(text)
+	sp := strings.IndexAny(text, " \t")
+	op := text
+	if sp >= 0 {
+		op = text[:sp]
+	}
+	op = strings.ToLower(op)
+
+	switch op {
+	case "call", "callq", "calll", "callw":
+		return ClassCall
+	case "bl", "blr", "blraa", "blrab", "blraaz", "blrabz", "blx":
+		return ClassCall
+	case "jal", "jalr":
+		return ClassCall
+	case "ret", "retq", "retl", "retw", "iret", "iretq", "iretd", "iretw",
+		"retaa", "retab":
+		return ClassRet
+	case "syscall", "sysenter", "svc", "ecall", "ebreak",
+		"int", "into", "int3", "hvc", "smc", "brk":
+		return ClassSyscall
+	case "nop", "fnop":
+		return ClassNop
+	case "jmp", "jmpq", "jmpl", "jmpw", "jmpf",
+		"b", "br", "j":
+		return ClassJumpUnc
+	}
+	if strings.HasPrefix(op, "j") {
+		return ClassJumpCond
+	}
+	if strings.HasPrefix(op, "b.") {
+		return ClassJumpCond
+	}
+	switch op {
+	case "beq", "bne", "blt", "bge", "bltu", "bgeu",
+		"beqz", "bnez", "bltz", "bgez", "bgtz", "blez":
+		return ClassJumpCond
+	}
+	if len(op) == 3 && op[0] == 'b' {
+		switch op[1:] {
+		case "eq", "ne", "lt", "le", "gt", "ge",
+			"hi", "ls", "cs", "cc", "mi", "pl", "vs", "vc", "al":
+			return ClassJumpCond
+		}
+	}
+	return ClassOther
 }
 
 // Disassembler decodes a single instruction at code[0] for VM address addr.
@@ -51,7 +120,8 @@ func (amd64) Decode(code []byte, addr uint64) (Inst, error) {
 	if err != nil {
 		return Inst{}, err
 	}
-	return Inst{Addr: addr, Bytes: code[:inst.Len], Text: x86asm.GNUSyntax(inst, addr, nil)}, nil
+	text := x86asm.GNUSyntax(inst, addr, nil)
+	return Inst{Addr: addr, Bytes: code[:inst.Len], Text: text, Class: Classify(text)}, nil
 }
 
 type x86 struct{}
@@ -63,7 +133,8 @@ func (x86) Decode(code []byte, addr uint64) (Inst, error) {
 	if err != nil {
 		return Inst{}, err
 	}
-	return Inst{Addr: addr, Bytes: code[:inst.Len], Text: x86asm.GNUSyntax(inst, addr, nil)}, nil
+	text := x86asm.GNUSyntax(inst, addr, nil)
+	return Inst{Addr: addr, Bytes: code[:inst.Len], Text: text, Class: Classify(text)}, nil
 }
 
 type arm64d struct{}
@@ -78,7 +149,8 @@ func (arm64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if err != nil {
 		return Inst{}, err
 	}
-	return Inst{Addr: addr, Bytes: code[:4], Text: arm64asm.GNUSyntax(inst)}, nil
+	text := arm64asm.GNUSyntax(inst)
+	return Inst{Addr: addr, Bytes: code[:4], Text: text, Class: Classify(text)}, nil
 }
 
 type riscv64d struct{}
@@ -104,7 +176,8 @@ func (riscv64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if n == 0 || n > len(code) {
 		n = 2
 	}
-	return Inst{Addr: addr, Bytes: code[:n], Text: riscv64asm.GNUSyntax(inst)}, nil
+	text := riscv64asm.GNUSyntax(inst)
+	return Inst{Addr: addr, Bytes: code[:n], Text: text, Class: Classify(text)}, nil
 }
 
 // Range walks the buffer and decodes instructions until it's exhausted. On a

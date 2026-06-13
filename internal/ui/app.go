@@ -122,9 +122,16 @@ type Model struct {
 	lastClickY  int
 	lastClickAt time.Time
 
-	// Go-to-address modal.
-	gotoInput  textinput.Model
-	gotoActive bool
+	// Go-to-address modal, with a live result list that updates as you type.
+	gotoInput   textinput.Model
+	gotoActive  bool
+	gotoResults []gotoTarget
+	gotoSel     int
+
+	// Search prompt (hex / raw / disasm), with last query remembered for n/N.
+	searchInput  textinput.Model
+	searchActive bool
+	searchQuery  string
 
 	// Transient status message displayed in the footer.
 	status      string
@@ -161,6 +168,11 @@ func New(f *binfile.File) (*Model, error) {
 	gotoInput.Prompt = "→ "
 	gotoInput.CharLimit = 256
 
+	searchInput := textinput.New()
+	searchInput.Placeholder = "hex bytes (de ad be ef) or text"
+	searchInput.Prompt = "/ "
+	searchInput.CharLimit = 256
+
 	m := &Model{
 		file:          f,
 		dis:           d,
@@ -168,6 +180,7 @@ func New(f *binfile.File) (*Model, error) {
 		sections:      f.Sections,
 		symbolsFilter: filter,
 		gotoInput:     gotoInput,
+		searchInput:   searchInput,
 		showSource:    true,
 		keys:          keys,
 	}
@@ -227,24 +240,48 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Modal owns input while active.
+	// Modals own input while active.
 	if m.gotoActive {
 		switch key {
 		case "esc":
-			m.gotoActive = false
-			m.gotoInput.Blur()
-			m.gotoInput.SetValue("")
+			m.closeGoto()
+			return m, nil
+		case "up":
+			if m.gotoSel > 0 {
+				m.gotoSel--
+			}
+			return m, nil
+		case "down":
+			if m.gotoSel < len(m.gotoResults)-1 {
+				m.gotoSel++
+			}
 			return m, nil
 		case "enter":
-			val := strings.TrimSpace(m.gotoInput.Value())
-			m.gotoActive = false
-			m.gotoInput.Blur()
-			m.gotoInput.SetValue("")
-			m.handleGoto(val)
+			m.activateGoto()
+			m.closeGoto()
 			return m, nil
 		}
 		var cmd tea.Cmd
 		m.gotoInput, cmd = m.gotoInput.Update(msg)
+		m.recomputeGoto()
+		return m, cmd
+	}
+
+	if m.searchActive {
+		switch key {
+		case "esc":
+			m.searchActive = false
+			m.searchInput.Blur()
+			return m, nil
+		case "enter":
+			m.searchQuery = strings.TrimSpace(m.searchInput.Value())
+			m.searchActive = false
+			m.searchInput.Blur()
+			m.runSearch(true, true)
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
 		return m, cmd
 	}
 
@@ -297,6 +334,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case actionGoto:
 		m.gotoActive = true
 		m.gotoInput.Focus()
+		m.recomputeGoto()
 		return m, nil
 	case actionToggleSource:
 		if m.mode == modeDisasm {
@@ -455,33 +493,93 @@ func (m *Model) copyToClipboard(text, what string) {
 	m.setStatus(fmt.Sprintf("copied %s: %s", what, text), false)
 }
 
-func (m *Model) handleGoto(val string) {
+// gotoTarget is one selectable entry in the goto modal: either a symbol or a
+// bare parsed address.
+type gotoTarget struct {
+	label string
+	addr  uint64
+	sym   binfile.Symbol
+	isSym bool
+}
+
+const gotoMaxResults = 12
+
+// recomputeGoto rebuilds the modal's result list from the current input. A
+// parseable address is always offered first; symbols are matched (raw name and
+// demangled name) and ranked exact → prefix → substring.
+func (m *Model) recomputeGoto() {
+	m.gotoResults = m.gotoResults[:0]
+	m.gotoSel = 0
+	val := strings.TrimSpace(m.gotoInput.Value())
 	if val == "" {
 		return
 	}
-	// A numeric address routes to whichever view can show it.
-	if parsed, err := parseAddr(val); err == nil {
-		m.gotoAddr(parsed)
-		return
+	if a, err := parseAddr(val); err == nil {
+		m.gotoResults = append(m.gotoResults, gotoTarget{label: "address", addr: a})
 	}
-	// Else treat as symbol name (exact, then substring).
-	idx := sort.Search(len(m.file.Symbols), func(i int) bool { return m.file.Symbols[i].Name >= val })
-	if idx < len(m.file.Symbols) && m.file.Symbols[idx].Name == val && m.file.Symbols[idx].Addr != 0 {
-		m.openSymbol(m.file.Symbols[idx])
-		return
-	}
+
 	needle := strings.ToLower(val)
+	type ranked struct {
+		t    gotoTarget
+		rank int
+	}
+	var matches []ranked
 	for _, s := range m.file.Symbols {
 		if s.Addr == 0 {
 			continue
 		}
-		if strings.Contains(strings.ToLower(s.Name), needle) ||
-			(s.Demangled != "" && strings.Contains(strings.ToLower(s.Demangled), needle)) {
-			m.openSymbol(s)
-			return
+		name, dem := strings.ToLower(s.Name), strings.ToLower(s.Demangled)
+		hit := strings.Contains(name, needle) || (dem != "" && strings.Contains(dem, needle))
+		if !hit {
+			continue
 		}
+		rank := 2
+		switch {
+		case name == needle || dem == needle:
+			rank = 0
+		case strings.HasPrefix(name, needle) || strings.HasPrefix(dem, needle):
+			rank = 1
+		}
+		matches = append(matches, ranked{gotoTarget{label: s.Display(), addr: s.Addr, sym: s, isSym: true}, rank})
 	}
-	m.setStatus(fmt.Sprintf("not found: %s", val), true)
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].rank != matches[j].rank {
+			return matches[i].rank < matches[j].rank
+		}
+		return matches[i].t.label < matches[j].t.label
+	})
+	for _, mt := range matches {
+		if len(m.gotoResults) >= gotoMaxResults {
+			break
+		}
+		m.gotoResults = append(m.gotoResults, mt.t)
+	}
+}
+
+// activateGoto acts on the highlighted result, falling back to a bare address
+// parse when there are no results.
+func (m *Model) activateGoto() {
+	if m.gotoSel >= 0 && m.gotoSel < len(m.gotoResults) {
+		if t := m.gotoResults[m.gotoSel]; t.isSym {
+			m.openSymbol(t.sym)
+		} else {
+			m.gotoAddr(t.addr)
+		}
+		return
+	}
+	if a, err := parseAddr(strings.TrimSpace(m.gotoInput.Value())); err == nil {
+		m.gotoAddr(a)
+		return
+	}
+	m.setStatus("nothing to go to", true)
+}
+
+func (m *Model) closeGoto() {
+	m.gotoActive = false
+	m.gotoInput.Blur()
+	m.gotoInput.SetValue("")
+	m.gotoResults = m.gotoResults[:0]
+	m.gotoSel = 0
 }
 
 // gotoAddr jumps to a virtual address: disasm if it lands in executable code,
@@ -539,13 +637,56 @@ func (m *Model) View() string {
 	}
 	parts = append(parts, body, m.renderFooter())
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	if m.gotoActive {
-		modal := modalStyle.Render("Go to address or symbol\n\n" + m.gotoInput.View() + "\n\nEnter to jump  Esc to cancel")
-		mw := lipgloss.Width(modal)
-		mh := lipgloss.Height(modal)
-		out = overlay(out, modal, (m.width-mw)/2, (m.height-mh)/2)
+	switch {
+	case m.gotoActive:
+		out = m.overlayCenter(out, m.renderGotoModal())
+	case m.searchActive:
+		out = m.overlayCenter(out, m.renderSearchModal())
 	}
 	return out
+}
+
+// overlayCenter draws a pre-rendered modal centred over bg.
+func (m *Model) overlayCenter(bg, modal string) string {
+	mw := lipgloss.Width(modal)
+	mh := lipgloss.Height(modal)
+	return overlay(bg, modal, (m.width-mw)/2, (m.height-mh)/2)
+}
+
+func (m *Model) renderGotoModal() string {
+	var sb strings.Builder
+	sb.WriteString("Go to address or symbol\n\n")
+	sb.WriteString(m.gotoInput.View())
+	sb.WriteString("\n")
+	if len(m.gotoResults) == 0 {
+		sb.WriteString("\n" + footerStyle.Render("type an address or symbol name") + "\n")
+	} else {
+		sb.WriteString("\n")
+		addrW := m.file.AddrHexWidth()
+		for i, t := range m.gotoResults {
+			line := fmt.Sprintf(" 0x%0*x  %s", addrW, t.addr, truncate(t.label, 48))
+			line = padRight(line, 58)
+			if i == m.gotoSel {
+				line = tableSelStyle.Render(line)
+			}
+			sb.WriteString(line + "\n")
+		}
+	}
+	sb.WriteString("\n" + footerStyle.Render("↑/↓ select · Enter jump · Esc cancel"))
+	return modalStyle.Render(sb.String())
+}
+
+func (m *Model) renderSearchModal() string {
+	hint := "Search this view"
+	switch m.mode {
+	case modeDisasm:
+		hint = "Search instruction text / symbol"
+	case modeHex, modeRaw:
+		hint = "Search hex bytes (de ad be ef), \"text\", or 0x…"
+	}
+	body := hint + "\n\n" + m.searchInput.View() + "\n\n" +
+		footerStyle.Render("Enter find · Esc cancel · then n/N for next/prev")
+	return modalStyle.Render(body)
 }
 
 // tabItems is the ordered tab strip, shared by renderTabs (drawing) and

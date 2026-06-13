@@ -199,6 +199,15 @@ func (m *Model) updateDisasm(key string) (tea.Model, tea.Cmd) {
 	case "[":
 		m.jumpSymbol(false)
 		return m, nil
+	case "/":
+		m.openSearch()
+		return m, nil
+	case "n":
+		m.runSearch(true, false)
+		return m, nil
+	case "N":
+		m.runSearch(false, false)
+		return m, nil
 	case "up", "k":
 		if m.disasmCur > 0 {
 			m.disasmCur--

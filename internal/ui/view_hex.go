@@ -116,6 +116,12 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 		m.hexCur = m.seekNonZero(data, m.hexCur, true)
 	case "[":
 		m.hexCur = m.seekNonZero(data, m.hexCur, false)
+	case "/":
+		m.openSearch()
+	case "n":
+		m.runSearch(true, false)
+	case "N":
+		m.runSearch(false, false)
 	default:
 		m.hexCur = m.moveByteCursor(key, m.hexCur, len(data))
 	}
@@ -160,6 +166,12 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, true)
 	case "[":
 		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, false)
+	case "/":
+		m.openSearch()
+	case "n":
+		m.runSearch(true, false)
+	case "N":
+		m.runSearch(false, false)
 	default:
 		m.rawCur = m.moveByteCursor(key, m.rawCur, len(m.rawData))
 	}

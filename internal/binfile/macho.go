@@ -210,17 +210,32 @@ func (f *File) machoDWARF(mf *macho.File) *dwarf.Data {
 	if d, err := mf.DWARF(); err == nil {
 		return d
 	}
-	cand := f.Path + ".dSYM/Contents/Resources/DWARF/" + filepath.Base(f.Path)
-	raw, err := os.ReadFile(cand)
-	if err != nil {
-		return nil
+	base := filepath.Base(f.Path)
+	dir := filepath.Dir(f.Path)
+
+	// Candidate dSYM DWARF files: the conventional <binary>.dSYM first, then any
+	// sibling *.dSYM bundle (Xcode names it after the .app, e.g.
+	// Ghostty.app.dSYM, sitting next to the executable).
+	cands := []string{f.Path + ".dSYM/Contents/Resources/DWARF/" + base}
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".dSYM") {
+				cands = append(cands, filepath.Join(dir, e.Name(), "Contents/Resources/DWARF", base))
+			}
+		}
 	}
-	dm, _, err := parseMachO(raw)
-	if err != nil {
-		return nil
-	}
-	if d, err := dm.DWARF(); err == nil {
-		return d
+	for _, cand := range cands {
+		raw, err := os.ReadFile(cand)
+		if err != nil {
+			continue
+		}
+		dm, _, err := parseMachO(raw)
+		if err != nil {
+			continue
+		}
+		if d, err := dm.DWARF(); err == nil {
+			return d
+		}
 	}
 	return nil
 }

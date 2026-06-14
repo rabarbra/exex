@@ -4,6 +4,7 @@ package disasm
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"golang.org/x/arch/arm64/arm64asm"
@@ -170,7 +171,7 @@ func (arm64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if err != nil {
 		return Inst{}, err
 	}
-	text := arm64asm.GNUSyntax(inst)
+	text := resolveRelTargets(arm64asm.GNUSyntax(inst), addr)
 	return Inst{Addr: addr, Bytes: code[:4], Text: text, Class: Classify(text)}, nil
 }
 
@@ -197,8 +198,46 @@ func (riscv64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if n == 0 || n > len(code) {
 		n = 2
 	}
-	text := riscv64asm.GNUSyntax(inst)
+	text := resolveRelTargets(riscv64asm.GNUSyntax(inst), addr)
 	return Inst{Addr: addr, Bytes: code[:n], Text: text, Class: Classify(text)}, nil
+}
+
+// resolveRelTargets rewrites PC-relative branch operands that the ARM64/RISC-V
+// syntaxers print as ".+0x…" / ".-0x…" into the absolute target address, so the
+// UI's address-following and symbol annotation work on them. The offset is the
+// signed displacement (e.g. ".+0xfffffffffffffc58" is a negative jump); uint64
+// wraparound makes "addr + value" land on the right byte either way.
+func resolveRelTargets(text string, addr uint64) string {
+	var b strings.Builder
+	for i := 0; i < len(text); {
+		if text[i] == '.' && i+3 < len(text) &&
+			(text[i+1] == '+' || text[i+1] == '-') &&
+			text[i+2] == '0' && (text[i+3] == 'x' || text[i+3] == 'X') {
+			start := i + 4
+			j := start
+			for j < len(text) && isHexDigit(text[j]) {
+				j++
+			}
+			if j > start {
+				if v, err := strconv.ParseUint(text[start:j], 16, 64); err == nil {
+					target := addr + v
+					if text[i+1] == '-' {
+						target = addr - v
+					}
+					fmt.Fprintf(&b, "0x%x", target)
+					i = j
+					continue
+				}
+			}
+		}
+		b.WriteByte(text[i])
+		i++
+	}
+	return b.String()
+}
+
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
 // Range walks the buffer and decodes instructions until it's exhausted. On a

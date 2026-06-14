@@ -32,6 +32,7 @@ const (
 	modeLibs
 	modeRaw
 	modeStrings
+	modeSources
 )
 
 const defaultDisasmMaxBytes = 2 << 20
@@ -54,6 +55,8 @@ func (m mode) String() string {
 		return "Raw"
 	case modeStrings:
 		return "Strings"
+	case modeSources:
+		return "Sources"
 	}
 	return "?"
 }
@@ -132,6 +135,22 @@ type Model struct {
 	stringsList []binfile.StringEntry
 	stringsCur  int
 	stringsTop  int
+
+	// Sources view (DWARF only): a file list that opens into a source pane with
+	// the mapped disassembly beside it.
+	sourcesFiles    []string
+	sourcesFilter   textinput.Model
+	sourcesFiltered []int
+	sourcesCur      int
+	sourcesTop      int
+	srcFile         string // open source file ("" = showing the file list)
+	srcCur          int    // 1-based current line in the open file
+	srcTop          int
+	srcCodeLines    map[int]bool // lines in srcFile that have machine code
+	srcMatches      []srcMatch   // last cross-source grep
+	srcMatchIdx     int
+	srcSearchAll    bool // scope of the next search in this view
+	srcAsmLeft      bool // Sources open-file: disasm on the left, source on the right
 
 	// Mouse double-click tracking (for follow-on-double-click in disasm).
 	lastClickY  int
@@ -213,6 +232,11 @@ func New(f *binfile.File) (*Model, error) {
 	secFilter.Prompt = "/ "
 	secFilter.CharLimit = 256
 
+	srcFilter := textinput.New()
+	srcFilter.Placeholder = "type to filter…"
+	srcFilter.Prompt = "/ "
+	srcFilter.CharLimit = 256
+
 	gotoInput := textinput.New()
 	gotoInput.Placeholder = "0x401000 or symbol name"
 	gotoInput.Prompt = "→ "
@@ -231,6 +255,7 @@ func New(f *binfile.File) (*Model, error) {
 		disasmSearchWorkers: 0,
 		disasmCache:         map[disasmCacheKey]disasmCacheEntry{},
 		sections:            f.Sections,
+		sourcesFilter:       srcFilter,
 		symbolsFilter:       filter,
 		sectionsFilter:      secFilter,
 		gotoInput:           gotoInput,
@@ -477,6 +502,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Filter input in the sources file list captures typing keys.
+	if m.mode == modeSources && m.srcFile == "" && m.sourcesFilter.Focused() {
+		switch key {
+		case "esc", "enter":
+			m.sourcesFilter.Blur()
+			return m, nil
+		case "up", "down", "pgup", "pgdown", "home", "end":
+			// Let navigation keys fall through.
+		default:
+			var cmd tea.Cmd
+			m.sourcesFilter, cmd = m.sourcesFilter.Update(msg)
+			m.recomputeSourceFiles()
+			return m, cmd
+		}
+	}
+
 	// '?' toggles the keybinding cheat-sheet (after modal/filter capture, so it
 	// still types into inputs).
 	if key == "?" {
@@ -503,14 +544,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.switchMode(modeRaw)
 	case actionViewStrings:
 		return m, m.switchMode(modeStrings)
+	case actionViewSources:
+		return m, m.switchMode(modeSources)
 	case actionGoto:
 		m.gotoActive = true
 		m.gotoInput.Focus()
 		m.recomputeGoto()
 		return m, nil
 	case actionToggleSource:
-		if m.mode == modeDisasm {
+		switch m.mode {
+		case modeDisasm:
 			m.showSource = !m.showSource
+		case modeSources:
+			// Swap which pane (source / disasm) is primary on the left.
+			if m.srcFile != "" {
+				m.srcAsmLeft = !m.srcAsmLeft
+			}
 		}
 		return m, nil
 	}
@@ -542,6 +591,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateRaw(key)
 	case modeStrings:
 		return m.updateStrings(key)
+	case modeSources:
+		return m.updateSources(key)
 	case modeLibs:
 		return m.updateLibs(key)
 	case modeInfo:
@@ -632,19 +683,50 @@ func (m *Model) recomputeGoto() {
 // activateGoto acts on the highlighted result, falling back to a bare address
 // parse when there are no results.
 func (m *Model) activateGoto() {
-	if m.gotoSel >= 0 && m.gotoSel < len(m.gotoResults) {
-		if t := m.gotoResults[m.gotoSel]; t.isSym {
-			m.openSymbol(t.sym)
-		} else {
-			m.gotoAddr(t.addr)
-		}
+	addr, ok := m.gotoSelectionAddr()
+	if !ok {
+		m.setStatus("nothing to go to", true)
 		return
+	}
+	// In the Sources view, goto navigates by source: resolve the target to its
+	// source file:line and open it there.
+	if m.mode == modeSources {
+		m.openSourceForAddr(addr)
+		return
+	}
+	if m.gotoSel >= 0 && m.gotoSel < len(m.gotoResults) && m.gotoResults[m.gotoSel].isSym {
+		m.openSymbol(m.gotoResults[m.gotoSel].sym)
+		return
+	}
+	m.gotoAddr(addr)
+}
+
+// gotoSelectionAddr returns the address of the highlighted result, falling back
+// to a bare address typed into the prompt.
+func (m *Model) gotoSelectionAddr() (uint64, bool) {
+	if m.gotoSel >= 0 && m.gotoSel < len(m.gotoResults) {
+		t := m.gotoResults[m.gotoSel]
+		if t.isSym {
+			return t.sym.Addr, true
+		}
+		return t.addr, true
 	}
 	if a, err := parseAddr(strings.TrimSpace(m.gotoInput.Value())); err == nil {
-		m.gotoAddr(a)
+		return a, true
+	}
+	return 0, false
+}
+
+// openSourceForAddr opens the Sources view at the source location that addr
+// maps to.
+func (m *Model) openSourceForAddr(addr uint64) {
+	file, line := m.file.LookupAddr(addr)
+	if file == "" {
+		m.setStatus(fmt.Sprintf("no source mapping for 0x%x", addr), true)
 		return
 	}
-	m.setStatus("nothing to go to", true)
+	m.ensureSources()
+	m.openSourceFile(file, line)
 }
 
 func (m *Model) closeGoto() {
@@ -706,6 +788,8 @@ func (m *Model) View() string {
 		body = m.renderRaw()
 	case modeStrings:
 		body = m.renderStrings()
+	case modeSources:
+		body = m.renderSources()
 	case modeLibs:
 		body = m.renderLibs()
 	}
@@ -754,6 +838,13 @@ func (m *Model) renderHelpModal() string {
 		row("↑/↓/←/→", "move byte cursor"),
 		row("[ / ]", "previous / next non-zero byte"),
 		row("/ , n/N", "search (hex bytes, \"text\", 0x…)"),
+		"",
+		headerKey.Render("Sources (DWARF)"),
+		row("Enter", "open file  ·  in file: jump to disasm"),
+		row("[ / ]", "previous / next mapped line"),
+		row("Tab", "swap source / disasm panes"),
+		row("/ , ^F", "find in file · grep all sources"),
+		row("g", "go to a symbol's source"),
 		"",
 		footerStyle.Render("  Mouse: wheel scrolls · click selects · click tabs · double-click follows"),
 	}
@@ -812,6 +903,12 @@ func (m *Model) renderSearchModal() string {
 		hint = "Search instruction text / symbol"
 	case modeHex, modeRaw:
 		hint = "Search hex bytes (de ad be ef), \"text\", or 0x…"
+	case modeSources:
+		if m.srcSearchAll {
+			hint = "Search across all source files"
+		} else {
+			hint = "Search in this source file"
+		}
 	}
 	direction := "forward"
 	origin := "from current"
@@ -845,6 +942,7 @@ var tabItems = []struct {
 	{"6·Libs", modeLibs},
 	{"7·Raw", modeRaw},
 	{"8·Strings", modeStrings},
+	{"9·Sources", modeSources},
 }
 
 func (m *Model) tabSegment(label string, active bool) string {
@@ -870,11 +968,9 @@ func (m *Model) renderTabs() string {
 		segs = append(segs, m.tabSegment(t.label, m.mode == t.mode))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Left, segs...)
-	pad := m.width - lipgloss.Width(row)
-	if pad > 0 {
-		row += strings.Repeat(" ", pad)
-	}
-	return row
+	// Clamp to width: a too-wide tab strip would wrap and push the whole body
+	// down a row (and the status line off-screen).
+	return padRight(row, m.width)
 }
 
 // tabHitTest maps an x column on the tab row to the tab the user clicked.
@@ -926,6 +1022,8 @@ func (m *Model) switchMode(md mode) tea.Cmd {
 		m.ensureRaw()
 	case modeStrings:
 		m.ensureStrings()
+	case modeSources:
+		m.ensureSources()
 	}
 	m.mode = md
 	return nil
@@ -952,6 +1050,12 @@ func (m *Model) renderFooter() string {
 		help = "[ ] non-zero · / search · a/s copy · g goto · ? help · q quit"
 	case modeRaw:
 		help = "[ ] non-zero · / search · a/s copy · g goto · ? help · q quit"
+	case modeSources:
+		if m.srcFile == "" {
+			help = "Enter open · / filter · ^F grep all · g goto · ? help · q quit"
+		} else {
+			help = "↑/↓ line · [ ] mapped · Tab swap · Enter disasm · / find · esc back · ? help · q quit"
+		}
 	case modeLibs:
 		help = "↑/↓ move · ? help · q quit"
 	}
@@ -968,7 +1072,7 @@ func (m *Model) renderFooter() string {
 	if gap < 1 {
 		gap = 1
 	}
-	return left + strings.Repeat(" ", gap) + right
+	return padRight(left+strings.Repeat(" ", gap)+right, m.width)
 }
 
 // bodyHeight is the number of rows available between tabs and footer.
@@ -1030,12 +1134,25 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
+// padRight pads s to exactly w visible columns, truncating when it's longer so
+// an over-wide line (e.g. a long demangled symbol) can't wrap and shove the
+// layout down behind the status line.
 func padRight(s string, w int) string {
-	plain := stripANSI(s)
-	if lipgloss.Width(plain) >= w {
+	pw := lipgloss.Width(stripANSI(s))
+	switch {
+	case pw == w:
 		return s
+	case pw > w:
+		// Truncate (width-aware) and pad any remainder — a wide rune straddling
+		// the boundary can leave the result a cell short.
+		s = truncateANSI(s, w)
+		if d := w - lipgloss.Width(stripANSI(s)); d > 0 {
+			s += strings.Repeat(" ", d)
+		}
+		return s
+	default:
+		return s + strings.Repeat(" ", w-pw)
 	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(plain))
 }
 
 func padBody(s string, w, h int) string {
@@ -1120,10 +1237,10 @@ func fitANSIWidth(s string, w int) string {
 
 // truncateANSI naively truncates while keeping the trailing SGR reset.
 func truncateANSI(s string, w int) string {
-	plain := stripANSI(s)
-	if lipgloss.Width(plain) <= w {
-		return s
+	if w <= 0 {
+		return ""
 	}
-	// Walk and drop characters from the end of the plain content. Cheap fallback.
-	return plain[:w]
+	// ansi.Truncate is width- and escape-aware (and never splits a multi-byte
+	// rune, unlike a naive byte slice), so it's safe for styled / Unicode text.
+	return ansi.Truncate(s, w, "")
 }

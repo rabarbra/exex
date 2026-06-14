@@ -1,4 +1,4 @@
-// Command exex is a terminal UI for exploring ELF and Mach-O binaries:
+// Command exex is a terminal UI for exploring ELF, Mach-O, and PE binaries:
 // header, sections, symbols, disassembly, and DWARF-driven source mapping.
 package main
 
@@ -14,7 +14,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
-		fmt.Fprintf(os.Stderr, "usage: %s <elf-or-macho-binary>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <binary>   (ELF, Mach-O, or PE)\n", os.Args[0])
 		os.Exit(2)
 	}
 	path := os.Args[1]

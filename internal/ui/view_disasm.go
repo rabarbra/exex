@@ -927,7 +927,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 		return border.Render(padBody("", inner, h))
 	}
 	addr := m.disasmInst[m.disasmCur].Addr
-	file, line := m.file.LookupAddr(addr)
+	file, line, col := m.file.LookupAddrCol(addr)
 	if file == "" {
 		body := "no source mapping for 0x" + fmt.Sprintf("%x", addr)
 		return border.Render(padBody(body+"\n", inner, h))
@@ -940,8 +940,12 @@ func (m *Model) renderSourcePane(w, h int) string {
 
 	hl := m.highlightedSource(file, src)
 
+	loc := fmt.Sprintf("%s:%d", file, line)
+	if col > 0 {
+		loc = fmt.Sprintf("%s:%d:%d", file, line, col)
+	}
 	var b strings.Builder
-	b.WriteString(infoStyle.Render(fmt.Sprintf("%s:%d", file, line)))
+	b.WriteString(infoStyle.Render(loc))
 	b.WriteString("\n")
 	half := (h - 1) / 2
 	from := line - half
@@ -974,9 +978,15 @@ func (m *Model) renderSourcePane(w, h int) string {
 		} else {
 			prefix = srcLineNoStyle.Render(fmt.Sprintf("%4d   ", i))
 		}
-		avail := inner - lipgloss.Width(stripANSI(prefix))
+		gutterW := lipgloss.Width(stripANSI(prefix))
+		avail := inner - gutterW
 		b.WriteString(prefix + fitANSIWidth(shown, avail))
 		b.WriteString("\n")
+		// Point a caret at the current instruction's column within its line.
+		if i == line && col > 0 {
+			b.WriteString(coloredCaretRow([]int{col}, gutterW, inner))
+			b.WriteString("\n")
+		}
 	}
 	return border.Render(padBody(b.String(), inner, h))
 }

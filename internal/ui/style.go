@@ -63,6 +63,20 @@ var (
 			Background(lipgloss.Color("236")).
 			Bold(true)
 
+	// srcShadowStyle dims source lines that have no machine code mapped to them.
+	srcShadowStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+
+	// srcCodeLineNoStyle marks gutter line numbers that do have code.
+	srcCodeLineNoStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("114"))
+
+	// srcMappedStyle highlights, in the source view's asm pane, the
+	// instructions that map to the currently selected source line.
+	srcMappedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("231")).
+			Background(lipgloss.Color("23"))
+
 	modalStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63")).

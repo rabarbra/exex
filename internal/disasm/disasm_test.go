@@ -44,6 +44,20 @@ func TestUnsupportedArch(t *testing.T) {
 	}
 }
 
+func TestResolveRelTargets(t *testing.T) {
+	cases := map[string]string{
+		"bl .+0xfffffffffffffc58": "bl 0xc58",     // negative (two's complement) → 0x1000-0x3a8
+		"b .+0x40":                "b 0x1040",     // forward
+		"b.gt .-0x10":             "b.gt 0xff0",   // explicit minus
+		"mov x0, #0x5":            "mov x0, #0x5", // nothing to rewrite
+	}
+	for in, want := range cases {
+		if got := resolveRelTargets(in, 0x1000); got != want {
+			t.Errorf("resolveRelTargets(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestAMD64RangeRecoversFromDecoderPanic(t *testing.T) {
 	d, err := For(ArchAMD64)
 	if err != nil {

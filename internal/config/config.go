@@ -154,6 +154,8 @@ type Keys struct {
 	ViewRaw StringOrSlice `yaml:"view_raw"`
 	// Switch to the Strings view. (default: 8)
 	ViewStrings StringOrSlice `yaml:"view_strings"`
+	// Switch to the Sources view (DWARF only). (default: 9)
+	ViewSources StringOrSlice `yaml:"view_sources"`
 	// Toggle the side-by-side source pane in Disasm. (default: tab)
 	ToggleSource StringOrSlice `yaml:"toggle_source"`
 	// Copy current address. (default: a)

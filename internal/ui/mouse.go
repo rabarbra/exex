@@ -82,6 +82,8 @@ func (m *Model) routeNav(key string) (tea.Model, tea.Cmd) {
 		return m.updateRaw(key)
 	case modeStrings:
 		return m.updateStrings(key)
+	case modeSources:
+		return m.updateSources(key)
 	case modeLibs:
 		return m.updateLibs(key)
 	case modeInfo:
@@ -122,6 +124,21 @@ func (m *Model) handleClick(x, y int) {
 		// Body layout: row 0 is the column header, data follows.
 		if idx := m.stringsTop + bodyRow - 1; idx >= 0 && idx < len(m.stringsList) {
 			m.stringsCur = idx
+		}
+	case modeSources:
+		if m.srcFile == "" {
+			// File list: row 0 is the filter, files follow.
+			if idx := m.sourcesTop + bodyRow - 1; idx >= 0 && idx < len(m.sourcesFiltered) {
+				m.sourcesCur = idx
+			}
+		} else if x < m.width/2 {
+			// Source pane: row 0 is the file:line header, lines follow.
+			if ln := m.srcTop + bodyRow - 1; ln >= 1 {
+				if n := len(m.file.SourceLines(m.srcFile)); ln <= n {
+					m.srcCur = ln
+					m.syncSourceAsm()
+				}
+			}
 		}
 	case modeDisasm:
 		if i, ok := m.instAtBodyRow(bodyRow); ok {

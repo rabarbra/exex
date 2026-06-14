@@ -68,6 +68,7 @@ keys:
   view_libs: "6"
   view_raw: "7"
   view_strings: "8"
+  view_sources: "9"
   toggle_source: tab
   copy_address: a
   copy_symbol: s

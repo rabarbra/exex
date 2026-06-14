@@ -24,6 +24,7 @@ const (
 	actionViewLibs
 	actionViewRaw
 	actionViewStrings
+	actionViewSources
 	actionToggleSource
 )
 
@@ -46,6 +47,7 @@ func defaultKeyMap() keyMap {
 		"6":      actionViewLibs,
 		"7":      actionViewRaw,
 		"8":      actionViewStrings,
+		"9":      actionViewSources,
 		"tab":    actionToggleSource,
 	}
 }
@@ -78,6 +80,7 @@ func (m keyMap) applyConfig(k config.Keys) {
 	bind(actionViewLibs, k.ViewLibs)
 	bind(actionViewRaw, k.ViewRaw)
 	bind(actionViewStrings, k.ViewStrings)
+	bind(actionViewSources, k.ViewSources)
 	bind(actionToggleSource, k.ToggleSource)
 	// CopyAddress/CopySymbol are intentionally NOT in the top-level dispatch:
 	// they read the cursor context of the current view (disasm/hex/symbols/

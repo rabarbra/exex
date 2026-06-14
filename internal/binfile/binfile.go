@@ -132,6 +132,7 @@ type lineEntry struct {
 	Addr uint64
 	File string
 	Line int
+	Col  int
 }
 
 // Open reads path, detects its container format, and builds the neutral model.
@@ -258,24 +259,106 @@ func loadLines(d *dwarf.Data) []lineEntry {
 			if le.File == nil {
 				continue
 			}
-			out = append(out, lineEntry{Addr: le.Address, File: le.File.Name, Line: le.Line})
+			out = append(out, lineEntry{Addr: le.Address, File: le.File.Name, Line: le.Line, Col: le.Column})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Addr < out[j].Addr })
 	return out
 }
 
+// SourceFiles returns the sorted, de-duplicated set of source files referenced
+// by the DWARF line table.
+func (f *File) SourceFiles() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, le := range f.lines {
+		if le.File != "" && !seen[le.File] {
+			seen[le.File] = true
+			out = append(out, le.File)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// LineToAddr returns an address that maps to file:line — exact when possible,
+// otherwise the nearest line at or after it in the same file.
+func (f *File) LineToAddr(file string, line int) (uint64, bool) {
+	var (
+		best     uint64
+		bestLine int
+		found    bool
+	)
+	for _, le := range f.lines {
+		if le.File != file {
+			continue
+		}
+		if le.Line == line {
+			if !found || le.Addr < best {
+				best, bestLine, found = le.Addr, le.Line, true
+			}
+			if bestLine == line {
+				// keep scanning for the lowest address at the exact line
+				continue
+			}
+		}
+		// Track the nearest line >= the target as a fallback.
+		if le.Line >= line && (!found || (bestLine != line && le.Line < bestLine)) {
+			best, bestLine, found = le.Addr, le.Line, true
+		}
+	}
+	return best, found
+}
+
 // LookupAddr returns the source file:line covering addr, or "", 0.
 func (f *File) LookupAddr(addr uint64) (string, int) {
+	file, line, _ := f.LookupAddrCol(addr)
+	return file, line
+}
+
+// LookupAddrCol is LookupAddr plus the DWARF column (0 when unknown).
+func (f *File) LookupAddrCol(addr uint64) (file string, line, col int) {
 	if len(f.lines) == 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	i := sort.Search(len(f.lines), func(i int) bool { return f.lines[i].Addr > addr })
 	if i == 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	le := f.lines[i-1]
-	return le.File, le.Line
+	return le.File, le.Line, le.Col
+}
+
+// MappedLines returns the set of line numbers in file that have any machine
+// code mapped to them.
+func (f *File) MappedLines(file string) map[int]bool {
+	out := map[int]bool{}
+	for _, le := range f.lines {
+		if le.File == file {
+			out[le.Line] = true
+		}
+	}
+	return out
+}
+
+// LineColumns returns the distinct, sorted DWARF columns (>0) recorded for
+// file:line — the positions within the line that code maps to.
+func (f *File) LineColumns(file string, line int) []int {
+	seen := map[int]bool{}
+	for _, le := range f.lines {
+		if le.File == file && le.Line == line && le.Col > 0 {
+			seen[le.Col] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // SymbolAt returns the symbol whose extent covers addr.

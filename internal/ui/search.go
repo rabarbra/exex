@@ -247,6 +247,12 @@ func (m *Model) runSearchWithOrigin(forward, inclusive bool, fromCursor bool) te
 		} else {
 			m.setStatus("not found: "+m.searchQuery, true)
 		}
+	case modeSources:
+		if m.srcSearchAll {
+			m.searchAllSources(forward, inclusive)
+		} else {
+			m.searchInSourceFile(forward, inclusive)
+		}
 	default:
 		m.setStatus("search isn't available in this view", true)
 	}

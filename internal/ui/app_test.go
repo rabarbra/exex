@@ -73,7 +73,7 @@ func TestRenderAllViews(t *testing.T) {
 
 	// Visit each view, then exercise scrolling/navigation in the byte and
 	// disasm views where the new full-file logic lives.
-	for _, view := range []string{"1", "2", "3", "4", "5", "6", "7", "8"} {
+	for _, view := range []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"} {
 		send(view)
 	}
 	// Sections: move and open whatever is selected.

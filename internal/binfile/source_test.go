@@ -1,0 +1,35 @@
+package binfile
+
+import "testing"
+
+func TestSourceFilesAndLineToAddr(t *testing.T) {
+	f := &File{lines: []lineEntry{
+		{Addr: 0x1000, File: "a.c", Line: 10},
+		{Addr: 0x1010, File: "a.c", Line: 11},
+		{Addr: 0x1020, File: "b.c", Line: 5},
+		{Addr: 0x1030, File: "a.c", Line: 12},
+	}}
+
+	files := f.SourceFiles()
+	if len(files) != 2 || files[0] != "a.c" || files[1] != "b.c" {
+		t.Fatalf("SourceFiles() = %v, want [a.c b.c]", files)
+	}
+
+	cases := []struct {
+		file string
+		line int
+		want uint64
+		ok   bool
+	}{
+		{"a.c", 11, 0x1010, true},
+		{"b.c", 5, 0x1020, true},
+		{"a.c", 9, 0x1000, true}, // nearest line >= 9 is line 10
+		{"nope.c", 1, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := f.LineToAddr(c.file, c.line)
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("LineToAddr(%q, %d) = 0x%x, %v; want 0x%x, %v", c.file, c.line, got, ok, c.want, c.ok)
+		}
+	}
+}

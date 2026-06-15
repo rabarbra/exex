@@ -40,25 +40,26 @@ func isSwiftMangled(name string) bool {
 	return false
 }
 
-// demangleSwift resolves Swift-mangled names that the in-process demangler left
-// alone, by piping them through swift-demangle in a single batch. Best-effort:
-// it's a no-op when the tool isn't installed or there are no Swift symbols.
-func (f *File) demangleSwift() {
+// demangleSwiftInto resolves Swift-mangled names that the in-process demangler
+// left alone (out[i] == ""), by piping them through swift-demangle in a single
+// batch, writing results back into out. Best-effort: a no-op when the tool
+// isn't installed or there are no Swift symbols.
+func demangleSwiftInto(syms []Symbol, out []string) {
 	var idx []int
 	var names []string
-	for i := range f.Symbols {
-		if f.Symbols[i].Demangled == "" && isSwiftMangled(f.Symbols[i].Name) {
+	for i := range syms {
+		if out[i] == "" && isSwiftMangled(syms[i].Name) {
 			idx = append(idx, i)
-			names = append(names, f.Symbols[i].Name)
+			names = append(names, syms[i].Name)
 		}
 	}
 	if len(names) == 0 {
 		return
 	}
-	out := swiftDemangleBatch(names)
+	res := swiftDemangleBatch(names)
 	for _, i := range idx {
-		if d, ok := out[f.Symbols[i].Name]; ok {
-			f.Symbols[i].Demangled = d
+		if d, ok := res[syms[i].Name]; ok {
+			out[i] = d
 		}
 	}
 }

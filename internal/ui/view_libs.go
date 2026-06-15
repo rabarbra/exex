@@ -6,6 +6,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -59,21 +60,33 @@ func (m *Model) updateLibs(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) openSymbolsForLib(lib string) {
-	base := strings.TrimSuffix(strings.TrimPrefix(lib, "lib"), filepathExt(lib))
-	if base == "" {
-		m.setStatus("no imported symbol index for "+lib, true)
+	n := 0
+	for _, s := range m.file.Symbols {
+		if s.Library == lib {
+			n++
+		}
+	}
+	if n == 0 {
+		m.setStatus("no imported symbols resolved to "+lib, true)
 		return
 	}
-	m.symbolsFilter.SetValue(base)
+	m.symbolsFilter.SetValue("")
+	m.symbolsLib = lib
 	m.symbolsKindOn = false
+	m.symbolsCur, m.symbolsTop = 0, 0
 	m.recomputeSymbols()
 	m.mode = modeSymbols
-	m.setStatus("symbols filtered by library hint: "+base, false)
+	m.setStatus(fmt.Sprintf("%d symbols imported from %s — Esc clears", n, lib), false)
 }
 
-func (m *Model) openLibAsPrimary(path string) (tea.Model, tea.Cmd) {
-	if _, err := os.Stat(path); err != nil {
-		m.setStatus("library path is not directly openable: "+path, true)
+func (m *Model) openLibAsPrimary(lib string) (tea.Model, tea.Cmd) {
+	path, ok := m.resolveLibPath(lib)
+	if !ok {
+		if isDyldSharedCacheLib(lib) {
+			m.setStatus("system library "+lib+" lives in the dyld shared cache, not on disk — can't open", true)
+		} else {
+			m.setStatus("could not resolve library on disk: "+lib, true)
+		}
 		return m, nil
 	}
 	f, err := binfile.Open(path)
@@ -90,16 +103,79 @@ func (m *Model) openLibAsPrimary(path string) (tea.Model, tea.Cmd) {
 	return nm, nm.switchMode(modeInfo)
 }
 
-func filepathExt(path string) string {
-	idx := strings.LastIndexByte(path, '/')
-	name := path
-	if idx >= 0 {
-		name = path[idx+1:]
+// resolveLibPath turns a DT_NEEDED entry / Mach-O dylib path into a concrete
+// file on disk, following dyld's @rpath / @loader_path / @executable_path
+// substitutions and the ELF RPATH/RUNPATH + default search directories. Returns
+// false when nothing on disk matches (e.g. macOS system dylibs that only exist
+// inside the shared cache).
+func (m *Model) resolveLibPath(lib string) (string, bool) {
+	exists := func(p string) bool {
+		if p == "" {
+			return false
+		}
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return true
+		}
+		return false
 	}
-	if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
-		return name[dot:]
+
+	loaderDir := filepath.Dir(m.file.Path)
+	subst := func(p string) string {
+		p = strings.ReplaceAll(p, "@loader_path", loaderDir)
+		p = strings.ReplaceAll(p, "@executable_path", loaderDir)
+		return p
 	}
-	return ""
+
+	var rpaths []string
+	if m.file.Info != nil {
+		rpaths = append(rpaths, m.file.Info.RunPath...)
+		rpaths = append(rpaths, m.file.Info.RPath...)
+	}
+
+	// @rpath/foo → try each RPATH entry. @loader_path/@executable_path resolve
+	// directly against the binary's directory.
+	if rest, ok := strings.CutPrefix(lib, "@rpath/"); ok {
+		for _, rp := range rpaths {
+			if cand := filepath.Join(subst(rp), rest); exists(cand) {
+				return cand, true
+			}
+		}
+		return "", false
+	}
+	if strings.HasPrefix(lib, "@loader_path") || strings.HasPrefix(lib, "@executable_path") {
+		if cand := subst(lib); exists(cand) {
+			return cand, true
+		}
+		return "", false
+	}
+
+	// Absolute or relative path that exists as-is.
+	if exists(lib) {
+		return lib, true
+	}
+
+	// ELF basename (libc.so.6): search RPATH/RUNPATH then the standard dirs.
+	base := filepath.Base(lib)
+	for _, rp := range rpaths {
+		if cand := filepath.Join(subst(rp), base); exists(cand) {
+			return cand, true
+		}
+	}
+	for _, dir := range []string{"/lib", "/usr/lib", "/lib64", "/usr/lib64", "/usr/local/lib", "/lib/x86_64-linux-gnu", "/usr/lib/x86_64-linux-gnu", "/lib/aarch64-linux-gnu", "/usr/lib/aarch64-linux-gnu"} {
+		if cand := filepath.Join(dir, base); exists(cand) {
+			return cand, true
+		}
+	}
+	return "", false
+}
+
+// isDyldSharedCacheLib reports whether a Mach-O dependency is a macOS system
+// library that, on recent macOS, exists only inside the dyld shared cache and
+// has no standalone file on disk.
+func isDyldSharedCacheLib(lib string) bool {
+	return strings.HasPrefix(lib, "/usr/lib/") ||
+		strings.HasPrefix(lib, "/System/Library/") ||
+		strings.HasPrefix(lib, "/Library/Apple/")
 }
 
 func (m *Model) renderLibs() string {

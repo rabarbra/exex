@@ -22,6 +22,9 @@ func (m *Model) recomputeSymbols() {
 		if m.symbolsKindOn && s.Kind != m.symbolsKind {
 			continue
 		}
+		if m.symbolsLib != "" && s.Library != m.symbolsLib {
+			continue
+		}
 		if needle == "" ||
 			strings.Contains(strings.ToLower(s.Name), needle) ||
 			(s.Demangled != "" && strings.Contains(strings.ToLower(s.Demangled), needle)) {
@@ -37,6 +40,14 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "/":
 		m.symbolsFilter.Focus()
+		return m, nil
+	case "esc":
+		if m.symbolsLib != "" {
+			m.symbolsLib = ""
+			m.symbolsCur, m.symbolsTop = 0, 0
+			m.recomputeSymbols()
+			m.setStatus("library filter cleared", false)
+		}
 		return m, nil
 	case "t":
 		m.cycleSymbolKindFilter()
@@ -145,7 +156,11 @@ func (m *Model) renderSymbols() string {
 		if m.symbolsKindOn {
 			kind = kindString(m.symbolsKind)
 		}
-		filterRow = footerStyle.Render(fmt.Sprintf("/ %s   type:%s   (%d / %d)", m.symbolsFilter.Value(), kind, len(m.symbolsFiltered), len(m.file.Symbols)))
+		libPart := ""
+		if m.symbolsLib != "" {
+			libPart = "   lib:" + m.symbolsLib + " (Esc clears)"
+		}
+		filterRow = footerStyle.Render(fmt.Sprintf("/ %s   type:%s%s   (%d / %d)", m.symbolsFilter.Value(), kind, libPart, len(m.symbolsFiltered), len(m.file.Symbols)))
 	}
 
 	addrW := m.file.AddrHexWidth()

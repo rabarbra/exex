@@ -23,8 +23,16 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
+		if msg.Shift && m.rightPaneActive() {
+			m.scrollRightPane(-1)
+			return m, nil
+		}
 		return m.wheelScroll("up")
 	case tea.MouseButtonWheelDown:
+		if msg.Shift && m.rightPaneActive() {
+			m.scrollRightPane(1)
+			return m, nil
+		}
 		return m.wheelScroll("down")
 	}
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
@@ -156,16 +164,9 @@ func (m *Model) handleClick(x, y int) {
 			m.stringsCur = idx
 		}
 	case modeSources:
-		if m.srcFile == "" {
-			// File list: row 0 is the filter, files follow.
-			if idx := m.sourcesTop + bodyRow - 1; idx >= 0 && idx < len(m.sourcesFiltered) {
-				m.sourcesCur = idx
-			}
-		} else if m.clickInSourcePane(x) {
-			if ln, ok := m.sourceLineAtBodyRow(bodyRow, m.sourcePaneWidth()); ok {
-				m.srcCur = ln
-				m.syncSourceAsm()
-			}
+		// File list only: row 0 is the filter, files follow.
+		if idx := m.sourcesTop + bodyRow - 1; idx >= 0 && idx < len(m.sourcesFiltered) {
+			m.sourcesCur = idx
 		}
 	case modeDisasm:
 		if m.sourceFirst && m.srcFile != "" && m.clickInSourcePane(x) {
@@ -187,12 +188,7 @@ func (m *Model) handleClick(x, y int) {
 }
 
 func (m *Model) clickInSourcePane(x int) bool {
-	if m.mode == modeDisasm && m.sourceFirst {
-		return x < m.width/2
-	}
-	if m.mode == modeSources && m.srcAsmLeft {
-		return x >= m.width/2
-	}
+	// In the disasm view's source-first split, the source pane is on the left.
 	return x < m.width/2
 }
 

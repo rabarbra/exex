@@ -109,8 +109,7 @@ func (f *File) loadPE() error {
 	}
 
 	if d := peDWARF(pf); d != nil {
-		f.dwarf = d
-		f.lines = loadLines(d)
+		f.dwarf = d // line table decoded lazily on first source lookup
 	}
 
 	f.loadPEInfo(pf, dllChars)

@@ -169,11 +169,14 @@ func (f *File) loadMachO() error {
 		}
 	}
 
-	f.Symbols = append(f.Symbols, machoImportSymbols(mf, f.raw, base)...)
+	var libs []string
+	if l, err := mf.ImportedLibraries(); err == nil {
+		libs = l
+	}
+	f.Symbols = append(f.Symbols, machoImportSymbols(mf, f.raw, base, libs)...)
 
 	if d := f.machoDWARF(mf); d != nil {
-		f.dwarf = d
-		f.lines = loadLines(d)
+		f.dwarf = d // line table decoded lazily on first source lookup
 	}
 
 	f.entry = machoEntry(mf, textSeg, base)
@@ -513,7 +516,7 @@ type machoSecHdr struct {
 // lazy/non-lazy symbol pointers (__stubs, __got, __la_symbol_ptr, …), named
 // after the imported symbol they resolve to. This is what turns a
 // "bl 0x… (__stubs)" into "bl 0x… (_malloc)" and lets the user follow imports.
-func machoImportSymbols(mf *macho.File, raw []byte, base uint64) []Symbol {
+func machoImportSymbols(mf *macho.File, raw []byte, base uint64, libs []string) []Symbol {
 	if mf.Dysymtab == nil || mf.Symtab == nil || len(mf.Dysymtab.IndirectSyms) == 0 {
 		return nil
 	}
@@ -560,10 +563,23 @@ func machoImportSymbols(mf *macho.File, raw []byte, base uint64) []Symbol {
 				Kind:    kind,
 				Bind:    BindGlobal,
 				Section: s.name,
+				Library: machoSymbolLibrary(syms[symIdx].Desc, libs),
 			})
 		}
 	}
 	return out
+}
+
+// machoSymbolLibrary maps a nlist Desc field to the imported library it binds
+// to. The dylib ordinal lives in the high byte of Desc; ordinals are 1-based
+// into the dylib load-command order (== ImportedLibraries), with a few special
+// values (SELF/MAIN/FLAT_LOOKUP) that name no concrete library.
+func machoSymbolLibrary(desc uint16, libs []string) string {
+	ord := int((desc >> 8) & 0xff)
+	if ord >= 1 && ord <= len(libs) {
+		return libs[ord-1]
+	}
+	return ""
 }
 
 // parseMachoSectionHeaders re-reads the segment/section load commands from the

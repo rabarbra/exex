@@ -127,8 +127,7 @@ func (f *File) loadELF() error {
 	f.appendELFImportSymbols(ef)
 
 	if d := f.elfDWARF(ef); d != nil {
-		f.dwarf = d
-		f.lines = loadLines(d)
+		f.dwarf = d // line table decoded lazily on first source lookup
 	}
 
 	f.loadELFInfo(ef)
@@ -170,11 +169,20 @@ func (f *File) appendELFImportSymbols(ef *elf.File) {
 		return
 	}
 
-	add := func(addr uint64, name string, kind SymKind, sec string) {
-		f.Symbols = append(f.Symbols, Symbol{Name: name, Addr: addr, Kind: kind, Bind: BindGlobal, Section: sec})
+	symLib := elfDynSymLibraries(ef, len(dyn))
+	libOf := func(sym uint32) string {
+		if int(sym) < len(symLib) {
+			return symLib[sym]
+		}
+		return ""
 	}
 
-	var pltNames []string // imports from .rel(a).plt, in entry order, for PLT pairing
+	add := func(addr uint64, name, lib string, kind SymKind, sec string) {
+		f.Symbols = append(f.Symbols, Symbol{Name: name, Addr: addr, Kind: kind, Bind: BindGlobal, Section: sec, Library: lib})
+	}
+
+	type pltEntry struct{ name, lib string } // imports from .rel(a).plt, in entry order, for PLT pairing
+	var pltNames []pltEntry
 	for _, s := range ef.Sections {
 		if s.Type != elf.SHT_RELA && s.Type != elf.SHT_REL {
 			continue
@@ -197,14 +205,15 @@ func (f *File) appendELFImportSymbols(ef *elf.File) {
 			if name == "" {
 				continue
 			}
+			lib := libOf(sym)
 			switch rtype {
 			case jumpSlot:
-				add(roff, name, SymObject, s.Name) // GOT slot
+				add(roff, name, lib, SymObject, s.Name) // GOT slot
 				if isPlt {
-					pltNames = append(pltNames, name)
+					pltNames = append(pltNames, pltEntry{name, lib})
 				}
 			case globDat:
-				add(roff, name, SymObject, s.Name)
+				add(roff, name, lib, SymObject, s.Name)
 			}
 		}
 	}
@@ -214,15 +223,93 @@ func (f *File) appendELFImportSymbols(ef *elf.File) {
 	// reserves entry 0 for the resolver.
 	if len(pltNames) > 0 {
 		if plt := ef.Section(".plt.sec"); plt != nil {
-			for i, name := range pltNames {
-				add(plt.Addr+uint64(i)*16, name, SymFunc, ".plt.sec")
+			for i, e := range pltNames {
+				add(plt.Addr+uint64(i)*16, e.name, e.lib, SymFunc, ".plt.sec")
 			}
 		} else if plt := ef.Section(".plt"); plt != nil {
-			for i, name := range pltNames {
-				add(plt.Addr+uint64(i+1)*16, name, SymFunc, ".plt")
+			for i, e := range pltNames {
+				add(plt.Addr+uint64(i+1)*16, e.name, e.lib, SymFunc, ".plt")
 			}
 		}
 	}
+}
+
+// elfDynSymLibraries resolves, for each dynamic symbol index, the shared library
+// it is versioned against, by pairing .gnu.version (a per-dynsym version index)
+// with .gnu.version_r (verneed: version index → library filename). Returns a
+// slice of length n indexed by dynsym index; entries are "" when unknown.
+func elfDynSymLibraries(ef *elf.File, n int) []string {
+	versym := ef.Section(".gnu.version")
+	verneed := ef.Section(".gnu.version_r")
+	if versym == nil || verneed == nil || n == 0 {
+		return nil
+	}
+	vsData, err := versym.Data()
+	if err != nil {
+		return nil
+	}
+	vnData, err := verneed.Data()
+	if err != nil {
+		return nil
+	}
+	// The verneed strings live in its linked string table (usually .dynstr).
+	if int(verneed.Link) >= len(ef.Sections) {
+		return nil
+	}
+	strData, err := ef.Sections[verneed.Link].Data()
+	if err != nil {
+		return nil
+	}
+	str := func(off uint32) string {
+		if int(off) >= len(strData) {
+			return ""
+		}
+		end := bytes.IndexByte(strData[off:], 0)
+		if end < 0 {
+			return string(strData[off:])
+		}
+		return string(strData[off : int(off)+end])
+	}
+
+	bo := ef.ByteOrder
+	// Walk the verneed entries, mapping each version index (vna_other) to the
+	// library file the parent verneed names (vn_file).
+	verIdxLib := map[uint16]string{}
+	for off := 0; off+16 <= len(vnData); {
+		// Elf_Verneed: version(2) cnt(2) file(4) aux(4) next(4)
+		cnt := bo.Uint16(vnData[off+2:])
+		file := bo.Uint32(vnData[off+4:])
+		aux := bo.Uint32(vnData[off+8:])
+		next := bo.Uint32(vnData[off+12:])
+		lib := str(file)
+		ap := off + int(aux)
+		for i := 0; i < int(cnt) && ap+16 <= len(vnData); i++ {
+			// Elf_Vernaux: hash(4) flags(2) other(2) name(4) next(4)
+			other := bo.Uint16(vnData[ap+6:])
+			anext := bo.Uint32(vnData[ap+12:])
+			verIdxLib[other&0x7fff] = lib
+			if anext == 0 {
+				break
+			}
+			ap += int(anext)
+		}
+		if next == 0 {
+			break
+		}
+		off += int(next)
+	}
+	if len(verIdxLib) == 0 {
+		return nil
+	}
+
+	out := make([]string, n)
+	for i := 0; i < n && (i+1)*2 <= len(vsData); i++ {
+		v := bo.Uint16(vsData[i*2:]) & 0x7fff
+		if lib, ok := verIdxLib[v]; ok {
+			out[i] = lib
+		}
+	}
+	return out
 }
 
 // isELFMappingSymbol reports whether name is an ARM/AArch64 ELF mapping symbol

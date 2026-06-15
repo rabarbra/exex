@@ -613,6 +613,21 @@ func (m *Model) jumpSymbol(forward bool) {
 }
 
 func (m *Model) updateDisasm(key string) (tea.Model, tea.Cmd) {
+	// Independent scroll of the follower (right) pane: shift+up / shift+down peek
+	// further into the pane that isn't being navigated. Any other key re-syncs it
+	// to the cursor.
+	if m.rightPaneActive() {
+		switch key {
+		case "shift+up":
+			m.scrollRightPane(-1)
+			return m, nil
+		case "shift+down":
+			m.scrollRightPane(1)
+			return m, nil
+		}
+	}
+	m.rightScroll = 0
+
 	if m.sourceFirst && m.srcFile != "" {
 		switch key {
 		case "esc", "backspace":
@@ -850,7 +865,11 @@ func (m *Model) renderDisasm() string {
 		msg := "no disassembly loaded — press g to go to an address, or pick a symbol from view 3"
 		return padBody(msg+"\n", m.width, bodyH)
 	}
-	if m.showSource && m.sourceFirst && m.ensureSourceForDisasmCursor() {
+	// The source pane only makes sense when the binary actually carries debug
+	// info; otherwise keep the disasm full-width instead of opening an empty
+	// "no source" pane.
+	showSrc := m.showSource && m.file.HasDWARF()
+	if showSrc && m.sourceFirst && m.ensureSourceForDisasmCursor() {
 		leftW := m.width / 2
 		rightW := m.width - leftW
 		left := m.renderSourceText(leftW, bodyH)
@@ -859,7 +878,7 @@ func (m *Model) renderDisasm() string {
 	}
 	leftW := m.width
 	rightW := 0
-	if m.showSource {
+	if showSrc {
 		leftW = m.width / 2
 		rightW = m.width - leftW
 	}
@@ -904,6 +923,15 @@ func (m *Model) renderDisasmScroll(w, h int) string {
 	ensureVisualTop(m.disasmCur, &m.disasmTop, len(m.disasmInst), h, rowHeight)
 
 	jumpTargets := m.currentIntraJumpTargets()
+	// When the source pane is open (disasm-first), addresses are coloured by
+	// their source mapping — identical to the source-first disasm pane — instead
+	// of the intra-function jump-target highlight used in the pure disasm view.
+	sourceActive := m.rightPaneActive() && !m.sourceFirst && len(m.disasmInst) > 0
+	var curFile string
+	var curLine int
+	if sourceActive {
+		curFile, curLine, _ = m.file.LookupAddrCol(m.disasmInst[m.disasmCur].Addr)
+	}
 	var rows []string
 	for i := m.disasmTop; i < len(m.disasmInst) && len(rows) < h; i++ {
 		inst := m.disasmInst[i]
@@ -918,8 +946,13 @@ func (m *Model) renderDisasmScroll(w, h int) string {
 				break
 			}
 		}
+		// The intra-function jump-target highlight takes priority; only addresses
+		// that aren't a jump target fall back to the source-mapping colour.
 		var targetStyle *lipgloss.Style
 		if st, ok := jumpTargets[inst.Addr]; ok {
+			targetStyle = &st
+		} else if sourceActive {
+			st := m.addrMapStyle(inst.Addr, curFile, curLine)
 			targetStyle = &st
 		}
 		for _, row := range m.disasmInstRows(inst, w, i == m.disasmCur, targetStyle) {
@@ -933,10 +966,7 @@ func (m *Model) renderDisasmScroll(w, h int) string {
 }
 
 func (m *Model) disasmRenderWidth() int {
-	if m.mode == modeDisasm && m.showSource && !m.sourceFirst {
-		return m.width / 2
-	}
-	if m.mode == modeSources && m.srcFile != "" && m.srcAsmLeft {
+	if m.mode == modeDisasm && m.showSource && m.file.HasDWARF() && !m.sourceFirst {
 		return m.width / 2
 	}
 	return m.width
@@ -964,7 +994,15 @@ func (m *Model) disasmAsmColumn() int {
 }
 
 func (m *Model) disasmAnnotationColumn(w int) int {
-	return min(max(m.disasmAsmColumn()+24, w/2), max(m.disasmAsmColumn()+12, w-12))
+	// Keep annotations a short, fixed distance after the assembly column so they
+	// sit close to the code instead of drifting out to mid-pane on a wide,
+	// source-off disasm view. A long instruction pushes its own annotation
+	// further right (see disasmInstRows), so this is only the preferred column.
+	col := m.disasmAsmColumn() + 22
+	if hi := w - 12; col > hi {
+		col = max(m.disasmAsmColumn()+8, hi)
+	}
+	return col
 }
 
 func (m *Model) disasmLabelRows(name string, w int) []string {
@@ -991,71 +1029,47 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 	}
 	asmCol := m.disasmAsmColumn()
 	annCol := m.disasmAnnotationColumn(w)
-	asmW := max(1, annCol-asmCol-2)
-	noteW := max(1, w-annCol)
 	asm := m.renderInstText(inst.Text, inst.Class, inst.Addr)
 	note := m.instAnnotation(inst.Text, inst.Class)
-	asmParts := []string{asm}
+
+	// The assembly is never wrapped and never trimmed to a narrow column — it is
+	// only clamped to the pane width so it can't wrap. The annotation prefers its
+	// column (annCol); a long instruction pushes it to the right of the assembly
+	// instead of truncating the code, and if it still doesn't fit it drops onto
+	// continuation row(s) indented at the annotation column.
+	asmFit := fitANSIWidth(asm, max(1, w-asmCol))
+	asmEnd := asmCol + lipgloss.Width(stripANSI(asmFit))
+
+	asmRow := fmt.Sprintf(" %s  %s  ", addrCol, bytesHex(inst.Bytes, 8)) + asmFit
+	// Highlight only the assembly (prefix + code) of the selected line; the gap,
+	// the annotation, and any continuation rows stay uncoloured.
+	if selected {
+		asmRow = tableSelStyle.Render(stripANSI(asmRow))
+	}
+
+	if note == "" {
+		return []string{padRight(asmRow, w)}
+	}
+
+	inlineStart := max(annCol, asmEnd+2)
+	if inlineStart+lipgloss.Width(note) <= w {
+		// Fits on the same row: pad out to the annotation position, then the note.
+		line := asmRow + strings.Repeat(" ", inlineStart-asmEnd) + addrStyle.Render(note)
+		return []string{padRight(line, w)}
+	}
+
+	// Doesn't fit beside the assembly — move it to indented continuation row(s).
+	rows := []string{padRight(asmRow, w)}
+	belowW := max(1, w-annCol)
+	var parts []string
 	if m.wrap {
-		asmParts = strings.Split(strings.TrimRight(ansi.Wrap(asm, asmW, " \t,.-_+*()[]"), "\n"), "\n")
+		parts = strings.Split(strings.TrimRight(ansi.Wrap(note, belowW, " \t/.-_:$@<>,"), "\n"), "\n")
 	} else {
-		asmParts = []string{fitANSIWidth(asm, asmW)}
+		parts = []string{truncateANSI(note, belowW)}
 	}
-	if len(asmParts) == 0 {
-		asmParts = []string{""}
-	}
-	noteParts := []string{}
-	if note != "" {
-		if m.wrap {
-			noteParts = strings.Split(strings.TrimRight(ansi.Wrap(note, noteW, " \t/.-_:$@<>,"), "\n"), "\n")
-		} else {
-			noteParts = []string{truncateANSI(note, noteW)}
-		}
-		for i, part := range noteParts {
-			// Style each physical annotation row independently. Wrapping an
-			// already-styled string can leave continuation rows outside the SGR span.
-			noteParts[i] = addrStyle.Render(part)
-		}
-	}
-	n := max(len(asmParts), len(noteParts))
-	rows := make([]string, 0, n)
-	firstPrefix := fmt.Sprintf(" %s  %s  ", addrCol, bytesHex(inst.Bytes, 8))
-	contPrefix := strings.Repeat(" ", asmCol)
-	for i := 0; i < n; i++ {
-		prefix := contPrefix
-		if i == 0 {
-			prefix = firstPrefix
-		}
-		asmPart := ""
-		if i < len(asmParts) {
-			asmPart = asmParts[i]
-		}
-		line := prefix + asmPart
-		selectionEnd := lipgloss.Width(stripANSI(line))
-		if i < len(noteParts) {
-			pad := annCol - lipgloss.Width(stripANSI(line))
-			if pad < 1 {
-				pad = 1
-			}
-			line += strings.Repeat(" ", pad) + noteParts[i]
-		}
-		if selected {
-			plain := stripANSI(line)
-			if selectionEnd > len(plain) {
-				selectionEnd = len(plain)
-			}
-			line = tableSelStyle.Render(plain[:selectionEnd])
-			if selectionEnd < len(plain) {
-				gapEnd := min(annCol, len(plain))
-				if gapEnd > selectionEnd {
-					line += plain[selectionEnd:gapEnd]
-				}
-				if i < len(noteParts) {
-					line += noteParts[i]
-				}
-			}
-		}
-		rows = append(rows, padRight(line, w))
+	indent := strings.Repeat(" ", annCol)
+	for _, p := range parts {
+		rows = append(rows, padRight(indent+addrStyle.Render(p), w))
 	}
 	return rows
 }
@@ -1109,6 +1123,13 @@ func (m *Model) currentIntraJumpTargets() map[uint64]lipgloss.Style {
 }
 
 func (m *Model) ensureSourceForDisasmCursor() bool {
+	// In source-first mode the source cursor is authoritative — the asm pane
+	// follows it via syncSourceAsm. Re-deriving srcCur from the disasm cursor
+	// here would snap the cursor back whenever it moved onto an unmapped
+	// (shadow) line, which is why "up" sometimes appeared stuck.
+	if m.sourceFirst && m.srcFile != "" && m.file.SourceLines(m.srcFile) != nil {
+		return true
+	}
 	if len(m.disasmInst) == 0 || m.disasmCur < 0 || m.disasmCur >= len(m.disasmInst) {
 		return false
 	}
@@ -1196,6 +1217,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 	}
 
 	hl := m.highlightedSource(file, src)
+	mapped := m.file.MappedLines(file)
 
 	loc := fmt.Sprintf("%s:%d", file, line)
 	if col > 0 {
@@ -1205,7 +1227,8 @@ func (m *Model) renderSourcePane(w, h int) string {
 	b.WriteString(infoStyle.Render(loc))
 	b.WriteString("\n")
 	half := (h - 1) / 2
-	from := line - half
+	base := line - half
+	from := base + m.rightScroll
 	if from < 1 {
 		from = 1
 	}
@@ -1217,32 +1240,31 @@ func (m *Model) renderSourcePane(w, h int) string {
 			from = 1
 		}
 	}
+	m.rightScroll = from - base // store the actually-applied (clamped) offset
 	for i := from; i <= to; i++ {
 		var content string
 		if i-1 >= 0 && i-1 < len(src) {
 			content = src[i-1]
 		}
-		// Prefer the syntax-highlighted rendering of this line when available.
-		shown := content
+		// The code is always shown syntax-highlighted; only the gutter colour
+		// reflects the mapping (shared srcGutter policy — identical to the
+		// source-first pane).
 		if hl != nil && i-1 >= 0 && i-1 < len(hl) {
-			shown = hl[i-1]
+			content = hl[i-1]
 		}
-		// The current line gets a highlighted gutter + marker so it stands out
-		// without flattening the token colours of the code itself.
-		var prefix string
-		if i == line {
-			prefix = srcCurLineStyle.Render(fmt.Sprintf("%4d ▸ ", i))
-		} else {
-			prefix = srcLineNoStyle.Render(fmt.Sprintf("%4d   ", i))
-		}
+		prefix := m.srcGutter(i, line, mapped, 5)
 		gutterW := lipgloss.Width(stripANSI(prefix))
 		avail := inner - gutterW
-		b.WriteString(prefix + fitANSIWidth(shown, avail))
+		b.WriteString(prefix + fitANSIWidth(content, avail))
 		b.WriteString("\n")
-		// Point a caret at the current instruction's column within its line.
-		if i == line && col > 0 {
-			b.WriteString(coloredCaretRow([]int{col}, gutterW, inner))
-			b.WriteString("\n")
+		// Point carets at every column this source line maps to (a line can map
+		// at several positions), each in its column colour — same as the
+		// source-first pane.
+		if i == line {
+			if cols := m.file.LineColumns(file, line); len(cols) > 0 {
+				b.WriteString(coloredCaretRow(cols, gutterW, inner))
+				b.WriteString("\n")
+			}
 		}
 	}
 	return border.Render(padBody(b.String(), inner, h))

@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -14,10 +15,10 @@ import (
 
 func main() {
 	if len(os.Args) != 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
-		fmt.Fprintf(os.Stderr, "usage: %s <binary>   (ELF, Mach-O, or PE)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s <binary>   (path or a command name on $PATH)\n", os.Args[0])
 		os.Exit(2)
 	}
-	path := os.Args[1]
+	path := resolveTarget(os.Args[1])
 
 	f, err := binfile.Open(path)
 	if err != nil {
@@ -36,4 +37,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// resolveTarget turns the CLI argument into a file path. An existing file (or
+// any argument containing a path separator) is used as-is; a bare command name
+// is looked up on $PATH like a shell would, so "exex ls" opens /bin/ls. When no
+// PATH entry matches, the original argument is returned so binfile.Open reports
+// the usual not-found error.
+func resolveTarget(arg string) string {
+	if st, err := os.Stat(arg); err == nil && !st.IsDir() {
+		return arg
+	}
+	if p, err := exec.LookPath(arg); err == nil {
+		return p
+	}
+	return arg
 }

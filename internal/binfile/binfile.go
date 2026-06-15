@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/rabarbra/exex/internal/disasm"
 )
@@ -95,6 +97,7 @@ type Symbol struct {
 	Kind      SymKind
 	Bind      SymBind
 	Section   string
+	Library   string // for imports: the shared library this symbol is bound to
 }
 
 // Display returns the demangled name when available, else the raw name.
@@ -120,7 +123,8 @@ type File struct {
 
 	symByAddr []Symbol // sorted by Addr
 	dwarf     *dwarf.Data
-	lines     []lineEntry         // sorted by Addr
+	lines     []lineEntry         // sorted by Addr (loaded lazily from dwarf)
+	linesOnce sync.Once           // guards the lazy line-table decode
 	sources   map[string][]string // resolved file -> lines
 
 	vaImage   *Image        // all mapped sections, in VA order (lazy)
@@ -173,11 +177,11 @@ func Open(path string) (*File, error) {
 // symbols with their Size left at 0 when the container doesn't record one
 // (notably Mach-O); we infer those from the gap to the next symbol so the
 // disasm view can still annotate ranges and SymbolAt can cover an address.
+// finalizeSymbols sorts symbols and builds the address index. Demangling is
+// intentionally NOT done here — it's the slowest part of loading a big symbol
+// table, so callers run it separately (ComputeDemangled/ApplyDemangled) off the
+// critical path; until then Display() falls back to the raw name.
 func (f *File) finalizeSymbols() {
-	for i := range f.Symbols {
-		f.Symbols[i].Demangled = demangleName(f.Symbols[i].Name)
-	}
-	f.demangleSwift()
 	sort.Slice(f.Symbols, func(i, j int) bool { return f.Symbols[i].Name < f.Symbols[j].Name })
 
 	f.symByAddr = make([]Symbol, 0, len(f.Symbols))
@@ -193,6 +197,72 @@ func (f *File) finalizeSymbols() {
 		return f.symByAddr[i].Size > f.symByAddr[j].Size
 	})
 	f.inferSizes()
+}
+
+// ComputeDemangled returns the demangled form of every symbol name, indexed
+// like f.Symbols ("" when a name isn't mangled). It only reads names, so it is
+// safe to run on a background goroutine; apply the result with ApplyDemangled
+// on the goroutine that owns the File. Demangling a large symbol table
+// (Rust/C++/Swift binaries carry 100k+ mangled names) dominates load time, and
+// demangle.Filter is pure, so the C++/Rust pass is fanned out across cores.
+func (f *File) ComputeDemangled() []string {
+	out := make([]string, len(f.Symbols))
+	n := runtime.NumCPU()
+	if n < 1 {
+		n = 1
+	}
+	itanium := func(lo, hi int) {
+		for i := lo; i < hi; i++ {
+			out[i] = demangleName(f.Symbols[i].Name)
+		}
+	}
+	if len(f.Symbols) < 2048 || n == 1 {
+		itanium(0, len(f.Symbols))
+	} else {
+		chunk := (len(f.Symbols) + n - 1) / n
+		var wg sync.WaitGroup
+		for lo := 0; lo < len(f.Symbols); lo += chunk {
+			hi := min(lo+chunk, len(f.Symbols))
+			wg.Add(1)
+			go func(lo, hi int) { defer wg.Done(); itanium(lo, hi) }(lo, hi)
+		}
+		wg.Wait()
+	}
+	demangleSwiftInto(f.Symbols, out)
+	return out
+}
+
+// ApplyDemangled stores the result of ComputeDemangled onto the symbols (and the
+// address-indexed copies). Run it on the File's owning goroutine.
+func (f *File) ApplyDemangled(d []string) {
+	if len(d) != len(f.Symbols) {
+		return
+	}
+	byName := make(map[string]string, len(d))
+	for i := range f.Symbols {
+		f.Symbols[i].Demangled = d[i]
+		if d[i] != "" {
+			byName[f.Symbols[i].Name] = d[i]
+		}
+	}
+	for i := range f.symByAddr {
+		if dm, ok := byName[f.symByAddr[i].Name]; ok {
+			f.symByAddr[i].Demangled = dm
+		}
+	}
+}
+
+// lineEntries returns the address→source line table, decoding it from DWARF on
+// first use. Decoding is deferred out of Open because it's only needed once the
+// user looks at source mapping (the Sources view / source pane), and it is a
+// large slice of the startup cost for binaries with rich debug info.
+func (f *File) lineEntries() []lineEntry {
+	f.linesOnce.Do(func() {
+		if f.dwarf != nil {
+			f.lines = loadLines(f.dwarf)
+		}
+	})
+	return f.lines
 }
 
 // inferSizes gives zero-sized symbols an extent reaching to the next symbol at
@@ -271,7 +341,7 @@ func loadLines(d *dwarf.Data) []lineEntry {
 func (f *File) SourceFiles() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, le := range f.lines {
+	for _, le := range f.lineEntries() {
 		if le.File != "" && !seen[le.File] {
 			seen[le.File] = true
 			out = append(out, le.File)
@@ -289,7 +359,7 @@ func (f *File) LineToAddr(file string, line int) (uint64, bool) {
 		bestLine int
 		found    bool
 	)
-	for _, le := range f.lines {
+	for _, le := range f.lineEntries() {
 		if le.File != file {
 			continue
 		}
@@ -318,14 +388,15 @@ func (f *File) LookupAddr(addr uint64) (string, int) {
 
 // LookupAddrCol is LookupAddr plus the DWARF column (0 when unknown).
 func (f *File) LookupAddrCol(addr uint64) (file string, line, col int) {
-	if len(f.lines) == 0 {
+	lines := f.lineEntries()
+	if len(lines) == 0 {
 		return "", 0, 0
 	}
-	i := sort.Search(len(f.lines), func(i int) bool { return f.lines[i].Addr > addr })
+	i := sort.Search(len(lines), func(i int) bool { return lines[i].Addr > addr })
 	if i == 0 {
 		return "", 0, 0
 	}
-	le := f.lines[i-1]
+	le := lines[i-1]
 	return le.File, le.Line, le.Col
 }
 
@@ -333,7 +404,7 @@ func (f *File) LookupAddrCol(addr uint64) (file string, line, col int) {
 // code mapped to them.
 func (f *File) MappedLines(file string) map[int]bool {
 	out := map[int]bool{}
-	for _, le := range f.lines {
+	for _, le := range f.lineEntries() {
 		if le.File == file {
 			out[le.Line] = true
 		}
@@ -345,7 +416,7 @@ func (f *File) MappedLines(file string) map[int]bool {
 // file:line — the positions within the line that code maps to.
 func (f *File) LineColumns(file string, line int) []int {
 	seen := map[int]bool{}
-	for _, le := range f.lines {
+	for _, le := range f.lineEntries() {
 		if le.File == file && le.Line == line && le.Col > 0 {
 			seen[le.Col] = true
 		}

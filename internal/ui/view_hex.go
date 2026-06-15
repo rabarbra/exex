@@ -154,6 +154,10 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 		m.hexCur = m.seekNonZero(data, m.hexCur, true)
 	case "[":
 		m.hexCur = m.seekNonZero(data, m.hexCur, false)
+	case "}":
+		m.hexCur = m.seekHexSection(true)
+	case "{":
+		m.hexCur = m.seekHexSection(false)
 	case "/":
 		m.openSearch()
 	case "n":
@@ -164,6 +168,37 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 		m.hexCur = m.moveByteCursor(key, m.hexCur, len(data))
 	}
 	return m, nil
+}
+
+// seekHexSection moves the byte cursor to the start of the next/previous mapped
+// section (by virtual address), reporting when there is none in that direction.
+func (m *Model) seekHexSection(forward bool) int {
+	curAddr := m.hexImg.AddrAt(m.hexCur)
+	best := uint64(0)
+	found := false
+	for i := range m.file.Sections {
+		s := &m.file.Sections[i]
+		if !s.Alloc || s.Size == 0 {
+			continue
+		}
+		if forward {
+			if s.Addr > curAddr && (!found || s.Addr < best) {
+				best, found = s.Addr, true
+			}
+		} else {
+			if s.Addr < curAddr && (!found || s.Addr > best) {
+				best, found = s.Addr, true
+			}
+		}
+	}
+	if !found {
+		m.setStatus("no more sections in this direction", false)
+		return m.hexCur
+	}
+	if pos, ok := m.hexImg.PosForAddr(best); ok {
+		return pos
+	}
+	return m.hexCur
 }
 
 // seekNonZero moves a byte cursor to the next/previous non-zero byte. It
@@ -207,6 +242,10 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, true)
 	case "[":
 		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, false)
+	case "}":
+		m.rawCur = m.seekRawSection(true)
+	case "{":
+		m.rawCur = m.seekRawSection(false)
 	case "/":
 		m.openSearch()
 	case "n":
@@ -217,6 +256,37 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 		m.rawCur = m.moveByteCursor(key, m.rawCur, len(m.rawData))
 	}
 	return m, nil
+}
+
+// seekRawSection moves the raw cursor to the start of the next/previous
+// section's file bytes (by file offset).
+func (m *Model) seekRawSection(forward bool) int {
+	cur := uint64(m.rawCur)
+	best := uint64(0)
+	found := false
+	for i := range m.file.Sections {
+		s := &m.file.Sections[i]
+		if s.FileSize == 0 {
+			continue
+		}
+		if forward {
+			if s.Offset > cur && (!found || s.Offset < best) {
+				best, found = s.Offset, true
+			}
+		} else {
+			if s.Offset < cur && (!found || s.Offset > best) {
+				best, found = s.Offset, true
+			}
+		}
+	}
+	if !found {
+		m.setStatus("no more sections in this direction", false)
+		return m.rawCur
+	}
+	if int(best) < len(m.rawData) {
+		return int(best)
+	}
+	return m.rawCur
 }
 
 // sectionAtOffset returns the section whose file bytes cover off.

@@ -94,15 +94,15 @@ func (m *Model) recomputeSourceFiles() {
 	}
 }
 
+// The Sources view is always just the file list; opening a file (Enter) drops
+// into the disassembly view in source-first mode. The split source/disasm panes
+// live entirely in the disasm view now.
 func (m *Model) updateSources(key string) (tea.Model, tea.Cmd) {
 	m.ensureSources()
 	if !m.file.HasDWARF() {
 		return m, nil
 	}
-	if m.srcFile == "" {
-		return m.updateSourceList(key)
-	}
-	return m.updateSourceOpen(key)
+	return m.updateSourceList(key)
 }
 
 func (m *Model) updateSourceList(key string) (tea.Model, tea.Cmd) {
@@ -149,79 +149,9 @@ func (m *Model) updateSourceList(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateSourceOpen dispatches to the active pane: when the disasm pane is
-// primary (Tab → srcAsmLeft) navigation drives the disassembly and the source
-// follows; otherwise the source drives and the disasm follows.
-func (m *Model) updateSourceOpen(key string) (tea.Model, tea.Cmd) {
-	if m.srcAsmLeft {
-		return m.updateSourceOpenAsm(key)
-	}
-	return m.updateSourceOpenSrc(key)
-}
-
-// updateSourceOpenAsm navigates the disassembly pane (reusing the disasm view's
-// handler, so window loading / history / follow all work) and mirrors the
-// cursor into the source pane afterwards.
-func (m *Model) updateSourceOpenAsm(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "backspace":
-		m.srcFile = ""
-		return m, nil
-	case "/":
-		m.srcSearchAll = false
-		m.openSearch()
-		return m, nil
-	case "ctrl+f":
-		m.srcSearchAll = true
-		m.openSearch()
-		return m, nil
-	case "c":
-		m.copyToClipboard(m.srcFile, "source path")
-		return m, nil
-	case "w":
-		m.wrap = !m.wrap
-		m.setStatus(wrapStatus(m.wrap), false)
-		return m, nil
-	case "n":
-		m.runSearch(true, false)
-		m.syncSourceAsm()
-		return m, nil
-	case "N":
-		m.runSearch(false, false)
-		m.syncSourceAsm()
-		return m, nil
-	}
-	// Delegate movement / [ ] symbol / Enter follow / history to the disasm
-	// handler. If it didn't drill out to the full disasm view, mirror the new
-	// instruction into the source pane.
-	prev := m.mode
-	model, cmd := m.updateDisasm(key)
-	if m.mode == prev {
-		m.followSourceFromAsm()
-	}
-	return model, cmd
-}
-
-// followSourceFromAsm points the source pane at the line mapped from the disasm
-// cursor, switching files when the cursor crosses into another (inlined) source.
-func (m *Model) followSourceFromAsm() {
-	if len(m.disasmInst) == 0 || m.disasmCur < 0 || m.disasmCur >= len(m.disasmInst) {
-		return
-	}
-	file, line := m.file.LookupAddr(m.disasmInst[m.disasmCur].Addr)
-	if file == "" || line == 0 {
-		return
-	}
-	if file != m.srcFile {
-		if m.file.SourceLines(file) == nil {
-			return // keep showing the current file we can actually display
-		}
-		m.srcFile = file
-		m.srcCodeLines = m.file.MappedLines(file)
-	}
-	m.srcCur = line
-}
-
+// updateSourceOpenSrc drives source-first navigation: the source cursor leads
+// and the disasm pane follows via syncSourceAsm. Used by the disasm view when
+// sourceFirst is active.
 func (m *Model) updateSourceOpenSrc(key string) (tea.Model, tea.Cmd) {
 	n := len(m.file.SourceLines(m.srcFile))
 	switch key {
@@ -448,25 +378,9 @@ func (m *Model) renderSources() string {
 	if !m.file.HasDWARF() {
 		return padBody("no debug info — the Sources view needs DWARF (build with -g, or place a .dSYM / .debug sidecar next to the binary)\n", m.width, bodyH)
 	}
-	if m.srcFile == "" {
-		return m.renderSourceList(bodyH)
-	}
-	// Split source + disassembly; Tab (srcAsmLeft) puts the active pane on the
-	// left. When disasm is active it's the real disasm scroller (with window
-	// loading + sticky symbol); when source is active the asm pane is the
-	// column-tinted follower. The right pane carries the divider border.
-	leftW := m.width / 2
-	rightW := m.width - leftW
-	var left, right string
-	if m.srcAsmLeft {
-		sticky := m.renderStickySymbol(leftW)
-		left = sticky + "\n" + m.renderDisasmScroll(leftW, bodyH-1)
-		right = leftBorderPane(m.renderSourceText(rightW-1, bodyH))
-	} else {
-		left = m.renderSourceText(leftW, bodyH)
-		right = leftBorderPane(m.renderSourceAsm(rightW-1, bodyH))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	// The Sources view is only ever the file list; opening a file switches to the
+	// disasm view (source-first), which owns the split panes.
+	return m.renderSourceList(bodyH)
 }
 
 // leftBorderPane draws a thin divider on the left edge of a pane.
@@ -556,27 +470,14 @@ func (m *Model) renderSourceText(w, h int) string {
 
 	rows := 0
 	for ln := m.srcTop; ln <= len(src) && rows < contentH; ln++ {
-		hasCode := m.srcCodeLines[ln]
-		// Pick the content rendering: highlighted for mapped lines, dimmed
-		// ("shadowed") for lines with no machine code.
+		// The code is always shown syntax-highlighted; only the gutter colour
+		// reflects the mapping (shared srcGutter policy, used by both panes).
 		content := src[ln-1]
-		if hasCode && hl != nil && ln-1 < len(hl) {
-			content = hl[ln-1]
-		} else if hl != nil && ln-1 < len(hl) {
+		if hl != nil && ln-1 < len(hl) {
 			content = hl[ln-1]
 		}
 
-		// Gutter: ▸ for the cursor, · for a mapped line, blank otherwise.
-		var prefix string
-		switch {
-		case ln == m.srcCur:
-			prefix = srcCurLineStyle.Render(fmt.Sprintf("%5d ▸ ", ln))
-		case hasCode:
-			prefix = srcCodeLineNoStyle.Render(fmt.Sprintf("%5d · ", ln))
-		default:
-			prefix = srcShadowStyle.Render(fmt.Sprintf("%5d   ", ln))
-		}
-
+		prefix := m.srcGutter(ln, m.srcCur, m.srcCodeLines, 5)
 		avail := w - lipgloss.Width(stripANSI(prefix))
 		line := prefix + fitANSIWidth(content, avail)
 		if m.wrap {
@@ -637,26 +538,6 @@ func coloredCaretRow(cols []int, gutterW, w int) string {
 	return fitANSIWidth(row, w)
 }
 
-// caretRow renders a dim row with '^' under each mapped column, indented past a
-// gutter of the given width.
-func caretRow(cols []int, gutterW, w int) string {
-	if len(cols) == 0 {
-		return ""
-	}
-	maxc := cols[len(cols)-1]
-	buf := []rune(strings.Repeat(" ", maxc))
-	for _, c := range cols {
-		if c >= 1 && c <= len(buf) {
-			buf[c-1] = '^'
-		}
-	}
-	line := strings.Repeat(" ", gutterW) + string(buf)
-	if lipgloss.Width(line) > w {
-		line = line[:w]
-	}
-	return srcShadowStyle.Render(line)
-}
-
 // renderSourceAsm renders the disassembly beside the source. Instructions that
 // map to the current source line are highlighted in their column's colour (so
 // they correlate with the carets under the line); a line can map to several,
@@ -670,20 +551,14 @@ func (m *Model) renderSourceAsm(w, h int) string {
 	}
 
 	cols := m.file.LineColumns(m.srcFile, m.srcCur)
-	// colorFor classifies an instruction against the current source line:
-	// (colour, hasColumnColour, mappedToLine).
-	colorFor := func(addr uint64) (lipgloss.Color, bool, bool) {
-		file, line, col := m.file.LookupAddrCol(addr)
-		if line != m.srcCur || file != m.srcFile {
-			return "", false, false
-		}
-		c, ok := columnColor(cols, col)
-		return c, ok, true
+	mappedToCur := func(addr uint64) bool {
+		f, l, _ := m.file.LookupAddrCol(addr)
+		return f == m.srcFile && l == m.srcCur
 	}
 
 	count := 0
 	for _, in := range m.disasmInst {
-		if _, _, mp := colorFor(in.Addr); mp {
+		if mappedToCur(in.Addr) {
 			count++
 		}
 	}
@@ -697,15 +572,14 @@ func (m *Model) renderSourceAsm(w, h int) string {
 	if contentH < 1 {
 		contentH = 1
 	}
-	top := m.disasmTop
-	if m.disasmCur < top {
-		top = m.disasmCur
-	} else if m.disasmCur >= top+contentH {
-		top = m.disasmCur - contentH + 1
+	base := m.disasmTop
+	if m.disasmCur < base {
+		base = m.disasmCur
+	} else if m.disasmCur >= base+contentH {
+		base = m.disasmCur - contentH + 1
 	}
-	if top < 0 {
-		top = 0
-	}
+	top := clampScroll(base+m.rightScroll, len(m.disasmInst), contentH)
+	m.rightScroll = top - base // store the actually-applied (clamped) offset
 	end := top + contentH
 	if end > len(m.disasmInst) {
 		end = len(m.disasmInst)
@@ -717,24 +591,34 @@ func (m *Model) renderSourceAsm(w, h int) string {
 	addrW := m.file.AddrHexWidth()
 	for i := top; i < end; i++ {
 		inst := m.disasmInst[i]
+		// Colour only the address by mapping (shared addrMapStyle policy); the
+		// instruction text keeps its normal class colours so the pane reads like
+		// real disassembly.
+		addrText := fmt.Sprintf("0x%0*x", addrW, inst.Addr)
 		line := fmt.Sprintf(" %s  %s  %s",
-			addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, inst.Addr)),
+			m.addrMapStyle(inst.Addr, m.srcFile, m.srcCur).Render(addrText),
 			bytesHex(inst.Bytes, 6),
 			m.renderInstText(inst.Text, inst.Class, inst.Addr))
-		if c, hasCol, mp := colorFor(inst.Addr); mp {
-			// Recolour the whole row to correlate with the source carets.
-			st := srcMappedStyle
-			if hasCol {
-				st = lipgloss.NewStyle().Foreground(c).Bold(true)
-			}
-			line = st.Render(padRight(stripANSI(line), w))
-		} else {
-			line = srcShadowStyle.Render(fitANSIWidth(stripANSI(line), w))
-		}
-		b.WriteString(line)
+		b.WriteString(fitANSIWidth(line, w))
 		b.WriteString("\n")
 	}
 	return padBody(b.String(), w, h)
+}
+
+// clampScroll keeps a viewport top within [0, n-h] so an independent-scroll
+// offset can't run the follower pane off either end.
+func clampScroll(top, n, h int) int {
+	maxTop := n - h
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if top > maxTop {
+		top = maxTop
+	}
+	if top < 0 {
+		top = 0
+	}
+	return top
 }
 
 // coloredCols renders the line's column numbers, each in its assigned colour.

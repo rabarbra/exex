@@ -55,21 +55,20 @@ var (
 			Foreground(lipgloss.Color("214")).
 			Bold(true)
 
-	srcLineNoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
+	// whiteStyle is plain bright white, used for addresses / line numbers that
+	// carry a source↔code mapping in the split panes.
+	whiteStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("231"))
 
+	// srcCurLineStyle highlights the current (caret) source line's number gutter.
 	srcCurLineStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("236")).
+			Background(lipgloss.Color("63")).
 			Bold(true)
 
 	// srcShadowStyle dims source lines that have no machine code mapped to them.
 	srcShadowStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
-
-	// srcCodeLineNoStyle marks gutter line numbers that do have code.
-	srcCodeLineNoStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("114"))
 
 	// srcMappedStyle highlights, in the source view's asm pane, the
 	// instructions that map to the currently selected source line.

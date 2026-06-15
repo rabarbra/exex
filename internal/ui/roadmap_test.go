@@ -148,22 +148,36 @@ func TestSearchPopupClickTogglesSwitches(t *testing.T) {
 	modal := m.renderSearchModal()
 	left := (m.width - lipgloss.Width(modal)) / 2
 	top := (m.height - lipgloss.Height(modal)) / 2
-	m.handleSearchPopupClick(left+4, top+4)
+
+	// The switch strip lives at content row searchSwitchLine, inside the modal's
+	// border (1) + padding (1,2). Compute the centre x of each segment from the
+	// shared searchSwitches() layout so the test can't drift from the renderer.
+	rowY := top + 2 + searchSwitchLine
+	sepW := lipgloss.Width(searchSwitchSep)
+	centers := make([]int, 0, 3)
+	pos := 0
+	for _, sw := range m.searchSwitches() {
+		w := lipgloss.Width(sw.label)
+		centers = append(centers, left+3+pos+w/2)
+		pos += w + sepW
+	}
+
+	m.handleSearchPopupClick(centers[0], rowY)
 	if m.searchMode != searchModeText {
 		t.Fatalf("mode click set mode = %s, want text", searchModeName(m.searchMode))
 	}
-	m.handleSearchPopupClick(left+lipgloss.Width(modal)/2, top+4)
+	m.handleSearchPopupClick(centers[1], rowY)
 	if m.searchForward {
 		t.Fatal("direction click did not toggle searchForward")
 	}
-	m.handleSearchPopupClick(left+lipgloss.Width(modal)-4, top+4)
+	m.handleSearchPopupClick(centers[2], rowY)
 	if m.searchFromCursor {
 		t.Fatal("origin click did not toggle searchFromCursor")
 	}
 }
 
 func TestWrappedSymbolsKeepAddressGrayOnContinuation(t *testing.T) {
-	m := &Model{width: 42, wrapLong: map[mode]bool{modeSymbols: true}, file: &binfile.File{Symbols: []binfile.Symbol{{
+	m := &Model{width: 42, wrap: true, file: &binfile.File{Symbols: []binfile.Symbol{{
 		Name: strings.Repeat("very_long_symbol_name_", 5), Addr: 0x1000, Kind: binfile.SymFunc,
 	}}}}
 	m.symbolsFiltered = []int{0}
@@ -181,10 +195,10 @@ func TestWrappedSymbolsKeepAddressGrayOnContinuation(t *testing.T) {
 
 func TestWrappedSymbolsMouseSelectionUsesVisualRows(t *testing.T) {
 	m := &Model{
-		mode:     modeSymbols,
-		width:    42,
-		height:   120,
-		wrapLong: map[mode]bool{modeSymbols: true},
+		mode:   modeSymbols,
+		width:  42,
+		height: 120,
+		wrap:   true,
 		file: &binfile.File{Symbols: []binfile.Symbol{
 			{Name: strings.Repeat("very_long_symbol_name_", 5), Addr: 0x1000, Kind: binfile.SymFunc},
 			{Name: "second", Addr: 0x2000, Kind: binfile.SymObject},
@@ -234,7 +248,7 @@ func TestRawClickSkipsSectionSplitRows(t *testing.T) {
 }
 
 func TestDisasmAnnotationWrapsWithGrayStyleEachRow(t *testing.T) {
-	m := &Model{width: 64, wrapLong: map[mode]bool{modeDisasm: true}, file: &binfile.File{Sections: []binfile.Section{{
+	m := &Model{width: 64, wrap: true, file: &binfile.File{Sections: []binfile.Section{{
 		Name: strings.Repeat("very_long_section_name_", 5), Addr: 0x2000, Size: 8, Alloc: true,
 	}}}}
 	inst := disasm.Inst{Addr: 0x1000, Text: "call 0x2000", Class: disasm.ClassCall, Bytes: []byte{0xe8}}

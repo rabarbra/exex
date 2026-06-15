@@ -157,6 +157,7 @@ Keys configurable in config.
 Show symbols annotation on the right. Split with sections (now works only partially).
 d should lead to diasm if this address is executable.
 w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+shift+[ and shift+] should go to next / prev section
 Keys configurable in config.
 
 ## 14. Sections view

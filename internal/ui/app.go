@@ -87,6 +87,7 @@ type Model struct {
 	symbolsTop      int
 	symbolsKind     binfile.SymKind
 	symbolsKindOn   bool
+	symbolsLib      string // when set, show only imports bound to this library
 
 	// Disasm view. disasmInst holds the currently loaded decode window only. The
 	// first window is loaded lazily on first open; later jumps replace it with a
@@ -110,6 +111,7 @@ type Model struct {
 	disasmCacheOrder    []disasmCacheKey
 	showSource          bool
 	sourceFirst         bool
+	rightScroll         int // extra scroll offset for the follower (right) pane; 0 = auto-follow
 	srcVP               viewport.Model
 	srcHL               map[string][]string // filename → per-line syntax-highlighted source
 
@@ -153,7 +155,6 @@ type Model struct {
 	srcMatches      []srcMatch   // last cross-source grep
 	srcMatchIdx     int
 	srcSearchAll    bool // scope of the next search in this view
-	srcAsmLeft      bool // Sources open-file: disasm on the left, source on the right
 
 	// Per-view long-line wrapping toggles. Views default to truncating to preserve
 	// table geometry; the toggle lets source-heavy views show full rows when desired.
@@ -340,12 +341,18 @@ func parseDefaultView(name string) mode {
 }
 
 func (m *Model) Init() tea.Cmd {
+	var cmds []tea.Cmd
+	// Demangle the symbol table in the background so a large binary renders
+	// immediately; names switch from raw to demangled when it completes.
+	if len(m.file.Symbols) > 0 {
+		cmds = append(cmds, m.demangleCmd())
+	}
 	// If the configured default view is Disasm, switchMode already flagged a
 	// decode; kick it off here (New can't return a Cmd).
 	if m.disasmDecoding && !m.disasmBuilt && m.dis != nil {
-		return m.decodeDisasmCmd(m.disasmPendingAddr)
+		cmds = append(cmds, m.decodeDisasmCmd(m.disasmPendingAddr))
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) setStatus(s string, isError bool) {
@@ -427,8 +434,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case disasmPrefetchMsg:
 		return m, nil
+
+	case demangleDoneMsg:
+		// Background demangle finished: store the names (and refresh the symbols
+		// filter, which matches on demangled text too) so the next render shows
+		// readable names everywhere.
+		m.file.ApplyDemangled(msg.names)
+		m.recomputeSymbols()
+		return m, nil
 	}
 	return m, nil
+}
+
+// demangleDoneMsg carries the result of the background symbol demangle.
+type demangleDoneMsg struct{ names []string }
+
+// demangleCmd demangles the symbol table off the UI goroutine so a large binary
+// shows up immediately (with raw names) instead of blocking on startup.
+func (m *Model) demangleCmd() tea.Cmd {
+	f := m.file
+	return func() tea.Msg { return demangleDoneMsg{names: f.ComputeDemangled()} }
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -584,6 +609,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case actionToggleSource:
 		switch m.mode {
 		case modeDisasm:
+			if !m.file.HasDWARF() {
+				m.setStatus("no debug info — source pane unavailable", true)
+				return m, nil
+			}
 			switch {
 			case !m.showSource:
 				m.showSource = true
@@ -593,11 +622,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			default:
 				m.showSource = !m.showSource
 				m.sourceFirst = false
-			}
-		case modeSources:
-			// Swap which pane (source / disasm) is primary on the left.
-			if m.srcFile != "" {
-				m.srcAsmLeft = !m.srcAsmLeft
 			}
 		}
 		return m, nil
@@ -851,59 +875,91 @@ func (m *Model) View() string {
 	return out
 }
 
-// renderHelpModal lists the keybindings, grouped by scope.
+// renderHelpModal lists the keybindings, grouped by scope, in two columns. The
+// key column is padded by display width (so multibyte arrows align) and the two
+// columns are laid out side by side to keep the modal compact.
 func (m *Model) renderHelpModal() string {
+	const keyW = 16
 	row := func(keys, desc string) string {
-		return "  " + headerKey.Render(padKey(keys, 14)) + " " + desc
+		return helpKeyStyle.Render(padVisual(keys, keyW)) + " " + helpDescStyle.Render(desc)
 	}
-	lines := []string{
-		titleStyle.Render(" Keybindings "),
-		"",
-		headerKey.Render("Global"),
+	head := func(s string) string { return helpHeadStyle.Render(s) }
+
+	left := []string{
+		head("Global"),
 		row("1–9", "switch view"),
-		row("g", "go to address / symbol (live list)"),
-		row("q / ctrl+c", "quit"),
-		row("? / any key", "close this help"),
+		row("g", "go to address / symbol"),
+		row("?", "this help  ·  q / ^C quit"),
 		"",
-		headerKey.Render("Lists (sections / symbols / strings / libs)"),
-		row("↑/↓ j/k", "move    ·  PgUp/PgDn page"),
-		row("Home/End", "begin/end  (also ctrl+a / ctrl+e)"),
-		row("/", "filter (sections, symbols)"),
+		head("Lists (all views)"),
+		row("↑/↓  j/k", "move line"),
+		row("PgUp/PgDn", "page  (⌘↑/⌘↓ on macOS)"),
+		row("Home/End", "begin/end  (^A / ^E)"),
+		row("/", "filter / search"),
 		row("Enter", "open / jump"),
 		row("a / s", "copy address / name"),
 		row("w", "toggle long-line wrap"),
 		"",
-		headerKey.Render("Sections"),
-		row("Enter", "open section in Hex"),
-		row("d", "disassemble executable section"),
+		head("Sections"),
+		row("Enter", "open in Hex"),
+		row("d", "disassemble (if exec)"),
 		"",
-		headerKey.Render("Symbols"),
-		row("t", "cycle symbol type filter"),
-		"",
-		headerKey.Render("Disassembly"),
-		row("↑/↓", "scroll    ·  ←/→ history back/forward"),
+		head("Symbols"),
+		row("t", "cycle type filter"),
+		row("Esc", "clear library filter"),
+	}
+	right := []string{
+		head("Disassembly"),
+		row("↑/↓", "scroll"),
+		row("←/→", "history back / forward"),
 		row("[ / ]", "previous / next symbol"),
-		row("Enter / dbl-click", "follow address"),
-		row("/ , n/N", "search · next/prev match"),
+		row("Enter / dbl-clk", "follow address"),
+		row("/  n/N", "search · next/prev"),
 		row("Tab", "toggle source pane"),
 		"",
-		headerKey.Render("Hex / Raw"),
+		head("Hex / Raw"),
 		row("↑/↓/←/→", "move byte cursor"),
-		row("d", "disassemble executable address"),
-		row("[ / ]", "previous / next non-zero byte"),
-		row("/ , n/N", "search (hex bytes, \"text\", 0x…)"),
+		row("d", "disassemble (if exec)"),
+		row("[ / ]", "prev / next nonzero"),
+		row("⇧[ / ⇧]", "prev / next section"),
+		row("/  n/N", "search bytes/\"text\"/0x…"),
 		"",
-		headerKey.Render("Sources (DWARF)"),
-		row("Enter", "open file  ·  in file: jump to disasm"),
-		row("[ / ]", "previous / next mapped line"),
-		row("Tab", "swap source / disasm panes"),
-		row("/ , ^F", "find in file · grep all sources"),
-		row("c", "copy source path"),
-		row("g", "go to a symbol's source"),
+		head("Sources (DWARF)"),
+		row("Enter", "open · jump to disasm"),
+		row("[ / ]", "prev / next mapped line"),
+		row("Tab", "swap source / disasm"),
+		row("/  ^F", "find in file · grep all"),
+		row("c  ·  g", "copy path · goto symbol"),
 		"",
-		footerStyle.Render("  Mouse: wheel scrolls · click selects · click tabs · double-click follows"),
+		head("Libraries"),
+		row("Enter", "imported symbols"),
+		row("o  ·  c", "open as primary · copy"),
 	}
-	return modalStyle.Render(strings.Join(lines, "\n"))
+
+	col := func(rows []string) string {
+		w := 0
+		for _, r := range rows {
+			if rw := ansi.StringWidth(r); rw > w {
+				w = rw
+			}
+		}
+		for i, r := range rows {
+			rows[i] = padVisual(r, w)
+		}
+		return strings.Join(rows, "\n")
+	}
+	cols := lipgloss.JoinHorizontal(lipgloss.Top, col(left), "    ", col(right))
+	body := titleStyle.Render(" Keybindings ") + "\n\n" + cols +
+		"\n\n" + footerStyle.Render("Mouse: wheel scrolls · click selects · click tabs · double-click follows")
+	return modalStyle.Render(body)
+}
+
+// padVisual right-pads s to a display width of w columns (ANSI/width aware).
+func padVisual(s string, w int) string {
+	if d := w - ansi.StringWidth(s); d > 0 {
+		return s + strings.Repeat(" ", d)
+	}
+	return s
 }
 
 // overlayCenter draws a pre-rendered modal centred over bg.
@@ -1094,6 +1150,9 @@ func (m *Model) renderFooter() string {
 		help = "Enter jump · / filter · g goto · ? help · q quit"
 	case modeDisasm:
 		help = "Enter follow · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
+		if m.showSource && m.file.HasDWARF() {
+			help = "Tab src pane/first · ⇧↑/⇧↓ scroll pane · [ ] sym · ←/→ history · / search · ? help · q quit"
+		}
 		if m.searchRunning {
 			help = "Esc cancel search · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
 		}
@@ -1102,14 +1161,7 @@ func (m *Model) renderFooter() string {
 	case modeRaw:
 		help = "[ ] non-zero · / search · a/s copy · g goto · ? help · q quit"
 	case modeSources:
-		switch {
-		case m.srcFile == "":
-			help = "Enter open · / filter · ^F grep all · g goto · ? help · q quit"
-		case m.srcAsmLeft:
-			help = "↑/↓ instr · [ ] sym · Tab source · Enter follow · / find · esc back · ? help · q quit"
-		default:
-			help = "↑/↓ line · [ ] mapped · Tab disasm · Enter disasm · / find · esc back · ? help · q quit"
-		}
+		help = "Enter open in disasm · / filter · ^F grep all · c copy · g goto · ? help · q quit"
 	case modeLibs:
 		help = "↑/↓ move · ? help · q quit"
 	}

@@ -414,7 +414,7 @@ func (f *File) loadMachOInfo(mf *macho.File) {
 	}
 
 	f.machoLoadInfo(mf, in)
-	in.Compiler = scanCompilerString(f.raw)
+	in.Compiler = f.scanCompilerString()
 	f.Info = in
 }
 
@@ -651,11 +651,35 @@ func cstr(b []byte) string {
 	return string(b)
 }
 
-// scanCompilerString pulls a compiler banner out of the raw image. It is
+// scanCompilerString pulls a compiler banner out of likely string/comment
+// sections. Scanning the whole Mach-O image is expensive for large frameworks
+// and not needed for this optional metadata.
+func (f *File) scanCompilerString() string {
+	for i := range f.Sections {
+		s := &f.Sections[i]
+		if !isCompilerStringSection(s) {
+			continue
+		}
+		if compiler := scanCompilerStringBytes(f.sectionData(s)); compiler != "" {
+			return compiler
+		}
+	}
+	return ""
+}
+
+func isCompilerStringSection(s *Section) bool {
+	if s == nil || s.FileSize == 0 || s.Exec {
+		return false
+	}
+	name := strings.ToLower(s.Name)
+	return strings.Contains(name, "cstring") || strings.Contains(name, "comment")
+}
+
+// scanCompilerStringBytes pulls a compiler banner out of a byte slice. It is
 // deliberately conservative: a real banner has a digit right after the version
 // word and ends at the "(clang-…)" parenthesis group, so we don't run off the
 // end into adjacent strings (Go string data isn't NUL-terminated).
-func scanCompilerString(raw []byte) string {
+func scanCompilerStringBytes(raw []byte) string {
 	for _, needle := range []string{"Apple clang version ", "clang version ", "GCC "} {
 		from := 0
 		for {

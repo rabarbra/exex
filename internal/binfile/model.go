@@ -123,8 +123,11 @@ type File struct {
 
 	symByAddr []Symbol // sorted by Addr
 	dwarf     *dwarf.Data
-	lines     []lineEntry         // sorted by Addr (loaded lazily from dwarf)
-	linesOnce sync.Once           // guards the lazy line-table decode
+	lines     []lineEntry       // sorted by Addr (loaded lazily from dwarf)
+	linesOnce sync.Once         // guards the lazy line-table decode
+	indexOnce sync.Once         // builds line lookup indexes from lines
+	lineCols  map[lineKey][]int // distinct DWARF columns by source file:line
+	lineMap   map[string]map[int]bool
 	sources   map[string][]string // resolved file -> lines
 
 	vaImage   *Image        // all mapped sections, in VA order (lazy)
@@ -137,6 +140,11 @@ type lineEntry struct {
 	File string
 	Line int
 	Col  int
+}
+
+type lineKey struct {
+	File string
+	Line int
 }
 
 // finalizeSymbols sorts symbols, fills in missing sizes, and builds the
@@ -272,6 +280,40 @@ func (f *File) lineEntries() []lineEntry {
 	return f.lines
 }
 
+func (f *File) ensureLineIndexes() {
+	f.indexOnce.Do(func() {
+		colsSeen := map[lineKey]map[int]bool{}
+		lineMap := map[string]map[int]bool{}
+		for _, le := range f.lineEntries() {
+			if le.File == "" || le.Line == 0 {
+				continue
+			}
+			if lineMap[le.File] == nil {
+				lineMap[le.File] = map[int]bool{}
+			}
+			lineMap[le.File][le.Line] = true
+			if le.Col > 0 {
+				key := lineKey{File: le.File, Line: le.Line}
+				if colsSeen[key] == nil {
+					colsSeen[key] = map[int]bool{}
+				}
+				colsSeen[key][le.Col] = true
+			}
+		}
+		lineCols := make(map[lineKey][]int, len(colsSeen))
+		for key, seen := range colsSeen {
+			cols := make([]int, 0, len(seen))
+			for col := range seen {
+				cols = append(cols, col)
+			}
+			sort.Ints(cols)
+			lineCols[key] = cols
+		}
+		f.lineMap = lineMap
+		f.lineCols = lineCols
+	})
+}
+
 // sectionData returns the file bytes backing a section (nil for zero-fill).
 func (f *File) sectionData(s *Section) []byte {
 	if s.FileSize == 0 {
@@ -298,6 +340,7 @@ func loadLines(d *dwarf.Data) []lineEntry {
 		}
 		lr, err := d.LineReader(cu)
 		if err != nil || lr == nil {
+			r.SkipChildren()
 			continue
 		}
 		var le dwarf.LineEntry
@@ -310,6 +353,7 @@ func loadLines(d *dwarf.Data) []lineEntry {
 			}
 			out = append(out, lineEntry{Addr: le.Address, File: le.File.Name, Line: le.Line, Col: le.Column})
 		}
+		r.SkipChildren()
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Addr < out[j].Addr })
 	return out
@@ -382,11 +426,14 @@ func (f *File) LookupAddrCol(addr uint64) (file string, line, col int) {
 // MappedLines returns the set of line numbers in file that have any machine
 // code mapped to them.
 func (f *File) MappedLines(file string) map[int]bool {
-	out := map[int]bool{}
-	for _, le := range f.lineEntries() {
-		if le.File == file {
-			out[le.Line] = true
-		}
+	f.ensureLineIndexes()
+	lines := f.lineMap[file]
+	if len(lines) == 0 {
+		return map[int]bool{}
+	}
+	out := make(map[int]bool, len(lines))
+	for line := range lines {
+		out[line] = true
 	}
 	return out
 }
@@ -394,21 +441,8 @@ func (f *File) MappedLines(file string) map[int]bool {
 // LineColumns returns the distinct, sorted DWARF columns (>0) recorded for
 // file:line — the positions within the line that code maps to.
 func (f *File) LineColumns(file string, line int) []int {
-	seen := map[int]bool{}
-	for _, le := range f.lineEntries() {
-		if le.File == file && le.Line == line && le.Col > 0 {
-			seen[le.Col] = true
-		}
-	}
-	if len(seen) == 0 {
-		return nil
-	}
-	out := make([]int, 0, len(seen))
-	for c := range seen {
-		out = append(out, c)
-	}
-	sort.Ints(out)
-	return out
+	f.ensureLineIndexes()
+	return f.lineCols[lineKey{File: file, Line: line}]
 }
 
 // SymbolAt returns the symbol whose extent covers addr.

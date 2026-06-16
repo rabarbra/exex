@@ -63,6 +63,83 @@ func (m *Model) recomputeSourceFiles() {
 	}
 }
 
+func (m *Model) mappedSourceLines(file string) map[int]bool {
+	if file == "" {
+		return nil
+	}
+	if m.srcCodeLineCache != nil {
+		if lines, ok := m.srcCodeLineCache[file]; ok {
+			return lines
+		}
+	}
+	lines := m.file.MappedLines(file)
+	if m.srcCodeLineCache == nil {
+		m.srcCodeLineCache = make(map[string]map[int]bool)
+	}
+	m.srcCodeLineCache[file] = lines
+	return lines
+}
+
+func (m *Model) sourceLineColumns(file string, line int) []int {
+	if file == "" || line <= 0 {
+		return nil
+	}
+	key := sourceLineCacheKey{file: file, line: line}
+	if m.srcColumnCache != nil {
+		if cols, ok := m.srcColumnCache[key]; ok {
+			return cols
+		}
+	}
+	cols := m.file.LineColumns(file, line)
+	if m.srcColumnCache == nil {
+		m.srcColumnCache = make(map[sourceLineCacheKey][]int)
+	}
+	m.srcColumnCache[key] = cols
+	return cols
+}
+
+func (m *Model) ensureSourceBelowDisasmCursor() bool {
+	if len(m.disasmInst) == 0 || m.disasmCur < 0 || m.disasmCur >= len(m.disasmInst) {
+		return false
+	}
+	start := m.disasmCur + 1
+	if start >= len(m.disasmInst) {
+		return false
+	}
+	if sym, ok := m.file.SymbolAt(m.disasmInst[m.disasmCur].Addr); ok && sym.Size > 0 {
+		end := sym.Addr + sym.Size
+		if m.selectSourceFromInstRange(start, func(addr uint64) bool { return addr < end }) {
+			return true
+		}
+		for start < len(m.disasmInst) && m.disasmInst[start].Addr < end {
+			start++
+		}
+	}
+	return m.selectSourceFromInstRange(start, func(uint64) bool { return true })
+}
+
+func (m *Model) selectSourceFromInstRange(start int, inRange func(uint64) bool) bool {
+	for i := start; i < len(m.disasmInst); i++ {
+		addr := m.disasmInst[i].Addr
+		if !inRange(addr) {
+			return false
+		}
+		file, line := m.file.LookupAddr(addr)
+		if file == "" || line == 0 || m.file.SourceLines(file) == nil {
+			continue
+		}
+		if m.srcFile != file {
+			m.srcFile = file
+			m.srcCodeLines = m.mappedSourceLines(file)
+		}
+		m.srcCur = line
+		m.srcTop = 0
+		m.syncSourceAsm()
+		return true
+	}
+	return false
+}
+
 // The Sources view is always just the file list; opening a file (Enter) drops
 // into the disassembly view in source-first mode. The split source/disasm panes
 // live entirely in the disasm view now.
@@ -96,7 +173,7 @@ func (m *Model) updateSourceList(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.sourcesCur >= 0 && m.sourcesCur < n {
 			m.openSourceFile(m.sourcesFiles[m.sourcesFiltered[m.sourcesCur]], 1)
-			m.mode = modeDisasm
+			m.setMode(modeDisasm)
 			m.showSource = true
 			m.sourceFirst = true
 		}
@@ -201,7 +278,7 @@ func (m *Model) openSourceFile(file string, line int) {
 		return
 	}
 	m.srcFile = file
-	m.srcCodeLines = m.file.MappedLines(file)
+	m.srcCodeLines = m.mappedSourceLines(file)
 	if line < 1 {
 		line = 1
 	}
@@ -332,6 +409,7 @@ func (m *Model) renderSourceList(bodyH int) string {
 		visible = 1
 	}
 	top := visualTop(m.sourcesCur, m.sourcesTop, len(m.sourcesFiltered), visible, func(int) int { return 1 })
+	m.sourcesTop = top
 	end := top + visible
 	if end > len(m.sourcesFiltered) {
 		end = len(m.sourcesFiltered)
@@ -377,12 +455,13 @@ func (m *Model) renderSourceText(w, h int) string {
 	rowHeight := func(i int) int {
 		ln := i + 1
 		h := m.sourceLineHeight(ln, w)
-		if ln == m.srcCur && len(m.file.LineColumns(m.srcFile, ln)) > 0 {
+		if ln == m.srcCur && len(m.sourceLineColumns(m.srcFile, ln)) > 0 {
 			h++
 		}
 		return h
 	}
 	top = visualTop(m.srcCur-1, top, len(src), contentH, rowHeight)
+	m.srcTop = top + 1
 
 	var b strings.Builder
 	b.WriteString(m.theme.infoStyle.Render(truncate(fmt.Sprintf("%s:%d", m.srcFile, m.srcCur), w)))
@@ -415,7 +494,7 @@ func (m *Model) renderSourceText(w, h int) string {
 		// Beneath the cursor line, point carets at the exact columns code maps
 		// to (a source line can map at several positions).
 		if ln == m.srcCur && rows < contentH {
-			if caret := coloredCaretRow(m.file.LineColumns(m.srcFile, ln), gutterWidth, w); caret != "" {
+			if caret := coloredCaretRow(m.sourceLineColumns(m.srcFile, ln), gutterWidth, w); caret != "" {
 				b.WriteString(caret)
 				b.WriteString("\n")
 				rows++
@@ -430,7 +509,7 @@ func (m *Model) sourceTextTop(w, contentH int) int {
 	rowHeight := func(i int) int {
 		ln := i + 1
 		h := m.sourceLineHeight(ln, w)
-		if ln == m.srcCur && len(m.file.LineColumns(m.srcFile, ln)) > 0 {
+		if ln == m.srcCur && len(m.sourceLineColumns(m.srcFile, ln)) > 0 {
 			h++
 		}
 		return h
@@ -483,35 +562,15 @@ func (m *Model) renderSourceAsm(w, h int) string {
 		return padBody("no executable code\n", w, h)
 	}
 
-	cols := m.file.LineColumns(m.srcFile, m.srcCur)
-	mappedToCur := func(addr uint64) bool {
-		f, l, _ := m.file.LookupAddrCol(addr)
-		return f == m.srcFile && l == m.srcCur
-	}
-
-	count := 0
-	for _, in := range m.disasmInst {
-		if mappedToCur(in.Addr) {
-			count++
-		}
-	}
-	head := m.theme.infoStyle.Render(fmt.Sprintf("line %d — %d instruction(s)", m.srcCur, count))
-	if len(cols) > 0 {
-		head += m.theme.infoStyle.Render("  ·  cols ") + coloredCols(cols)
-	}
-	head = fitANSIWidth(head, w)
+	anchor := m.sourceAsmAnchorIndex()
+	cols := m.sourceLineColumns(m.srcFile, m.srcCur)
+	head := m.sourceAsmHeader(anchor, cols, w)
 
 	contentH := h - 1
 	if contentH < 1 {
 		contentH = 1
 	}
-	base := m.disasmTop
-	if m.disasmCur < base {
-		base = m.disasmCur
-	} else if m.disasmCur >= base+contentH {
-		base = m.disasmCur - contentH + 1
-	}
-	top := clampScroll(base+m.rightScroll, len(m.disasmInst), contentH)
+	top := clampScroll(anchor-4+m.rightScroll, len(m.disasmInst), contentH)
 	end := top + contentH
 	if end > len(m.disasmInst) {
 		end = len(m.disasmInst)
@@ -522,19 +581,92 @@ func (m *Model) renderSourceAsm(w, h int) string {
 	b.WriteString("\n")
 	addrW := m.file.AddrHexWidth()
 	for i := top; i < end; i++ {
-		inst := m.disasmInst[i]
-		// Colour only the address by mapping (shared addrMapStyle policy); the
-		// instruction text keeps its normal class colours so the pane reads like
-		// real disassembly.
-		addrText := fmt.Sprintf("0x%0*x", addrW, inst.Addr)
-		line := fmt.Sprintf(" %s  %s  %s",
-			m.addrMapStyle(inst.Addr, m.srcFile, m.srcCur).Render(addrText),
-			bytesHex(inst.Bytes, 6),
-			m.renderInstText(inst.Text, inst.Class, inst.Addr))
-		b.WriteString(fitANSIWidth(line, w))
+		b.WriteString(m.sourceAsmRow(i, addrW, w))
 		b.WriteString("\n")
 	}
 	return padBody(b.String(), w, h)
+}
+
+func (m *Model) sourceAsmHeader(anchor int, cols []int, w int) string {
+	var parts []string
+	linePlain := fmt.Sprintf("line %d", m.srcCur)
+	colsPlain := ""
+	if len(cols) > 0 {
+		colsPlain = "cols " + intsString(cols)
+	}
+	sepW := lipgloss.Width("  ·  ")
+	if anchor >= 0 && anchor < len(m.disasmInst) {
+		addr := m.disasmInst[anchor].Addr
+		if sym, ok := m.file.SymbolAt(addr); ok {
+			name := sym.Display()
+			if off := addr - sym.Addr; off > 0 {
+				name = fmt.Sprintf("%s+0x%x", name, off)
+			}
+			fixedW := lipgloss.Width(linePlain)
+			if colsPlain != "" {
+				fixedW += sepW + lipgloss.Width(colsPlain)
+			}
+			fixedW += sepW
+			name = truncateMiddle(name, max(1, w-fixedW))
+			parts = append(parts, m.theme.symbolNameStyle.Render(name))
+		}
+	}
+	parts = append(parts, m.theme.infoStyle.Render(linePlain))
+	if len(cols) > 0 {
+		parts = append(parts, m.theme.infoStyle.Render("cols ")+coloredCols(cols))
+	}
+	return fitANSIWidth(strings.Join(parts, m.theme.infoStyle.Render("  ·  ")), w)
+}
+
+func intsString(v []int) string {
+	parts := make([]string, len(v))
+	for i, n := range v {
+		parts[i] = fmt.Sprintf("%d", n)
+	}
+	return strings.Join(parts, " ")
+}
+
+func (m *Model) sourceAsmAnchorIndex() int {
+	if len(m.disasmInst) == 0 {
+		return 0
+	}
+	if addr, ok := m.file.LineToAddr(m.srcFile, m.srcCur); ok {
+		idx := m.instIndexAtOrAfterAddr(addr)
+		if idx >= 0 && idx < len(m.disasmInst) {
+			return idx
+		}
+	}
+	if m.disasmCur < 0 {
+		return 0
+	}
+	if m.disasmCur >= len(m.disasmInst) {
+		return len(m.disasmInst) - 1
+	}
+	return m.disasmCur
+}
+
+func (m *Model) sourceAsmRow(i, addrW, w int) string {
+	key := sourceAsmRowCacheKey{i: i, w: w, file: m.srcFile, line: m.srcCur}
+	if m.sourceAsmRowCache != nil {
+		if row, ok := m.sourceAsmRowCache[key]; ok {
+			return row
+		}
+	}
+	inst := m.disasmInst[i]
+	// Colour only the address by mapping (shared addrMapStyle policy); the
+	// instruction text keeps its normal class colours so the pane reads like
+	// real disassembly.
+	addrText := fmt.Sprintf("0x%0*x", addrW, inst.Addr)
+	line := fmt.Sprintf(" %s  %s  %s",
+		m.addrMapStyle(inst.Addr, m.srcFile, m.srcCur).Render(addrText),
+		bytesHex(inst.Bytes, 6),
+		m.renderInstText(inst.Text, inst.Class, inst.Addr))
+	row := fitANSIWidth(line, w)
+	if m.sourceAsmRowCache == nil {
+		m.sourceAsmRowCache = make(map[sourceAsmRowCacheKey]string)
+	}
+	m.sourceAsmRowCache[key] = row
+	return row
 }
 
 // clampScroll keeps a viewport top within [0, n-h] so an independent-scroll

@@ -62,7 +62,7 @@ func (m *Model) loadDisasmAtNoHistory(addr uint64) bool {
 	m.disasmCur = idx
 	m.disasmTop = idx
 	m.disasmPositioned = true
-	m.mode = modeDisasm
+	m.setMode(modeDisasm)
 	return true
 }
 

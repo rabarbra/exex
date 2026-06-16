@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rabarbra/exex/internal/binfile"
@@ -59,12 +61,14 @@ func (t Theme) styleForSymbol(k binfile.SymKind, b binfile.SymBind) lipgloss.Sty
 	return base
 }
 
-// styleForSection picks the row colour for a section based on its category.
+// styleForSection picks the row colour for a section based on its type/flags,
+// with the loader's neutral category as a fallback. This keeps section colours
+// useful across ELF, Mach-O, and PE even when format-specific type labels vary.
 func (t Theme) styleForSection(s *binfile.Section) lipgloss.Style {
 	if s == nil {
 		return t.tableRowStyle
 	}
-	switch s.Category {
+	switch sectionColorCategory(s) {
 	case binfile.CatDebug:
 		return t.secDebugStyle
 	case binfile.CatNote:
@@ -85,6 +89,40 @@ func (t Theme) styleForSection(s *binfile.Section) lipgloss.Style {
 		return t.secRodataStyle
 	}
 	return t.tableRowStyle
+}
+
+func sectionColorCategory(s *binfile.Section) binfile.SectionCategory {
+	name := strings.ToLower(s.Name)
+	typ := strings.ToLower(s.TypeName)
+	flags := strings.ToUpper(s.Flags)
+	exec := s.Exec || strings.Contains(flags, "X")
+	write := s.Write || strings.Contains(flags, "W")
+	alloc := s.Alloc || strings.Contains(flags, "A")
+	tls := strings.Contains(flags, "T") || strings.Contains(name, "tls") || strings.Contains(typ, "tls")
+
+	switch {
+	case strings.HasPrefix(name, ".debug") || strings.HasPrefix(name, ".zdebug") || strings.Contains(name, "dwarf") || strings.Contains(typ, "dwarf"):
+		return binfile.CatDebug
+	case strings.HasPrefix(name, ".note") || strings.Contains(typ, "note"):
+		return binfile.CatNote
+	case strings.Contains(typ, "symtab") || strings.Contains(typ, "dynsym") || strings.Contains(typ, "strtab") || strings.Contains(name, "symtab") || strings.Contains(name, "strtab"):
+		return binfile.CatSymtab
+	case strings.Contains(typ, "dynamic") || strings.Contains(typ, "hash") || strings.Contains(name, "dynamic") || strings.HasPrefix(name, ".dyn"):
+		return binfile.CatDynamic
+	case strings.Contains(typ, "rela") || strings.Contains(typ, "rel") || strings.Contains(name, "reloc") || strings.HasPrefix(name, ".rel"):
+		return binfile.CatReloc
+	case tls:
+		return binfile.CatTLS
+	case exec:
+		return binfile.CatText
+	case strings.Contains(typ, "nobits") || strings.Contains(typ, "zerofill") || (alloc && write && s.FileSize == 0 && s.Size > 0):
+		return binfile.CatBSS
+	case write:
+		return binfile.CatData
+	case alloc:
+		return binfile.CatRodata
+	}
+	return s.Category
 }
 
 // kindString / bindString render neutral symbol kinds and bindings for the

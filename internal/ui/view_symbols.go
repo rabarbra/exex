@@ -16,6 +16,7 @@ import (
 
 // recomputeSymbols rebuilds symbolsFiltered from the current filter text.
 func (m *Model) recomputeSymbols() {
+	m.clearSymbolCaches()
 	needle := strings.ToLower(m.symbolsFilter.Value())
 	m.symbolsFiltered = m.symbolsFiltered[:0]
 	for i, s := range m.file.Symbols {
@@ -152,7 +153,7 @@ func (m *Model) renderSymbols() string {
 	addrW := m.file.AddrHexWidth()
 	addrCol := 2 + addrW
 	hdr := fmt.Sprintf(" %-*s %-6s %-5s %-8s  %s", addrCol, "Address", "Size", "Bind", "Type", "Name")
-	header := m.theme.tableHeaderStyle.Render(padRight(hdr, m.width))
+	header := m.tableHeader(hdr)
 
 	visible := bodyH - 2 // filter row + header
 	if visible < 1 {
@@ -162,12 +163,16 @@ func (m *Model) renderSymbols() string {
 		return m.symbolRowHeight(i)
 	}
 	top := visualTop(m.symbolsCur, m.symbolsTop, len(m.symbolsFiltered), visible, rowHeight)
+	m.symbolsTop = top
 
-	rows := []string{padRight(filterRow, m.width), padRight(header, m.width)}
+	rows := []string{filterRow, header}
 	for i := top; i < len(m.symbolsFiltered); i++ {
-		for _, row := range m.symbolRows(i, addrW, i == m.symbolsCur) {
+		for _, row := range m.symbolRows(i, addrW) {
 			if len(rows) >= bodyH {
 				break
+			}
+			if i == m.symbolsCur {
+				row = m.theme.tableSelStyle.Render(stripANSI(row))
 			}
 			rows = append(rows, row)
 		}
@@ -182,11 +187,30 @@ func (m *Model) symbolRowHeight(i int) int {
 	if i < 0 || i >= len(m.symbolsFiltered) {
 		return 1
 	}
-	return len(m.symbolRows(i, m.file.AddrHexWidth(), false))
+	key := symbolRowCacheKey{i, m.width, m.file.AddrHexWidth(), m.wrap}
+	if m.symbolHeightCache != nil {
+		if h, ok := m.symbolHeightCache[key]; ok {
+			return h
+		}
+	}
+	h := len(m.symbolRows(i, m.file.AddrHexWidth()))
+	if m.symbolHeightCache == nil {
+		m.symbolHeightCache = make(map[symbolRowCacheKey]int)
+	}
+	m.symbolHeightCache[key] = h
+	return h
 }
 
-func (m *Model) symbolRows(i, addrW int, selected bool) []string {
+func (m *Model) symbolRows(i, addrW int) []string {
 	s := m.file.Symbols[m.symbolsFiltered[i]]
+
+	key := symbolRowCacheKey{i, m.width, addrW, m.wrap}
+	if m.symbolRowCache != nil {
+		if rows, ok := m.symbolRowCache[key]; ok {
+			return rows
+		}
+	}
+
 	rowStyle := m.theme.styleForSymbol(s.Kind, s.Bind)
 	prefixPlain := fmt.Sprintf(" 0x%0*x %-6d %-5s %-8s  ", addrW, s.Addr, s.Size, bindString(s.Bind), kindString(s.Kind))
 	prefix := " " + m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)) + rowStyle.Render(fmt.Sprintf(" %-6d %-5s %-8s  ", s.Size, bindString(s.Bind), kindString(s.Kind)))
@@ -202,7 +226,7 @@ func (m *Model) symbolRows(i, addrW int, selected bool) []string {
 			parts = []string{""}
 		}
 	} else {
-		parts = []string{truncateANSI(name, nameW)}
+		parts = []string{truncateMiddle(name, nameW)}
 	}
 	rows := make([]string, 0, len(parts))
 	for j, part := range parts {
@@ -212,10 +236,12 @@ func (m *Model) symbolRows(i, addrW int, selected bool) []string {
 		} else {
 			line = strings.Repeat(" ", len(prefixPlain)) + rowStyle.Render(part)
 		}
-		if selected {
-			line = m.theme.tableSelStyle.Render(stripANSI(line))
-		}
-		rows = append(rows, padRight(line, m.width))
+		rows = append(rows, line)
 	}
+
+	if m.symbolRowCache == nil {
+		m.symbolRowCache = make(map[symbolRowCacheKey][]string)
+	}
+	m.symbolRowCache[key] = rows
 	return rows
 }

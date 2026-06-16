@@ -16,6 +16,7 @@ import (
 // recomputeSections rebuilds sectionsFiltered from the current filter text,
 // matching on section name.
 func (m *Model) recomputeSections() {
+	m.clearSectionCaches()
 	needle := strings.ToLower(m.sectionsFilter.Value())
 	m.sectionsFiltered = m.sectionsFiltered[:0]
 	for i, s := range m.sections {
@@ -92,11 +93,11 @@ func (m *Model) renderSections() string {
 	}
 
 	// columns: idx, name, type, addr, size, flags
-	addrW := m.file.AddrHexWidth() // hex digits in an address
-	addrCol := 2 + addrW           // "0x" + digits
+	addrW := m.file.AddrHexWidth()
+	addrCol := 2 + addrW
 	hdr := fmt.Sprintf(" %3s  %-22s %-14s %-*s %-12s  %s",
 		"#", "Name", "Type", addrCol, "Addr", "Size", "Flags")
-	header := m.theme.tableHeaderStyle.Render(padRight(hdr, m.width))
+	header := m.tableHeader(hdr)
 
 	visible := bodyH - 2 // filter row + header
 	if visible < 1 {
@@ -106,10 +107,14 @@ func (m *Model) renderSections() string {
 		return m.sectionRowHeight(i)
 	}
 	top := visualTop(m.sectionsCur, m.sectionsTop, len(m.sectionsFiltered), visible, rowHeight)
+	m.sectionsTop = top
 
-	rows := []string{padRight(filterRow, m.width), padRight(header, m.width)}
+	rows := []string{filterRow, header}
 	for i := top; i < len(m.sectionsFiltered); i++ {
-		line := m.sectionRow(i, addrW, i == m.sectionsCur)
+		line := m.sectionRow(i, addrW)
+		if i == m.sectionsCur {
+			line = m.theme.tableSelStyle.Render(stripANSI(line))
+		}
 		if !appendRenderedRowsIndented(&rows, line, m.width, m.wrap, 6, bodyH) {
 			break
 		}
@@ -121,22 +126,50 @@ func (m *Model) sectionRowHeight(i int) int {
 	if i < 0 || i >= len(m.sectionsFiltered) {
 		return 1
 	}
-	return len(renderLineRowsIndented(m.sectionRow(i, m.file.AddrHexWidth(), false), m.width, m.wrap, 6))
+	addrW := m.file.AddrHexWidth()
+	key := sectionRowCacheKey{i, m.width, addrW, m.wrap}
+	if m.sectionHeightCache != nil {
+		if h, ok := m.sectionHeightCache[key]; ok {
+			return h
+		}
+	}
+	line := m.sectionRow(i, addrW)
+	h := len(renderLineRowsIndented(line, m.width, m.wrap, 6))
+	if m.sectionHeightCache == nil {
+		m.sectionHeightCache = make(map[sectionRowCacheKey]int)
+	}
+	m.sectionHeightCache[key] = h
+	return h
 }
 
-func (m *Model) sectionRow(i, addrW int, selected bool) string {
+func (m *Model) sectionRow(i, addrW int) string {
+	key := sectionRowCacheKey{i, m.width, addrW, m.wrap}
+	if m.sectionRowCache != nil {
+		if s, ok := m.sectionRowCache[key]; ok {
+			return s
+		}
+	}
+
 	idx := m.sectionsFiltered[i]
 	s := m.sections[idx]
 	name := s.Name
 	typeName := s.TypeName
 	if !m.wrap {
-		name = truncate(name, 22)
-		typeName = truncate(typeName, 14)
+		name = truncateMiddle(name, 22)
+		typeName = truncateMiddle(typeName, 14)
 	}
-	line := fmt.Sprintf(" %s  %-22s %-14s %s %-12d  %s",
-		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)), name, typeName, m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)), s.Size, s.Flags)
-	if selected {
-		return m.theme.tableSelStyle.Render(stripANSI(line))
+	rowStyle := m.theme.styleForSection(&s)
+	line := fmt.Sprintf(" %s  %s %s %s %s  %s",
+		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)),
+		rowStyle.Render(fmt.Sprintf("%-22s", name)),
+		rowStyle.Render(fmt.Sprintf("%-14s", typeName)),
+		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)),
+		rowStyle.Render(fmt.Sprintf("%-12d", s.Size)),
+		rowStyle.Render(s.Flags))
+
+	if m.sectionRowCache == nil {
+		m.sectionRowCache = make(map[sectionRowCacheKey]string)
 	}
-	return m.theme.styleForSection(&s).Render(line)
+	m.sectionRowCache[key] = line
+	return line
 }

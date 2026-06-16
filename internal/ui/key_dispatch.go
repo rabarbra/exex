@@ -25,6 +25,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.searchActive {
 		return m.updateSearchInput(msg, key)
 	}
+	if model, cmd, ok := m.handleDisasmPaneKey(msg, key); ok {
+		return model, cmd
+	}
 	if cmd, done := m.captureActiveFilter(key, msg); done {
 		return m, cmd
 	}
@@ -39,12 +42,33 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
-	key = normalizeNavKey(key)
+	key = m.normalizeNavKey(key)
 	// Apply user key aliases (copy/next/prev) onto canonical tokens.
 	if c, ok := m.keyAlias[key]; ok {
 		key = c
 	}
 	return m.dispatchViewKey(msg, key)
+}
+
+func (m *Model) handleDisasmPaneKey(msg tea.KeyMsg, key string) (tea.Model, tea.Cmd, bool) {
+	if m.mode != modeDisasm {
+		return m, nil, false
+	}
+	switch {
+	case msg.Type == tea.KeyShiftTab || key == "shift+tab":
+		m.switchSourcePane()
+		return m, nil, true
+	case key == "tab":
+		m.toggleSourcePane()
+		return m, nil, true
+	case m.rightPaneActive() && (msg.Type == tea.KeyShiftUp || key == "shift+up"):
+		m.scrollRightPane(-1)
+		return m, nil, true
+	case m.rightPaneActive() && (msg.Type == tea.KeyShiftDown || key == "shift+down"):
+		m.scrollRightPane(1)
+		return m, nil, true
+	}
+	return m, nil, false
 }
 
 func (m *Model) updateGotoInput(msg tea.KeyMsg, key string) (tea.Model, tea.Cmd) {
@@ -158,19 +182,76 @@ func (m *Model) toggleSourcePane() {
 		m.setStatus("no debug info — source pane unavailable", true)
 		return
 	}
-	switch {
-	case !m.showSource:
+	if !m.showSource {
 		m.showSource = true
-		m.sourceFirst = false
-	case !m.sourceFirst && m.ensureSourceForDisasmCursor():
-		m.sourceFirst = true
-	default:
-		m.showSource = !m.showSource
-		m.sourceFirst = false
+		m.rightScroll = 0
+		return
 	}
+	m.showSource = false
+	m.rightScroll = 0
 }
 
-func normalizeNavKey(key string) string {
+func (m *Model) switchSourcePane() {
+	if m.mode != modeDisasm {
+		return
+	}
+	if !m.file.HasDWARF() {
+		m.setStatus("no debug info — source pane unavailable", true)
+		return
+	}
+	if m.sourceFirst {
+		m.sourceFirst = false
+		m.rightScroll = 0
+		return
+	}
+	if m.ensureSourcePaneAvailable() {
+		m.sourceFirst = true
+		m.rightScroll = 0
+		return
+	}
+	m.setStatus("no source mapping for current instruction", true)
+}
+
+func (m *Model) ensureSourcePaneAvailable() bool {
+	if m.ensureSourceForDisasmCursor() {
+		return true
+	}
+	if m.ensureSourceBelowDisasmCursor() {
+		return true
+	}
+	if m.hasOpenSourceFile() {
+		return true
+	}
+	m.ensureSources()
+	if len(m.sourcesFiltered) == 0 {
+		return false
+	}
+	start := m.sourcesCur
+	if start < 0 || start >= len(m.sourcesFiltered) {
+		start = 0
+	}
+	for offset := 0; offset < len(m.sourcesFiltered); offset++ {
+		idx := (start + offset) % len(m.sourcesFiltered)
+		file := m.sourcesFiles[m.sourcesFiltered[idx]]
+		src := m.file.SourceLines(file)
+		if src == nil {
+			continue
+		}
+		m.sourcesCur = idx
+		m.srcFile = file
+		m.srcCodeLines = m.mappedSourceLines(file)
+		m.srcCur = 1
+		if len(src) == 0 {
+			m.srcCur = 0
+		}
+		m.srcTop = 0
+		m.syncSourceAsm()
+		return true
+	}
+	return false
+}
+
+func (m *Model) normalizeNavKey(key string) string {
 	// macOS keyboards often lack Home/End and dedicated PgUp/PgDn; accept the
 	// emacs-style ctrl+a / ctrl+e as begin/end and Cmd+Up / Cmd+Down as page
 	// up / page down (modals and filter inputs were handled above, so this only

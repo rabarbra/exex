@@ -166,7 +166,7 @@ func TestWrappedSymbolsKeepAddressGrayOnContinuation(t *testing.T) {
 		},
 	}
 	m.symbolsFiltered = []int{0}
-	rows := m.symbolRows(0, 8, false)
+	rows := m.symbolRows(0, 8)
 	if len(rows) < 2 {
 		t.Fatalf("symbol did not wrap: %q", rows)
 	}

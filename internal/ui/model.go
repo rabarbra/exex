@@ -59,21 +59,60 @@ type layoutState struct {
 }
 
 type sectionsState struct {
-	sections         []binfile.Section
-	sectionsFilter   textinput.Model
-	sectionsFiltered []int // indices into sections
-	sectionsCur      int
-	sectionsTop      int
+	sections           []binfile.Section
+	sectionsFilter     textinput.Model
+	sectionsFiltered   []int // indices into sections
+	sectionsCur        int
+	sectionsTop        int
+	sectionRowCache    map[sectionRowCacheKey]string
+	sectionHeightCache map[sectionRowCacheKey]int
+}
+
+type sectionRowCacheKey struct {
+	i     int
+	width int
+	addrW int
+	wrap  bool
+}
+
+type symbolRowCacheKey struct {
+	i     int
+	width int
+	addrW int
+	wrap  bool
 }
 
 type symbolsState struct {
-	symbolsFilter   textinput.Model
-	symbolsFiltered []int // indices into file.Symbols (sorted by name)
-	symbolsCur      int
-	symbolsTop      int
-	symbolsKind     binfile.SymKind
-	symbolsKindOn   bool
-	symbolsLib      string // when set, show only imports bound to this library
+	symbolsFilter     textinput.Model
+	symbolsFiltered   []int // indices into file.Symbols (sorted by name)
+	symbolsCur        int
+	symbolsTop        int
+	symbolsKind       binfile.SymKind
+	symbolsKindOn     bool
+	symbolsLib        string // when set, show only imports bound to this library
+	symbolRowCache    map[symbolRowCacheKey][]string
+	symbolHeightCache map[symbolRowCacheKey]int
+}
+
+func (m *Model) clearSymbolCaches() {
+	m.symbolRowCache = nil
+	m.symbolHeightCache = nil
+}
+
+func (m *Model) clearSectionCaches() {
+	m.sectionRowCache = nil
+	m.sectionHeightCache = nil
+}
+
+func (m *Model) clearStringCaches() {
+	m.stringRowCache = nil
+	m.stringHeightCache = nil
+}
+
+func (m *Model) clearAllViewCaches() {
+	m.clearSymbolCaches()
+	m.clearSectionCaches()
+	m.clearStringCaches()
 }
 
 // disasmState holds the currently loaded decode window only. The first window
@@ -100,6 +139,14 @@ type disasmState struct {
 	rightScroll         int // extra scroll offset for the follower (right) pane; 0 = auto-follow
 	srcVP               viewport.Model
 	srcHighlighter      *syntax.Highlighter
+	sourceAsmRowCache   map[sourceAsmRowCacheKey]string
+}
+
+type sourceAsmRowCacheKey struct {
+	i    int
+	w    int
+	file string
+	line int
 }
 
 type historyState struct {
@@ -126,25 +173,41 @@ type libsState struct {
 	libsTop int
 }
 
+type stringRowCacheKey struct {
+	i     int
+	width int
+	addrW int
+	wrap  bool
+}
+
 type stringsState struct {
-	stringsList []binfile.StringEntry
-	stringsCur  int
-	stringsTop  int
+	stringsList       []binfile.StringEntry
+	stringsCur        int
+	stringsTop        int
+	stringRowCache    map[stringRowCacheKey]string
+	stringHeightCache map[stringRowCacheKey]int
 }
 
 type sourcesState struct {
-	sourcesFiles    []string
-	sourcesFilter   textinput.Model
-	sourcesFiltered []int
-	sourcesCur      int
-	sourcesTop      int
-	srcFile         string // open source file ("" = showing the file list)
-	srcCur          int    // 1-based current line in the open file
-	srcTop          int
-	srcCodeLines    map[int]bool // lines in srcFile that have machine code
-	srcMatches      []srcMatch   // last cross-source grep
-	srcMatchIdx     int
-	srcSearchAll    bool // scope of the next search in this view
+	sourcesFiles     []string
+	sourcesFilter    textinput.Model
+	sourcesFiltered  []int
+	sourcesCur       int
+	sourcesTop       int
+	srcFile          string // open source file ("" = showing the file list)
+	srcCur           int    // 1-based current line in the open file
+	srcTop           int
+	srcCodeLines     map[int]bool // lines in srcFile that have machine code
+	srcCodeLineCache map[string]map[int]bool
+	srcColumnCache   map[sourceLineCacheKey][]int
+	srcMatches       []srcMatch // last cross-source grep
+	srcMatchIdx      int
+	srcSearchAll     bool // scope of the next search in this view
+}
+
+type sourceLineCacheKey struct {
+	file string
+	line int
 }
 
 type interactionState struct {
@@ -156,8 +219,39 @@ type interactionState struct {
 	lastClickY  int
 	lastClickAt time.Time
 
+	// Wheel scroll accumulator: rapid momentum-scroll events are accumulated
+	// and flushed at 60fps via a tea.Tick, so the render loop never falls
+	// behind and queued events from a previous view are discarded naturally
+	// when the mode changes between accumulation and flush.
+	wheelDelta         int       // accumulated steps (neg=up, pos=down)
+	wheelFlushing      bool      // true when a flush tick is pending
+	wheelModeSnap      mode      // mode at the time of the last accumulation
+	wheelEpoch         uint64    // increments on mode changes to invalidate stale ticks
+	wheelSuppressUntil time.Time // drop continuing momentum after a mode change
+
 	// helpActive toggles the keybinding cheat-sheet overlay.
 	helpActive bool
+}
+
+// resetWheelAccumulator discards any accumulated scroll delta and cancels the
+// pending flush. It must be called on every mode change so that momentum-wheel
+// events from the previous view never scroll the new view.
+func (m *Model) resetWheelAccumulator() {
+	m.wheelDelta = 0
+	m.wheelFlushing = false
+}
+
+// setMode is the single place for mode-transition side effects. In particular,
+// it breaks any in-flight momentum scroll gesture so stale wheel events from the
+// previous view cannot scroll the newly selected one.
+func (m *Model) setMode(md mode) {
+	if m.mode == md {
+		return
+	}
+	m.mode = md
+	m.resetWheelAccumulator()
+	m.wheelEpoch++
+	m.wheelSuppressUntil = time.Now().Add(wheelQuietInterval)
 }
 
 type gotoState struct {

@@ -92,7 +92,7 @@ func (m *Model) renderStrings() string {
 
 	addrW := m.file.AddrHexWidth()
 	hdr := fmt.Sprintf(" %-10s %-*s %-16s  %s", "Offset", 2+addrW, "Address", "Section", "String")
-	header := m.theme.tableHeaderStyle.Render(padRight(hdr, m.width))
+	header := m.tableHeader(hdr)
 
 	visible := bodyH - 1
 	if visible < 1 {
@@ -102,10 +102,14 @@ func (m *Model) renderStrings() string {
 		return m.stringRowHeight(i)
 	}
 	top := visualTop(m.stringsCur, m.stringsTop, len(m.stringsList), visible, rowHeight)
+	m.stringsTop = top
 
-	rows := []string{padRight(header, m.width)}
+	rows := []string{header}
 	for i := top; i < len(m.stringsList); i++ {
-		line := m.stringRow(i, addrW, i == m.stringsCur)
+		line := m.stringRow(i, addrW)
+		if i == m.stringsCur {
+			line = m.theme.tableSelStyle.Render(stripANSI(line))
+		}
 		if !appendRenderedRowsIndented(&rows, line, m.width, m.wrap, addrW+33, bodyH) {
 			break
 		}
@@ -118,10 +122,29 @@ func (m *Model) stringRowHeight(i int) int {
 		return 1
 	}
 	addrW := m.file.AddrHexWidth()
-	return len(renderLineRowsIndented(m.stringRow(i, addrW, false), m.width, m.wrap, addrW+33))
+	key := stringRowCacheKey{i, m.width, addrW, m.wrap}
+	if m.stringHeightCache != nil {
+		if h, ok := m.stringHeightCache[key]; ok {
+			return h
+		}
+	}
+	line := m.stringRow(i, addrW)
+	h := len(renderLineRowsIndented(line, m.width, m.wrap, addrW+33))
+	if m.stringHeightCache == nil {
+		m.stringHeightCache = make(map[stringRowCacheKey]int)
+	}
+	m.stringHeightCache[key] = h
+	return h
 }
 
-func (m *Model) stringRow(i, addrW int, selected bool) string {
+func (m *Model) stringRow(i, addrW int) string {
+	key := stringRowCacheKey{i, m.width, addrW, m.wrap}
+	if m.stringRowCache != nil {
+		if s, ok := m.stringRowCache[key]; ok {
+			return s
+		}
+	}
+
 	s := m.stringsList[i]
 	addr := strings.Repeat(" ", 2+addrW)
 	if s.HasAddr {
@@ -132,10 +155,13 @@ func (m *Model) stringRow(i, addrW int, selected bool) string {
 		text = s.Text
 	}
 	line := fmt.Sprintf(" %s %-*s %-16s  %s",
-		m.theme.addrStyle.Render(fmt.Sprintf("0x%-8x", s.Offset)), 2+addrW, m.theme.addrStyle.Render(addr), m.theme.footerStyle.Render(truncate(s.Section, 16)), m.theme.tableRowStyle.Render(text))
-	if selected {
-		return m.theme.tableSelStyle.Render(stripANSI(line))
+		m.theme.addrStyle.Render(fmt.Sprintf("0x%-8x", s.Offset)), 2+addrW, m.theme.addrStyle.Render(addr), m.theme.footerStyle.Render(truncateMiddle(s.Section, 16)), m.theme.tableRowStyle.Render(text))
+	line = m.stringRowStyle(s).Render(line)
+
+	if m.stringRowCache == nil {
+		m.stringRowCache = make(map[stringRowCacheKey]string)
 	}
+	m.stringRowCache[key] = line
 	return line
 }
 

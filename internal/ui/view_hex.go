@@ -74,7 +74,7 @@ func (m *Model) openHexAt(addr uint64) {
 	}
 	m.hexCur = pos
 	m.hexTop = (pos / bytesPerHexRow) * bytesPerHexRow
-	m.mode = modeHex
+	m.setMode(modeHex)
 	m.status = ""
 }
 
@@ -87,7 +87,7 @@ func (m *Model) openRawAt(off uint64) {
 	}
 	m.rawCur = pos
 	m.rawTop = (pos / bytesPerHexRow) * bytesPerHexRow
-	m.mode = modeRaw
+	m.setMode(modeRaw)
 	m.status = ""
 }
 
@@ -340,6 +340,7 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 		visible = 1
 	}
 	top := hexVisibleTop(cur, *topPtr, visible)
+	*topPtr = top
 
 	rows := []string{m.theme.stickySymStyle.Render(padRight(banner, m.width))}
 	end := top + visible*row

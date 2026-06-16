@@ -1,7 +1,7 @@
 package ui
 
-// Mouse support: the wheel scrolls the active view (reusing each view's
-// up/down navigation) and a left click selects whatever the pointer is over —
+// Mouse support: the wheel scrolls the active view and a left click selects
+// whatever the pointer is over —
 // a row in the list views, a byte in the hex/raw dumps, or an instruction in
 // the disassembly.
 
@@ -16,7 +16,19 @@ import (
 // to count as a double-click.
 const doubleClickWindow = 350 * time.Millisecond
 
+// wheelFlushMsg is sent by a tea.Tick to flush accumulated scroll deltas.
+// Using a deferred flush instead of processing each wheel event immediately
+// prevents the render loop from falling behind during momentum scrolling,
+// and naturally discards stale events when the user switches views.
+type wheelFlushMsg struct{ epoch uint64 }
+
+const wheelFlushInterval = time.Second / 60
+const wheelQuietInterval = 120 * time.Millisecond
+
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Shift && msg.Button == tea.MouseButtonLeft {
+		return m, nil
+	}
 	if m.searchActive && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 		m.handleSearchPopupClick(msg.X, msg.Y)
 		return m, nil
@@ -24,16 +36,16 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
 		if msg.Shift && m.rightPaneActive() {
-			m.scrollRightPane(-1)
+			m.scrollRightPane(-3)
 			return m, nil
 		}
-		return m.wheelScroll("up")
+		return m.enqueueWheel(-3)
 	case tea.MouseButtonWheelDown:
 		if msg.Shift && m.rightPaneActive() {
-			m.scrollRightPane(1)
+			m.scrollRightPane(3)
 			return m, nil
 		}
-		return m.wheelScroll("down")
+		return m.enqueueWheel(3)
 	}
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 		if msg.Y == 0 { // the tab strip
@@ -54,6 +66,156 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) enqueueWheel(delta int) (tea.Model, tea.Cmd) {
+	now := time.Now()
+	if now.Before(m.wheelSuppressUntil) {
+		m.resetWheelAccumulator()
+		m.wheelSuppressUntil = now.Add(wheelQuietInterval)
+		return m, nil
+	}
+
+	m.wheelDelta += delta
+	m.wheelModeSnap = m.mode
+	if !m.wheelFlushing {
+		m.wheelFlushing = true
+		epoch := m.wheelEpoch
+		return m, tea.Tick(wheelFlushInterval, func(t time.Time) tea.Msg {
+			return wheelFlushMsg{epoch: epoch}
+		})
+	}
+	return m, nil
+}
+
+// handleWheelFlush applies the accumulated scroll delta when the mode
+// hasn't changed since accumulation — if the user switched views, the
+// stale delta is discarded instead of scrolling the new view.
+func (m *Model) handleWheelFlush(msg wheelFlushMsg) tea.Cmd {
+	if msg.epoch != m.wheelEpoch {
+		return nil
+	}
+	m.wheelFlushing = false
+	if m.wheelDelta == 0 {
+		return nil
+	}
+	if m.mode != m.wheelModeSnap {
+		m.wheelDelta = 0
+		return nil
+	}
+	n := m.wheelDelta
+	m.wheelDelta = 0
+	_, cmd := m.routeScroll(n)
+	return cmd
+}
+
+func (m *Model) routeScroll(delta int) (tea.Model, tea.Cmd) {
+	if delta == 0 {
+		return m, nil
+	}
+	switch m.mode {
+	case modeSections:
+		m.sectionsCur = scrollIndex(m.sectionsCur, len(m.sectionsFiltered), delta)
+	case modeSymbols:
+		m.symbolsCur = scrollIndex(m.symbolsCur, len(m.symbolsFiltered), delta)
+	case modeDisasm:
+		m.scrollDisasmBy(delta)
+	case modeHex:
+		m.ensureHex()
+		m.hexCur = scrollBytes(m.hexCur, len(m.hexImg.Data), delta)
+	case modeRaw:
+		m.ensureRaw()
+		m.rawCur = scrollBytes(m.rawCur, len(m.rawData), delta)
+	case modeStrings:
+		m.ensureStrings()
+		m.stringsCur = scrollIndex(m.stringsCur, len(m.stringsList), delta)
+	case modeSources:
+		m.ensureSources()
+		m.sourcesCur = scrollIndex(m.sourcesCur, len(m.sourcesFiltered), delta)
+	case modeLibs:
+		if m.file.Info != nil {
+			m.libsCur = scrollIndex(m.libsCur, len(m.file.Info.DynamicLibs), delta)
+		}
+	case modeInfo:
+		if delta < 0 {
+			m.headerVP.LineUp(-delta)
+		} else {
+			m.headerVP.LineDown(delta)
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) scrollDisasmBy(delta int) {
+	if delta == 0 {
+		return
+	}
+	if m.sourceFirst && m.srcFile != "" {
+		n := len(m.file.SourceLines(m.srcFile))
+		if n == 0 {
+			return
+		}
+		next := scrollLine(m.srcCur, n, delta)
+		if next != m.srcCur {
+			m.srcCur = next
+			m.syncSourceAsm()
+		}
+		return
+	}
+	if len(m.disasmInst) == 0 {
+		return
+	}
+	target := m.disasmCur + delta
+	if target >= 0 && target < len(m.disasmInst) {
+		m.disasmCur = target
+		m.ensureDisasmViewport(m.disasmViewportHeight())
+		return
+	}
+	forward := delta > 0
+	steps := delta
+	if steps < 0 {
+		steps = -steps
+	}
+	for i := 0; i < steps; i++ {
+		if !m.stepDisasm(forward) {
+			return
+		}
+	}
+}
+
+func scrollIndex(cur, n, delta int) int {
+	if n <= 0 {
+		return 0
+	}
+	cur += delta
+	if cur < 0 {
+		return 0
+	}
+	if cur >= n {
+		return n - 1
+	}
+	return cur
+}
+
+func scrollLine(cur, n, delta int) int {
+	if n <= 0 {
+		return 0
+	}
+	cur += delta
+	if cur < 1 {
+		return 1
+	}
+	if cur > n {
+		return n
+	}
+	return cur
+}
+
+func scrollBytes(cur, n, delta int) int {
+	if n <= 0 {
+		return 0
+	}
+	return scrollIndex(cur, n, delta*bytesPerHexRow)
 }
 
 func (m *Model) handleSearchPopupClick(x, y int) {
@@ -93,45 +255,6 @@ func (m *Model) followCurrentDisasm() {
 	} else {
 		m.setStatus("no in-file address to follow", true)
 	}
-}
-
-// wheelScroll moves a few lines per notch, which feels more natural than one.
-func (m *Model) wheelScroll(key string) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	for i := 0; i < 3; i++ {
-		_, cmd = m.routeNav(key)
-	}
-	return m, cmd
-}
-
-// routeNav feeds a navigation key to whichever view is active, so the wheel
-// behaves exactly like the arrow keys for that view.
-func (m *Model) routeNav(key string) (tea.Model, tea.Cmd) {
-	switch m.mode {
-	case modeSections:
-		return m.updateSections(key)
-	case modeSymbols:
-		return m.updateSymbols(key)
-	case modeDisasm:
-		return m.updateDisasm(key)
-	case modeHex:
-		return m.updateHex(key)
-	case modeRaw:
-		return m.updateRaw(key)
-	case modeStrings:
-		return m.updateStrings(key)
-	case modeSources:
-		return m.updateSources(key)
-	case modeLibs:
-		return m.updateLibs(key)
-	case modeInfo:
-		if key == "up" {
-			m.headerVP.LineUp(1)
-		} else {
-			m.headerVP.LineDown(1)
-		}
-	}
-	return m, nil
 }
 
 // handleClick selects the item under the pointer. y == 0 is the tab row; the
@@ -219,7 +342,7 @@ func (m *Model) sourceLineAtBodyRow(bodyRow, paneW int) (int, bool) {
 	rowHeight := func(i int) int {
 		ln := i + 1
 		h := m.sourceLineHeight(ln, paneW)
-		if ln == m.srcCur && len(m.file.LineColumns(m.srcFile, ln)) > 0 {
+		if ln == m.srcCur && len(m.sourceLineColumns(m.srcFile, ln)) > 0 {
 			h++
 		}
 		return h

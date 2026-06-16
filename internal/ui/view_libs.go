@@ -60,7 +60,7 @@ func (m *Model) openSymbolsForLib(lib string) {
 	m.symbolsKindOn = false
 	m.symbolsCur, m.symbolsTop = 0, 0
 	m.recomputeSymbols()
-	m.mode = modeSymbols
+	m.setMode(modeSymbols)
 	m.setStatus(fmt.Sprintf("%d symbols imported from %s — Esc clears", n, lib), false)
 }
 
@@ -117,6 +117,7 @@ func (m *Model) renderLibs() string {
 		return m.libRowHeight(i)
 	}
 	top := visualTop(m.libsCur, m.libsTop, len(info.DynamicLibs), visible, rowHeight)
+	m.libsTop = top
 	for i := top; i < len(info.DynamicLibs); i++ {
 		line := m.libRow(i, i == m.libsCur)
 		for _, row := range renderLineRowsIndented(line, m.width, m.wrap, 6) {
@@ -157,7 +158,7 @@ func (m *Model) renderLibsHeader() string {
 		b.WriteString(strings.Join(info.RunPath, ":") + "\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.theme.tableHeaderStyle.Render(padRight(fmt.Sprintf(" %3s  %s", "#", "Needed library"), m.width)))
+	b.WriteString(m.tableHeader(fmt.Sprintf(" %3s  %s", "#", "Needed library")))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -178,7 +179,11 @@ func (m *Model) libRowHeight(i int) int {
 
 func (m *Model) libRow(i int, selected bool) string {
 	lib := m.file.Info.DynamicLibs[i]
-	line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("%3d", i)), colorPathByPrefix(lib, lib))
+	display := lib
+	if !m.wrap {
+		display = truncateMiddle(lib, max(1, m.width-7))
+	}
+	line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("%3d", i)), colorPathByPrefix(lib, display))
 	if selected {
 		return m.theme.tableSelStyle.Render(stripANSI(line))
 	}

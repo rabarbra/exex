@@ -89,7 +89,8 @@ func (m *Model) renderHelpModal() string {
 		row("[ / ]", "previous / next symbol"),
 		row("Enter / dbl-clk", "follow address"),
 		row("/  n/N", "search · next/prev"),
-		row("Tab", "toggle source pane"),
+		row("Tab", "show / hide right pane"),
+		row("⇧Tab", "swap source / disasm"),
 		"",
 		head("Hex / Raw"),
 		row("↑/↓/←/→", "move byte cursor"),
@@ -98,10 +99,9 @@ func (m *Model) renderHelpModal() string {
 		row("⇧[ / ⇧]", "prev / next section"),
 		row("/  n/N", "search bytes/\"text\"/0x…"),
 		"",
-		head("Sources (DWARF)"),
+		head("Sources"),
 		row("Enter", "open · jump to disasm"),
 		row("[ / ]", "prev / next mapped line"),
-		row("Tab", "swap source / disasm"),
 		row("/  ^F", "find in file · grep all"),
 		row("c  ·  g", "copy path · goto symbol"),
 		"",
@@ -276,7 +276,7 @@ func (m *Model) switchMode(md mode) tea.Cmd {
 			m.setStatus("no disassembler for this architecture", true)
 			return nil
 		}
-		m.mode = modeDisasm
+		m.setMode(modeDisasm)
 		if !m.disasmBuilt {
 			// Decode the initial window in the background; later jumps decode a
 			// fresh bounded span synchronously so targeted navigation lands
@@ -302,7 +302,7 @@ func (m *Model) switchMode(md mode) tea.Cmd {
 	case modeSources:
 		m.ensureSources()
 	}
-	m.mode = md
+	m.setMode(md)
 	return nil
 }
 
@@ -320,8 +320,8 @@ func (m *Model) renderFooter() string {
 		help = "Enter jump · / filter · g goto · ? help · q quit"
 	case modeDisasm:
 		help = "Enter follow · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
-		if m.showSource && m.file.HasDWARF() {
-			help = "Tab src pane/first · ⇧↑/⇧↓ scroll pane · [ ] sym · ←/→ history · / search · ? help · q quit"
+		if (m.showSource || m.sourceFirst) && m.file.HasDWARF() {
+			help = "Tab toggle right pane · ⇧Tab swap panes · ⇧↑/⇧↓ scroll pane · [ ] sym · ←/→ history · / search · ? help · q quit"
 		}
 		if m.searchRunning {
 			help = "Esc cancel search · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"

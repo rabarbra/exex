@@ -128,6 +128,9 @@ func (m *Model) renderDisasm() string {
 	// info; otherwise keep the disasm full-width instead of opening an empty
 	// "no source" pane.
 	showSrc := m.showSource && m.file.HasDWARF()
+	if !showSrc && m.sourceFirst && m.hasOpenSourceFile() {
+		return m.renderSourceText(m.width, bodyH)
+	}
 	if showSrc && m.sourceFirst && m.hasOpenSourceFile() {
 		leftW := m.width / 2
 		rightW := m.width - leftW
@@ -179,6 +182,7 @@ func (m *Model) renderDisasmScroll(w, h int) string {
 	}
 	rowHeight := func(i int) int { return m.disasmInstVisualHeight(i, w) }
 	top := visualTop(m.disasmCur, m.disasmTop, len(m.disasmInst), h, rowHeight)
+	m.disasmTop = top
 
 	jumpTargets := m.currentIntraJumpTargets()
 	// When the source pane is open (disasm-first), addresses are coloured by
@@ -302,7 +306,7 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 	// Highlight only the assembly (prefix + code) of the selected line; the gap,
 	// the annotation, and any continuation rows stay uncoloured.
 	if selected {
-		asmRow = m.theme.tableSelStyle.Render(stripANSI(asmRow))
+		asmRow = selectedDisasmSegment(asmRow)
 	}
 
 	if note == "" {
@@ -330,6 +334,11 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 		rows = append(rows, padRight(indent+m.theme.addrStyle.Render(p), w))
 	}
 	return rows
+}
+
+func selectedDisasmSegment(s string) string {
+	const sel = "\x1b[1;48;5;63m"
+	return sel + strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m"+sel) + "\x1b[0m"
 }
 
 func (m *Model) renderDisasmColumns(inst disasm.Inst, w int) string {
@@ -393,11 +402,11 @@ func (m *Model) ensureSourceForDisasmCursor() bool {
 	}
 	file, line := m.file.LookupAddr(m.disasmInst[m.disasmCur].Addr)
 	if file == "" || line == 0 || m.file.SourceLines(file) == nil {
-		return m.srcFile != "" && m.file.SourceLines(m.srcFile) != nil
+		return false
 	}
 	if m.srcFile != file {
 		m.srcFile = file
-		m.srcCodeLines = m.file.MappedLines(file)
+		m.srcCodeLines = m.mappedSourceLines(file)
 	}
 	m.srcCur = line
 	return true
@@ -440,12 +449,13 @@ func (m *Model) renderSourcePane(w, h int) string {
 	}
 
 	hl := m.highlightedSource(file, src)
-	mapped := m.file.MappedLines(file)
+	mapped := m.mappedSourceLines(file)
 
-	loc := fmt.Sprintf("%s:%d", file, line)
+	suffix := fmt.Sprintf(":%d", line)
 	if col > 0 {
-		loc = fmt.Sprintf("%s:%d:%d", file, line, col)
+		suffix = fmt.Sprintf(":%d:%d", line, col)
 	}
+	loc := truncateMiddle(file, max(1, inner-lipgloss.Width(suffix))) + suffix
 	var b strings.Builder
 	b.WriteString(m.theme.infoStyle.Render(loc))
 	b.WriteString("\n")
@@ -483,7 +493,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 		// at several positions), each in its column colour — same as the
 		// source-first pane.
 		if i == line {
-			if cols := m.file.LineColumns(file, line); len(cols) > 0 {
+			if cols := m.sourceLineColumns(file, line); len(cols) > 0 {
 				b.WriteString(coloredCaretRow(cols, gutterW, inner))
 				b.WriteString("\n")
 			}

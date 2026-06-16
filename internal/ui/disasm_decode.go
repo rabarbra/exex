@@ -179,6 +179,7 @@ func (m *Model) setDisasmWindow(win binfile.Window, insts []disasm.Inst) bool {
 	m.disasmBuilt = true
 	m.disasmDecoding = false
 	m.disasmPendingAddr = 0
+	m.sourceAsmRowCache = nil
 	return len(insts) > 0
 }
 
@@ -188,6 +189,6 @@ func (m *Model) loadDisasmWindow(addr uint64, before int) bool {
 		m.setStatus("no executable code to disassemble", true)
 		return false
 	}
-	m.mode = modeDisasm
+	m.setMode(modeDisasm)
 	return true
 }

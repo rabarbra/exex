@@ -42,6 +42,7 @@ func navKey(cur *int, n, page int, key string) bool {
 // toggleWrap flips the global long-line wrap and reports it in the footer.
 func (m *Model) toggleWrap() {
 	m.wrap = !m.wrap
+	m.clearAllViewCaches()
 	m.setStatus(wrapStatus(m.wrap), false)
 }
 

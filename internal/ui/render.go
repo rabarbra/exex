@@ -154,6 +154,10 @@ func padBodyRows(lines []string, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *Model) tableHeader(s string) string {
+	return m.theme.tableHeaderStyle.Render(padRight(truncateMiddle(s, m.width), m.width))
+}
+
 func renderLineRows(line string, w int, wrap bool) []string {
 	return renderLineRowsIndented(line, w, wrap, 0)
 }
@@ -229,6 +233,9 @@ func visualTop(cur, top, n, visible int, rowHeight func(int) int) int {
 	if n <= 0 {
 		return 0
 	}
+	if visible < 1 {
+		visible = 1
+	}
 	if cur < 0 {
 		cur = 0
 	}
@@ -241,8 +248,26 @@ func visualTop(cur, top, n, visible int, rowHeight func(int) int) int {
 	if top >= n {
 		top = n - 1
 	}
-	for top < cur && visualRowsBetween(top, cur, rowHeight)+rowHeight(cur) > visible {
-		top++
+	if top > cur {
+		top = cur
+	}
+
+	// Find the earliest row that can still keep cur visible by walking backward
+	// only as far as the viewport can fit. This preserves the old top while it's
+	// valid, but avoids the O(n²) forward scan when the cursor jumps far away
+	// (End / Ctrl+E on huge symbol or string tables).
+	minTop := cur
+	rows := max(1, rowHeight(cur))
+	for minTop > 0 {
+		h := max(1, rowHeight(minTop-1))
+		if rows+h > visible {
+			break
+		}
+		rows += h
+		minTop--
+	}
+	if top < minTop {
+		top = minTop
 	}
 	return top
 }

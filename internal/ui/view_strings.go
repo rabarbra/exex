@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
@@ -109,7 +110,7 @@ func (m *Model) renderStrings() string {
 	for i := top; i < len(m.stringsList); i++ {
 		line := m.stringRow(i, addrW)
 		if i == m.stringsCur {
-			line = m.theme.tableSelStyle.Render(stripANSI(line))
+			line = m.theme.tableSelStyle.Render(ansi.Strip(line))
 		}
 		if !appendRenderedRowsIndented(&rows, line, m.width, m.wrap, addrW+33, bodyH) {
 			break
@@ -123,7 +124,7 @@ func (m *Model) stringRowHeight(i int) int {
 		return 1
 	}
 	addrW := m.file.AddrHexWidth()
-	key := stringRowCacheKey{i, m.width, addrW, m.wrap}
+	key := rowCacheKey{i, m.width, addrW, m.wrap}
 	if m.stringHeightCache != nil {
 		if h, ok := m.stringHeightCache[key]; ok {
 			return h
@@ -132,14 +133,14 @@ func (m *Model) stringRowHeight(i int) int {
 	line := m.stringRow(i, addrW)
 	h := len(renderLineRowsIndented(line, m.width, m.wrap, addrW+33))
 	if m.stringHeightCache == nil {
-		m.stringHeightCache = make(map[stringRowCacheKey]int)
+		m.stringHeightCache = make(map[rowCacheKey]int)
 	}
 	m.stringHeightCache[key] = h
 	return h
 }
 
 func (m *Model) stringRow(i, addrW int) string {
-	key := stringRowCacheKey{i, m.width, addrW, m.wrap}
+	key := rowCacheKey{i, m.width, addrW, m.wrap}
 	if m.stringRowCache != nil {
 		if s, ok := m.stringRowCache[key]; ok {
 			return s
@@ -155,12 +156,15 @@ func (m *Model) stringRow(i, addrW int) string {
 	if m.wrap {
 		text = s.Text
 	}
-	line := fmt.Sprintf(" %s %-*s %-16s  %s",
-		m.theme.addrStyle.Render(fmt.Sprintf("0x%-8x", s.Offset)), 2+addrW, m.theme.addrStyle.Render(addr), m.theme.footerStyle.Render(truncateMiddle(s.Section, 16)), m.theme.tableRowStyle.Render(text))
+	line := fmt.Sprintf(" %s %s %s  %s",
+		m.theme.addrStyle.Render(fmt.Sprintf("0x%-8x", s.Offset)),
+		m.theme.addrStyle.Render(padVisual(addr, 2+addrW)),
+		m.theme.footerStyle.Render(padVisual(truncateMiddle(s.Section, 16), 16)),
+		m.theme.tableRowStyle.Render(text))
 	line = m.stringRowStyle(s).Render(line)
 
 	if m.stringRowCache == nil {
-		m.stringRowCache = make(map[stringRowCacheKey]string)
+		m.stringRowCache = make(map[rowCacheKey]string)
 	}
 	m.stringRowCache[key] = line
 	return line

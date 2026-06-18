@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
@@ -34,17 +35,35 @@ func (m *Model) updateInfo(msg tea.KeyMsg, key string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) renderInfo() string {
+	bodyH := m.bodyHeight()
+	innerW := max(1, m.width-4) // panel border (2) + padding (2)
+
 	var b strings.Builder
+	first := true
 	kv := func(k, v string) {
 		b.WriteString(m.theme.headerKey.Render(padKey(k, 16)))
 		b.WriteString(" ")
 		b.WriteString(v)
 		b.WriteString("\n")
 	}
+	// head opens a labelled group with a titled separator filled to the panel
+	// width; a blank line precedes every group except the first.
+	head := func(title string) {
+		if !first {
+			b.WriteString("\n")
+		}
+		first = false
+		label := "── " + title + " "
+		if fill := innerW - lipgloss.Width(label); fill > 0 {
+			label += strings.Repeat("─", fill)
+		}
+		b.WriteString(m.theme.helpHeadStyle.Render(label))
+		b.WriteString("\n")
+	}
 
-	// Identity block (from the format header), re-aligned through kv() so it
-	// shares one column with the rest of the page. The Entry line is special:
-	// it carries the entry symbol and is actionable (Enter follows it).
+	// Identity (from the format header). The Entry line is special: it carries
+	// the entry symbol and is actionable (Enter follows it).
+	head("Identity")
 	for _, l := range m.file.HeaderInfo() {
 		if strings.HasPrefix(l, "Entry:") {
 			kv("Entry:", m.entryValue())
@@ -64,13 +83,17 @@ func (m *Model) renderInfo() string {
 	info := m.file.Info
 	if info != nil {
 		// Overview.
-		b.WriteString("\n")
+		head("Overview")
 		kv("File size:", fmt.Sprintf("%s  (%d bytes)", humanBytes(info.FileSize), info.FileSize))
 		if info.MappedHi > info.MappedLo {
 			kv("Mapped range:", fmt.Sprintf("0x%x – 0x%x  (%s)", info.MappedLo, info.MappedHi, humanBytes(info.MappedHi-info.MappedLo)))
 		}
 		if info.CodeSize > 0 {
-			kv("Code size:", humanBytes(info.CodeSize))
+			codeLine := humanBytes(info.CodeSize)
+			if info.FileSize > 0 {
+				codeLine += fmt.Sprintf("  (%.0f%% of file)", 100*float64(info.CodeSize)/float64(info.FileSize))
+			}
+			kv("Code size:", codeLine)
 		}
 		if info.WordBits != 0 {
 			kv("Word size:", fmt.Sprintf("%d-bit, %s", info.WordBits, info.ByteOrder))
@@ -79,24 +102,24 @@ func (m *Model) renderInfo() string {
 			kv(segmentLabel(m.file.Format)+":", fmt.Sprintf("%d", info.Segments))
 		}
 
-		// Hardening.
-		b.WriteString("\n")
-		kv("PIE:", info.PIE.String())
-		kv("NX stack:", info.NX.String())
+		// Hardening — coloured by how safe each setting is (green = hardened).
+		head("Hardening")
+		kv("PIE:", m.triSec(info.PIE))
+		kv("NX stack:", m.triSec(info.NX))
 		if info.RELRO != "" {
-			kv("RELRO:", info.RELRO)
+			kv("RELRO:", m.relroSec(info.RELRO))
 		}
-		kv("Stack canary:", yesNo(info.Canary))
-		kv("FORTIFY:", yesNo(info.Fortify))
+		kv("Stack canary:", m.boolSec(info.Canary, true))
+		kv("FORTIFY:", m.boolSec(info.Fortify, true))
 		if m.file.Format == binfile.FormatMachO {
-			kv("Code signature:", yesNo(info.CodeSigned))
+			kv("Code signature:", m.boolSec(info.CodeSigned, true))
 			if info.Encrypted {
-				kv("Encrypted:", "yes")
+				kv("Encrypted:", m.theme.warnStyle.Render("yes"))
 			}
 		}
 
 		// Dynamic linking.
-		b.WriteString("\n")
+		head("Dynamic linking")
 		if info.Interp != "" {
 			kv("Interpreter:", info.Interp)
 		}
@@ -130,7 +153,7 @@ func (m *Model) renderInfo() string {
 
 		// Toolchain / provenance.
 		if info.SourceLang != "" || info.Compiler != "" || info.GoVersion != "" || info.MinOS != "" {
-			b.WriteString("\n")
+			head("Toolchain")
 			if info.SourceLang != "" {
 				kv("Language:", info.SourceLang)
 			}
@@ -158,9 +181,20 @@ func (m *Model) renderInfo() string {
 		}
 	}
 
-	vp := m.headerVP
-	vp.SetContent(strings.TrimRight(b.String(), "\n"))
-	return vp.View()
+	// Drop the single-column content into a full-width bordered panel. A long
+	// page scrolls inside the panel via the viewport; the border rows (2) leave
+	// bodyH-2 rows of content. Pad every line so the panel's right edge is flush.
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	for i := range lines {
+		lines[i] = padRight(lines[i], innerW)
+	}
+
+	m.headerVP.SetWidth(innerW)
+	m.headerVP.SetHeight(max(1, bodyH-2))
+	m.headerVP.SetContent(strings.Join(lines, "\n"))
+
+	panel := m.theme.panelStyle.Render(m.headerVP.View())
+	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Top, panel)
 }
 
 // entryValue renders the entry point value: its address, the entry symbol, and
@@ -179,6 +213,40 @@ func (m *Model) entryValue() string {
 		val += "  " + m.theme.footerStyle.Render("↵ disassemble")
 	}
 	return val
+}
+
+// boolSec renders a yes/no hardening flag green when it equals the hardened
+// value and red otherwise.
+func (m *Model) boolSec(v, hardenedWhenYes bool) string {
+	s := yesNo(v)
+	if v == hardenedWhenYes {
+		return m.theme.infoStyle.Render(s)
+	}
+	return m.theme.errorStyle.Render(s)
+}
+
+// triSec colours a tri-state hardening flag: enabled (hardened) green, disabled
+// red, unknown dim.
+func (m *Model) triSec(t binfile.Tristate) string {
+	switch t {
+	case binfile.TriYes:
+		return m.theme.infoStyle.Render(t.String())
+	case binfile.TriNo:
+		return m.theme.errorStyle.Render(t.String())
+	}
+	return m.theme.srcShadowStyle.Render(t.String())
+}
+
+// relroSec colours RELRO: full = green, partial = yellow, none = red.
+func (m *Model) relroSec(s string) string {
+	switch s {
+	case "full":
+		return m.theme.infoStyle.Render(s)
+	case "partial":
+		return m.theme.warnStyle.Render(s)
+	default:
+		return m.theme.errorStyle.Render(s)
+	}
 }
 
 func segmentLabel(f binfile.Format) string {

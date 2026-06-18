@@ -26,7 +26,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.searchActive {
 		return m.updateSearchInput(msg, key)
 	}
-	if model, cmd, ok := m.handleDisasmPaneKey(msg, key); ok {
+	if model, cmd, ok := m.handleDisasmPaneKey(key); ok {
 		return model, cmd
 	}
 	if cmd, done := m.captureActiveFilter(key, msg); done {
@@ -105,7 +105,7 @@ func keyReattachesViewport(key string) bool {
 	return false
 }
 
-func (m *Model) handleDisasmPaneKey(msg tea.KeyMsg, key string) (tea.Model, tea.Cmd, bool) {
+func (m *Model) handleDisasmPaneKey(key string) (tea.Model, tea.Cmd, bool) {
 	if m.mode != modeDisasm {
 		return m, nil, false
 	}
@@ -243,12 +243,7 @@ func (m *Model) toggleSourcePane() {
 		m.setStatus("no debug info — source pane unavailable", true)
 		return
 	}
-	if !m.showSource {
-		m.showSource = true
-		m.rightScroll = 0
-		return
-	}
-	m.showSource = false
+	m.showSource = !m.showSource
 	m.rightScroll = 0
 }
 

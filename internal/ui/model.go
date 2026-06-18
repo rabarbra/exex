@@ -71,20 +71,14 @@ type sectionsState struct {
 	sectionsFiltered   []int // indices into sections
 	sectionsCur        int
 	sectionsTop        int
-	sectionRowCache    map[sectionRowCacheKey]string
-	sectionHeightCache map[sectionRowCacheKey]int
+	sectionRowCache    map[rowCacheKey]string
+	sectionHeightCache map[rowCacheKey]int
 }
 
-// sectionRowCacheKey identifies a rendered Sections row variant.
-type sectionRowCacheKey struct {
-	i     int
-	width int
-	addrW int
-	wrap  bool
-}
-
-// symbolRowCacheKey identifies a rendered Symbols row variant.
-type symbolRowCacheKey struct {
+// rowCacheKey identifies a rendered table-row variant. The Sections, Symbols
+// and Strings views all cache rows by the same coordinates: the item index plus
+// every layout input that changes how a row renders.
+type rowCacheKey struct {
 	i     int
 	width int
 	addrW int
@@ -100,8 +94,8 @@ type symbolsState struct {
 	symbolsKind       binfile.SymKind
 	symbolsKindOn     bool
 	symbolsLib        string // when set, show only imports bound to this library
-	symbolRowCache    map[symbolRowCacheKey][]string
-	symbolHeightCache map[symbolRowCacheKey]int
+	symbolRowCache    map[rowCacheKey][]string
+	symbolHeightCache map[rowCacheKey]int
 }
 
 // clearSymbolCaches drops cached symbol rows and heights.
@@ -205,21 +199,13 @@ type libsState struct {
 	libsTop int
 }
 
-// stringRowCacheKey identifies a rendered Strings row variant.
-type stringRowCacheKey struct {
-	i     int
-	width int
-	addrW int
-	wrap  bool
-}
-
 // stringsState stores list and cache state for printable strings.
 type stringsState struct {
 	stringsList       []binfile.StringEntry
 	stringsCur        int
 	stringsTop        int
-	stringRowCache    map[stringRowCacheKey]string
-	stringHeightCache map[stringRowCacheKey]int
+	stringRowCache    map[rowCacheKey]string
+	stringHeightCache map[rowCacheKey]int
 }
 
 // sourcesState stores file-list and open-file state for the Sources view.

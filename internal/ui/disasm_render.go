@@ -445,7 +445,7 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 	note := m.instAnnotation(inst.Text, inst.Class)
 
 	asmFit := fitANSIWidth(asm, max(1, w-asmCol))
-	asmEnd := asmCol + lipgloss.Width(stripANSI(asmFit))
+	asmEnd := asmCol + lipgloss.Width(asmFit)
 
 	asmRow := fmt.Sprintf(" %s  %s  ", addrCol, bytesHex(inst.Bytes, 8)) + asmFit
 	// Highlight only the assembly (prefix + code) of the selected line; the gap,
@@ -639,7 +639,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 			content = hl[i-1]
 		}
 		prefix := m.srcGutter(i, line, mapped, 5)
-		gutterW := lipgloss.Width(stripANSI(prefix))
+		gutterW := lipgloss.Width(prefix)
 		avail := inner - gutterW
 		b.WriteString(prefix + fitANSIWidth(content, avail))
 		b.WriteString("\n")
@@ -648,7 +648,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 		// source-first pane.
 		if i == line {
 			if cols := m.sourceLineColumns(file, line); len(cols) > 0 {
-				b.WriteString(coloredCaretRow(cols, gutterW, inner))
+				b.WriteString(m.theme.coloredCaretRow(cols, gutterW, inner))
 				b.WriteString("\n")
 			}
 		}

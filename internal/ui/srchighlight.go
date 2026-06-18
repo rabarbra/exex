@@ -45,8 +45,8 @@ func (m *Model) addrMapStyle(addr uint64, curFile string, curLine int) lipgloss.
 	case f == "" || l == 0:
 		return m.theme.srcShadowStyle
 	case curFile != "" && f == curFile && l == curLine:
-		if cc, ok := columnColor(m.sourceLineColumns(curFile, curLine), c); ok {
-			return lipgloss.NewStyle().Foreground(cc).Bold(true)
+		if st, ok := m.theme.columnStyle(m.sourceLineColumns(curFile, curLine), c); ok {
+			return st.Bold(true)
 		}
 		return m.theme.srcMappedStyle
 	default:

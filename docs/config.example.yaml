@@ -13,6 +13,11 @@
 # "pgdown", letter and digit literals. Any binding can be a single value
 # (`quit: q`) or a list (`quit: [q, ctrl+c]`).
 
+# Built-in colour preset, applied before the `colors:` overrides below. One of:
+# dark (default), nord, solarized-dark, solarized-light. Any individual `colors:`
+# entry still wins over the preset, so you can start from a preset and tweak.
+theme: dark
+
 colors:
   # ---- Disassembly: instruction-class mnemonic colour --------------------
   instruction_call: "39"      # `call`, `bl`, `jal`
@@ -56,6 +61,81 @@ colors:
   # Any chroma style name, e.g. monokai, github-dark, nord, dracula,
   # catppuccin-mocha, onedark, vulcan. Unknown names fall back gracefully.
   syntax_theme: catppuccin-mocha
+
+  # ---- Source pane: cursor position + code-mapping highlight --------------
+  source_current_line_fg: "231"   # the line the cursor is on
+  source_current_line_bg: "63"
+  source_mapped_fg: "153"          # address mapping to the current line (no caret)
+  source_code_line_fg: "252"       # lines with code / addresses mapping elsewhere
+  source_unmapped_fg: "240"        # dimmed, unmapped lines / gutter
+  # Per-column correlation highlight (carets, column numbers, mapped addresses).
+  # Cycled across a source line's distinct columns. Omit to keep the default.
+  # column_palette: ["203", "220", "84", "39", "213", "51", "215", "141"]
+
+  # ---- Window chrome: title, tab strip, footer ---------------------------
+  title_fg: "231"
+  title_bg: "66"
+  tab_fg: "245"
+  tab_active_fg: "231"
+  tab_active_bg: "63"
+  footer_fg: "245"
+  header_key_fg: "75"              # "Key:" labels on the Info page
+
+  # ---- Tables (Sections / Symbols / Strings) -----------------------------
+  table_header_fg: "231"
+  table_header_bg: "236"
+  table_row_fg: "252"
+  table_selected_fg: "231"
+  table_selected_bg: "63"
+
+  # ---- Shared accents ----------------------------------------------------
+  symbol_name_fg: "214"            # bold symbol names (entry, libraries)
+  section_banner_fg: "214"         # centred "==== .section ====" banner
+
+  # ---- Modal overlays + search switches ----------------------------------
+  modal_border_fg: "63"
+  search_switch_fg: "231"
+  search_switch_bg: "238"
+
+  # ---- Help overlay ------------------------------------------------------
+  help_key_fg: "214"
+  help_desc_fg: "252"
+  help_head_fg: "117"
+
+  # ---- Status footer messages --------------------------------------------
+  status_error_fg: "203"
+  status_info_fg: "114"
+  status_warn_fg: "214"            # partial/weak hardening flags on Info page
+
+  # ---- File-path colouring (Libraries / Sources) -------------------------
+  # Paths are coloured by their top directory components (whole subtrees share a
+  # colour). This palette is cycled; a few entries keeps the differentiation
+  # coarse. Omit to keep the built-in palette.
+  # path_palette: ["75", "114", "214", "141", "213"]
+
+  # ---- Hex / Raw byte colouring ------------------------------------------
+  # The per-byte colour ramp. Must be exactly 18 colours: [0]=0x00,
+  # [1..16]=high-nibble buckets for 0x01..0xFE, [17]=0xFF. Omit to keep the
+  # built-in rainbow ramp.
+  # hex_byte_palette:
+  #   - "#808080"   # 0x00
+  #   - "#FF71A9"   # 0x01..0x0F
+  #   - "#FF7A78"   # 0x10..0x1F
+  #   - "#FF8123"   # 0x20..0x2F
+  #   - "#F79300"   # 0x30..0x3F
+  #   - "#E69F00"   # 0x40..0x4F
+  #   - "#C1B200"   # 0x50..0x5F
+  #   - "#82C600"   # 0x60..0x6F
+  #   - "#00D500"   # 0x70..0x7F
+  #   - "#00D459"   # 0x80..0x8F
+  #   - "#00D091"   # 0x90..0x9F
+  #   - "#00CCBB"   # 0xA0..0xAF
+  #   - "#00C7DE"   # 0xB0..0xBF
+  #   - "#00BEFF"   # 0xC0..0xCF
+  #   - "#6CAFFF"   # 0xD0..0xDF
+  #   - "#B298FF"   # 0xE0..0xEF
+  #   - "#FF4DFF"   # 0xF0..0xFE
+  #   - "#FFFFFF"   # 0xFF
 
 keys:
   quit: [q, ctrl+c]

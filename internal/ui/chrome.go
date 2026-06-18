@@ -132,14 +132,6 @@ func (m *Model) renderHelpModal() string {
 	return m.theme.modalStyle.Render(body)
 }
 
-// padVisual right-pads s to a display width of w columns (ANSI/width aware).
-func padVisual(s string, w int) string {
-	if d := w - ansi.StringWidth(s); d > 0 {
-		return s + strings.Repeat(" ", d)
-	}
-	return s
-}
-
 // overlayCenter draws a pre-rendered modal centred over bg.
 func (m *Model) overlayCenter(bg, modal string) string {
 	mw := lipgloss.Width(modal)
@@ -340,19 +332,17 @@ func (m *Model) renderFooter() string {
 		help = "↑/↓ move · ? help · q quit"
 	}
 	left := m.theme.footerStyle.Render(help)
-	right := ""
-	if m.status != "" {
-		st := m.theme.infoStyle
-		if m.statusError {
-			st = m.theme.errorStyle
-		}
-		right = st.Render(m.status)
+	if m.status == "" {
+		return padRight(left, m.width)
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
+	st := m.theme.infoStyle
+	if m.statusError {
+		st = m.theme.errorStyle
 	}
-	return padRight(left+strings.Repeat(" ", gap)+right, m.width)
+	// Right-align the status in whatever space the help leaves.
+	avail := max(1, m.width-lipgloss.Width(left))
+	right := lipgloss.PlaceHorizontal(avail, lipgloss.Right, st.Render(m.status))
+	return padRight(left+right, m.width)
 }
 
 // bodyHeight is the number of rows available between tabs and footer.

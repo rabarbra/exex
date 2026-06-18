@@ -20,20 +20,26 @@ import (
 // srcMatch is one hit from a cross-source grep.
 type srcMatch = sourceutil.Match
 
-// colColors keys the per-column highlight: the Nth distinct column on a source
-// line is drawn in colColors[N], and the instructions mapped to that column get
-// the same colour, so carets and disassembly line up visually.
-var colColors = []lipgloss.ANSIColor{203, 220, 84, 39, 213, 51, 215, 141}
+// columnStyleAt returns the highlight style for the i-th distinct column on a
+// source line. The Nth column, its caret, and the instruction addresses mapped
+// to it all share columnPalette[N] (drawn from the theme), so carets and
+// disassembly line up visually and follow the active colour preset.
+func (t *Theme) columnStyleAt(i int) lipgloss.Style {
+	if len(t.columnPalette) == 0 {
+		return lipgloss.NewStyle()
+	}
+	return t.columnPalette[i%len(t.columnPalette)]
+}
 
-// columnColor returns the colour assigned to col among the line's sorted
-// distinct columns.
-func columnColor(cols []int, col int) (lipgloss.ANSIColor, bool) {
+// columnStyle returns the style assigned to column value col among the line's
+// sorted distinct columns.
+func (t *Theme) columnStyle(cols []int, col int) (lipgloss.Style, bool) {
 	for i, c := range cols {
 		if c == col {
-			return colColors[i%len(colColors)], true
+			return t.columnStyleAt(i), true
 		}
 	}
-	return 0, false
+	return lipgloss.Style{}, false
 }
 
 // ensureSources loads the source-file list once.
@@ -425,7 +431,7 @@ func (m *Model) renderSourceList(bodyH int) string {
 	}
 	for i := top; i < end; i++ {
 		full := m.sourcesFiles[m.sourcesFiltered[i]]
-		name := colorPathByPrefix(full, truncateMiddle(full, max(16, m.width-2)))
+		name := m.theme.colorPathByPrefix(full, truncateMiddle(full, max(16, m.width-2)))
 		line := padRight(" "+name, m.width)
 		if i == m.sourcesCur {
 			b.WriteString(m.theme.tableSelStyle.Render(line))
@@ -480,7 +486,7 @@ func (m *Model) renderSourceText(w, h int) string {
 		}
 
 		prefix := m.srcGutter(ln, m.srcCur, m.srcCodeLines, 5)
-		avail := w - lipgloss.Width(stripANSI(prefix))
+		avail := w - lipgloss.Width(prefix)
 		line := prefix + fitANSIWidth(content, avail)
 		if m.wrap {
 			line = prefix + content
@@ -497,7 +503,7 @@ func (m *Model) renderSourceText(w, h int) string {
 		// Beneath the cursor line, point carets at the exact columns code maps
 		// to (a source line can map at several positions).
 		if ln == m.srcCur && rows < contentH {
-			if caret := coloredCaretRow(m.sourceLineColumns(m.srcFile, ln), gutterWidth, w); caret != "" {
+			if caret := m.theme.coloredCaretRow(m.sourceLineColumns(m.srcFile, ln), gutterWidth, w); caret != "" {
 				b.WriteString(caret)
 				b.WriteString("\n")
 				rows++
@@ -535,7 +541,7 @@ func (m *Model) sourceLineHeight(line, w int) int {
 
 // coloredCaretRow renders a '^' under each mapped column, each in that column's
 // assigned colour (so it matches the highlighted instructions in the asm pane).
-func coloredCaretRow(cols []int, gutterW, w int) string {
+func (t *Theme) coloredCaretRow(cols []int, gutterW, w int) string {
 	if len(cols) == 0 {
 		return ""
 	}
@@ -546,7 +552,7 @@ func coloredCaretRow(cols []int, gutterW, w int) string {
 	}
 	for i, c := range cols {
 		if c >= 1 && c <= maxc {
-			cells[c-1] = lipgloss.NewStyle().Foreground(colColors[i%len(colColors)]).Bold(true).Render("^")
+			cells[c-1] = t.columnStyleAt(i).Bold(true).Render("^")
 		}
 	}
 	row := strings.Repeat(" ", gutterW) + strings.Join(cells, "")
@@ -629,7 +635,7 @@ func (m *Model) sourceAsmHeader(anchor int, cols []int, w int) string {
 	parts = append(parts, m.theme.infoStyle.Render(linePlain))
 	if colsPlain != "" {
 		if colsPlain == origColsPlain {
-			parts = append(parts, m.theme.infoStyle.Render("cols ")+coloredCols(cols))
+			parts = append(parts, m.theme.infoStyle.Render("cols ")+m.theme.coloredCols(cols))
 		} else {
 			parts = append(parts, m.theme.infoStyle.Render(colsPlain))
 		}
@@ -705,10 +711,10 @@ func clampScroll(top, n, h int) int {
 }
 
 // coloredCols renders the line's column numbers, each in its assigned colour.
-func coloredCols(cols []int) string {
+func (t *Theme) coloredCols(cols []int) string {
 	parts := make([]string, len(cols))
 	for i, c := range cols {
-		parts[i] = lipgloss.NewStyle().Foreground(colColors[i%len(colColors)]).Render(fmt.Sprintf("%d", c))
+		parts[i] = t.columnStyleAt(i).Render(fmt.Sprintf("%d", c))
 	}
 	return strings.Join(parts, " ")
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
@@ -114,7 +115,7 @@ func (m *Model) renderSections() string {
 	for i := top; i < len(m.sectionsFiltered); i++ {
 		line := m.sectionRow(i, addrW)
 		if i == m.sectionsCur {
-			line = m.theme.tableSelStyle.Render(stripANSI(line))
+			line = m.theme.tableSelStyle.Render(ansi.Strip(line))
 		}
 		if !appendRenderedRowsIndented(&rows, line, m.width, m.wrap, 6, bodyH) {
 			break
@@ -128,7 +129,7 @@ func (m *Model) sectionRowHeight(i int) int {
 		return 1
 	}
 	addrW := m.file.AddrHexWidth()
-	key := sectionRowCacheKey{i, m.width, addrW, m.wrap}
+	key := rowCacheKey{i, m.width, addrW, m.wrap}
 	if m.sectionHeightCache != nil {
 		if h, ok := m.sectionHeightCache[key]; ok {
 			return h
@@ -137,14 +138,14 @@ func (m *Model) sectionRowHeight(i int) int {
 	line := m.sectionRow(i, addrW)
 	h := len(renderLineRowsIndented(line, m.width, m.wrap, 6))
 	if m.sectionHeightCache == nil {
-		m.sectionHeightCache = make(map[sectionRowCacheKey]int)
+		m.sectionHeightCache = make(map[rowCacheKey]int)
 	}
 	m.sectionHeightCache[key] = h
 	return h
 }
 
 func (m *Model) sectionRow(i, addrW int) string {
-	key := sectionRowCacheKey{i, m.width, addrW, m.wrap}
+	key := rowCacheKey{i, m.width, addrW, m.wrap}
 	if m.sectionRowCache != nil {
 		if s, ok := m.sectionRowCache[key]; ok {
 			return s
@@ -162,14 +163,14 @@ func (m *Model) sectionRow(i, addrW int) string {
 	rowStyle := m.theme.styleForSection(&s)
 	line := fmt.Sprintf(" %s  %s %s %s %s  %s",
 		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)),
-		rowStyle.Render(fmt.Sprintf("%-22s", name)),
-		rowStyle.Render(fmt.Sprintf("%-14s", typeName)),
+		rowStyle.Render(padVisual(name, 22)),
+		rowStyle.Render(padVisual(typeName, 14)),
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)),
 		rowStyle.Render(fmt.Sprintf("%-12d", s.Size)),
 		rowStyle.Render(s.Flags))
 
 	if m.sectionRowCache == nil {
-		m.sectionRowCache = make(map[sectionRowCacheKey]string)
+		m.sectionRowCache = make(map[rowCacheKey]string)
 	}
 	m.sectionRowCache[key] = line
 	return line

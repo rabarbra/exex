@@ -173,7 +173,7 @@ func (m *Model) renderSymbols() string {
 				break
 			}
 			if i == m.symbolsCur {
-				row = m.theme.tableSelStyle.Render(stripANSI(row))
+				row = m.theme.tableSelStyle.Render(ansi.Strip(row))
 			}
 			rows = append(rows, row)
 		}
@@ -188,7 +188,7 @@ func (m *Model) symbolRowHeight(i int) int {
 	if i < 0 || i >= len(m.symbolsFiltered) {
 		return 1
 	}
-	key := symbolRowCacheKey{i, m.width, m.file.AddrHexWidth(), m.wrap}
+	key := rowCacheKey{i, m.width, m.file.AddrHexWidth(), m.wrap}
 	if m.symbolHeightCache != nil {
 		if h, ok := m.symbolHeightCache[key]; ok {
 			return h
@@ -196,7 +196,7 @@ func (m *Model) symbolRowHeight(i int) int {
 	}
 	h := len(m.symbolRows(i, m.file.AddrHexWidth()))
 	if m.symbolHeightCache == nil {
-		m.symbolHeightCache = make(map[symbolRowCacheKey]int)
+		m.symbolHeightCache = make(map[rowCacheKey]int)
 	}
 	m.symbolHeightCache[key] = h
 	return h
@@ -205,7 +205,7 @@ func (m *Model) symbolRowHeight(i int) int {
 func (m *Model) symbolRows(i, addrW int) []string {
 	s := m.file.Symbols[m.symbolsFiltered[i]]
 
-	key := symbolRowCacheKey{i, m.width, addrW, m.wrap}
+	key := rowCacheKey{i, m.width, addrW, m.wrap}
 	if m.symbolRowCache != nil {
 		if rows, ok := m.symbolRowCache[key]; ok {
 			return rows
@@ -241,7 +241,7 @@ func (m *Model) symbolRows(i, addrW int) []string {
 	}
 
 	if m.symbolRowCache == nil {
-		m.symbolRowCache = make(map[symbolRowCacheKey][]string)
+		m.symbolRowCache = make(map[rowCacheKey][]string)
 	}
 	m.symbolRowCache[key] = rows
 	return rows

@@ -36,7 +36,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 		file:  f,
 		dis:   d,
 		cfg:   cfg,
-		theme: NewTheme(cfg.Colors),
+		theme: NewTheme(cfg),
 		mode:  modeInfo,
 		layoutState: layoutState{
 			headerVP: viewport.New(),

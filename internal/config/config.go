@@ -18,6 +18,11 @@ import (
 
 // Config is the on-disk schema.
 type Config struct {
+	// Theme selects a built-in colour preset applied before the `colors`
+	// overrides below: one of "dark" (default), "nord", "solarized-dark",
+	// "solarized-light". Empty keeps the built-in dark palette. Individual
+	// `colors` entries always win over the preset.
+	Theme    string   `yaml:"theme"`
 	Colors   Colors   `yaml:"colors"`
 	Keys     Keys     `yaml:"keys"`
 	Behavior Behavior `yaml:"behavior"`
@@ -123,6 +128,74 @@ type Colors struct {
 	// (e.g. "monokai", "github-dark", "nord", "dracula", "catppuccin-mocha").
 	// Unset keeps the built-in default. Unknown names fall back gracefully.
 	SyntaxTheme string `yaml:"syntax_theme"`
+
+	// ---- Source pane: position + mapping highlight ----------------------
+	// The current source line (cursor position) in the source pane.
+	SourceCurrentLineFG string `yaml:"source_current_line_fg"`
+	SourceCurrentLineBG string `yaml:"source_current_line_bg"`
+	// A disasm address that maps to the current source line (when it has no
+	// distinct column caret to colour it).
+	SourceMappedFG string `yaml:"source_mapped_fg"`
+	// Source lines that carry machine code, and addresses that map to some other
+	// source line (the prominent "has code" colour).
+	SourceCodeLineFG string `yaml:"source_code_line_fg"`
+	// Unmapped lines / dimmed gutter text.
+	SourceUnmappedFG string `yaml:"source_unmapped_fg"`
+	// Palette cycled for the source↔disasm column-correlation highlight (carets,
+	// column numbers, and the addresses mapping to each column). Empty keeps the
+	// built-in palette.
+	ColumnPalette []string `yaml:"column_palette"`
+
+	// ---- Window chrome: title, tab strip, footer ------------------------
+	TitleFG     string `yaml:"title_fg"`
+	TitleBG     string `yaml:"title_bg"`
+	TabFG       string `yaml:"tab_fg"`
+	TabActiveFG string `yaml:"tab_active_fg"`
+	TabActiveBG string `yaml:"tab_active_bg"`
+	FooterFG    string `yaml:"footer_fg"`
+	// The "Key:" labels on the Info page and library/section headers.
+	HeaderKeyFG string `yaml:"header_key_fg"`
+
+	// ---- Tables (Sections / Symbols / Strings) --------------------------
+	TableHeaderFG   string `yaml:"table_header_fg"`
+	TableHeaderBG   string `yaml:"table_header_bg"`
+	TableRowFG      string `yaml:"table_row_fg"`
+	TableSelectedFG string `yaml:"table_selected_fg"`
+	TableSelectedBG string `yaml:"table_selected_bg"`
+
+	// ---- Shared accents -------------------------------------------------
+	// Bold symbol names (entry symbol, libraries).
+	SymbolNameFG string `yaml:"symbol_name_fg"`
+	// The centred "==== .section ====" banner in the hex/raw views.
+	SectionBannerFG string `yaml:"section_banner_fg"`
+
+	// ---- Modal overlays + search switches -------------------------------
+	ModalBorderFG  string `yaml:"modal_border_fg"`
+	SearchSwitchFG string `yaml:"search_switch_fg"`
+	SearchSwitchBG string `yaml:"search_switch_bg"`
+
+	// ---- Help overlay ---------------------------------------------------
+	HelpKeyFG  string `yaml:"help_key_fg"`
+	HelpDescFG string `yaml:"help_desc_fg"`
+	HelpHeadFG string `yaml:"help_head_fg"`
+
+	// ---- Status footer messages -----------------------------------------
+	StatusErrorFG string `yaml:"status_error_fg"`
+	StatusInfoFG  string `yaml:"status_info_fg"`
+	// Used for partial/weak hardening flags on the Info page.
+	StatusWarnFG string `yaml:"status_warn_fg"`
+
+	// ---- File-path colouring (Libraries / Sources views) ----------------
+	// Palette cycled to colour paths by their directory prefix (paths sharing a
+	// directory share a colour). Any number of entries; empty keeps the built-in
+	// palette.
+	PathPalette []string `yaml:"path_palette"`
+
+	// ---- Hex / Raw byte colouring ---------------------------------------
+	// The per-byte colour ramp used by the hex and raw views. Must be exactly
+	// 18 colours when set, applied as: [0]=0x00, [1..16]=high-nibble buckets
+	// for 0x01..0xFE, [17]=0xFF. A shorter/empty list keeps the built-in ramp.
+	HexBytePalette []string `yaml:"hex_byte_palette"`
 }
 
 // Keys binds string actions to one or more keys. Any entry can be a single

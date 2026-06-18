@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/disasm"
@@ -189,7 +190,7 @@ func TestHexMiddleRowsNeverGap(t *testing.T) {
 	for range 40 { // scroll well past the section start
 		m.updateHex("down")
 	}
-	lines := strings.Split(stripANSI(m.renderHex()), "\n")
+	lines := strings.Split(ansi.Strip(m.renderHex()), "\n")
 	var body []string
 	for _, ln := range lines {
 		if strings.Contains(ln, "0x0000000") {
@@ -222,7 +223,7 @@ func TestHexAndRawRowsSplitAtUnalignedSectionStart(t *testing.T) {
 		layoutState: layoutState{width: 120, height: 10},
 		rawState:    rawState{rawData: raw, rawCur: 0x17, rawTop: 0x14},
 	}
-	assertSectionBytesBelowSeparator(t, stripANSI(rawModel.renderRaw()), "__objc_methname", "43  47 43", "0x0000000000000010")
+	assertSectionBytesBelowSeparator(t, ansi.Strip(rawModel.renderRaw()), "__objc_methname", "43  47 43", "0x0000000000000010")
 
 	hexData := make([]byte, 0x30)
 	copy(hexData[0x10:], []byte{'e', 'd', 0, 'C', 'G', 'C', 'o', 'l', 'o', 'r'})
@@ -239,7 +240,7 @@ func TestHexAndRawRowsSplitAtUnalignedSectionStart(t *testing.T) {
 			},
 		}, hexCur: 0x13, hexTop: 0x10},
 	}
-	assertSectionBytesBelowSeparator(t, stripANSI(hexModel.renderHex()), "__objc_methname", "43  47 43", "0x000000010203cb10")
+	assertSectionBytesBelowSeparator(t, ansi.Strip(hexModel.renderHex()), "__objc_methname", "43  47 43", "0x000000010203cb10")
 }
 
 func TestOpeningUnalignedSectionPinsSeparatorAtTop(t *testing.T) {
@@ -264,7 +265,7 @@ func TestOpeningUnalignedSectionPinsSeparatorAtTop(t *testing.T) {
 	if hexModel.hexTop != hexModel.hexCur {
 		t.Fatalf("hexTop = %d, want section cursor %d", hexModel.hexTop, hexModel.hexCur)
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(hexModel.renderHex()), section.Name)
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(hexModel.renderHex()), section.Name)
 
 	rawModel := &Model{
 		theme:       DefaultTheme(),
@@ -283,7 +284,7 @@ func TestOpeningUnalignedSectionPinsSeparatorAtTop(t *testing.T) {
 	if rawModel.rawTop != rawModel.rawCur {
 		t.Fatalf("rawTop = %d, want section cursor %d", rawModel.rawTop, rawModel.rawCur)
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(rawModel.renderRaw()), section.Name)
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(rawModel.renderRaw()), section.Name)
 }
 
 func TestCurrentUnalignedSectionSnapsPastPreviousSectionGap(t *testing.T) {
@@ -306,7 +307,7 @@ func TestCurrentUnalignedSectionSnapsPastPreviousSectionGap(t *testing.T) {
 			},
 		}, hexCur: 0x7f, hexTop: 0},
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(hexModel.renderHex()), sections[1].Name)
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(hexModel.renderHex()), sections[1].Name)
 	if got, want := hexModel.hexTop, 0x4e; got != want {
 		t.Fatalf("hexTop = 0x%x, want current section start 0x%x", got, want)
 	}
@@ -328,7 +329,7 @@ func TestCurrentUnalignedSectionSnapsPastPreviousSectionGap(t *testing.T) {
 		layoutState: layoutState{width: 120, height: 10},
 		rawState:    rawState{rawData: rawData, rawCur: 0x7f, rawTop: 0x10},
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(rawModel.renderRaw()), sections[1].Name)
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(rawModel.renderRaw()), sections[1].Name)
 	if got, want := rawModel.rawTop, 0x4e; got != want {
 		t.Fatalf("rawTop = 0x%x, want current section start 0x%x", got, want)
 	}
@@ -366,7 +367,7 @@ func TestPinnedUnalignedSectionOverridesStaleDetachedTop(t *testing.T) {
 			},
 		}, hexCur: 0x67, hexTop: 0, hexPinnedTop: 0x67, hexPinned: true},
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), sections[1].Name)
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(m.renderHex()), sections[1].Name)
 	if got, want := m.hexTop, 0x67; got != want {
 		t.Fatalf("hexTop = 0x%x, want pinned section start 0x%x", got, want)
 	}
@@ -413,7 +414,7 @@ func TestHexSearchReattachesViewportAtUnalignedSectionStart(t *testing.T) {
 	if got, want := m.hexCur, 0x4e; got != want {
 		t.Fatalf("hex search cursor = 0x%x, want 0x%x", got, want)
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), sections[1].Name)
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(m.renderHex()), sections[1].Name)
 }
 
 func TestGhosttyObjcMethnameOpenPinsSeparatorAtTop(t *testing.T) {
@@ -434,7 +435,7 @@ func TestGhosttyObjcMethnameOpenPinsSeparatorAtTop(t *testing.T) {
 	if m.hexTop != m.hexCur {
 		t.Fatalf("hexTop = %d addr 0x%x, hexCur = %d addr 0x%x", m.hexTop, m.hexImg.AddrAt(m.hexTop), m.hexCur, m.hexImg.AddrAt(m.hexCur))
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), "__objc_methname")
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(m.renderHex()), "__objc_methname")
 }
 
 func TestGhosttyObjcMethnameSectionKeyPinsSeparatorAtTop(t *testing.T) {
@@ -462,7 +463,7 @@ func TestGhosttyObjcMethnameSectionKeyPinsSeparatorAtTop(t *testing.T) {
 	if m.hexTop != m.hexCur {
 		t.Fatalf("hexTop = %d addr 0x%x, hexCur = %d addr 0x%x", m.hexTop, m.hexImg.AddrAt(m.hexTop), m.hexCur, m.hexImg.AddrAt(m.hexCur))
 	}
-	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), "__objc_methname")
+	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(m.renderHex()), "__objc_methname")
 
 	// [ jumps back to the previous section, again pinning its separator on top.
 	model, _ = m.updateHex("[")
@@ -521,7 +522,7 @@ func TestPadBodyRowsClampsAndPads(t *testing.T) {
 		t.Fatalf("padded line count = %d, want 3", len(lines))
 	}
 	for i, line := range lines {
-		if w := lipgloss.Width(stripANSI(line)); w != 4 {
+		if w := lipgloss.Width(ansi.Strip(line)); w != 4 {
 			t.Fatalf("line %d width = %d, want 4 (%q)", i, w, line)
 		}
 	}
@@ -544,7 +545,7 @@ func TestRenderLineRowsActuallyWraps(t *testing.T) {
 		t.Fatalf("wrapped rows = %d, want at least 3: %q", len(rows), rows)
 	}
 	for _, row := range rows {
-		if w := lipgloss.Width(stripANSI(row)); w > 12 {
+		if w := lipgloss.Width(ansi.Strip(row)); w > 12 {
 			t.Fatalf("row width = %d, want <= 12: %q", w, row)
 		}
 	}
@@ -559,7 +560,7 @@ func TestRenderLineRowsIndentedContinuation(t *testing.T) {
 		t.Fatalf("rows = %q, want wrapped continuation", rows)
 	}
 	for i, row := range rows[1:] {
-		plain := stripANSI(row)
+		plain := ansi.Strip(row)
 		if len(plain) < 6 || plain[:6] != "      " {
 			t.Fatalf("continuation row %d not indented: %q", i+1, plain)
 		}
@@ -701,7 +702,7 @@ func TestDisasmAnnotationWrapsSeparatelyAndAddressLinks(t *testing.T) {
 	if len(rows) < 2 {
 		t.Fatalf("annotation did not wrap into separate rows: %q", rows)
 	}
-	plain := stripANSI(rows[0])
+	plain := ansi.Strip(rows[0])
 	if strings.Contains(plain, "#") {
 		t.Fatalf("annotation was rendered as an assembly comment: %q", plain)
 	}
@@ -717,7 +718,7 @@ func TestDisasmAnnotationWrapsSeparatelyAndAddressLinks(t *testing.T) {
 func stripANSILines(lines []string) []string {
 	out := make([]string, len(lines))
 	for i, line := range lines {
-		out[i] = stripANSI(line)
+		out[i] = ansi.Strip(line)
 	}
 	return out
 }

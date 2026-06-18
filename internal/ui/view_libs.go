@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/explorer"
@@ -184,9 +185,9 @@ func (m *Model) libRow(i int, selected bool) string {
 	if !m.wrap {
 		display = truncateMiddle(lib, max(1, m.width-7))
 	}
-	line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("%3d", i)), colorPathByPrefix(lib, display))
+	line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("%3d", i)), m.theme.colorPathByPrefix(lib, display))
 	if selected {
-		return m.theme.tableSelStyle.Render(stripANSI(line))
+		return m.theme.tableSelStyle.Render(ansi.Strip(line))
 	}
 	return m.theme.symbolNameStyle.Render(line)
 }

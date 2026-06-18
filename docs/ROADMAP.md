@@ -187,7 +187,10 @@ the line in this case)
 
 ## 16. Info view
 
-Polish it. Centralize maybe. Think about what else to add.
+- ✅ Polish it: grouped section headers (Overview / Hardening / Dynamic linking
+/ Toolchain) and checksec-style colouring of the hardening block.
+- ✅ Centralize: rendered as a centred, bordered panel.
+- ✅ Add more fields: code size as a share of the file.
 
 ## 17. String view
 
@@ -212,9 +215,10 @@ Polish it. Centralize maybe. Think about what else to add.
 
 ## 21. Themes
 
-- Implement different themes.
-- All the colors used should be configurable through theme and config -
-including hex coloring, highlight of source position etc. Now it is not like this.
+- ✅ Implement different themes. Built-in presets selectable via `theme:`
+(dark, nord, solarized-dark, solarized-light).
+- ✅ All the colors used should be configurable through theme and config -
+including hex coloring, highlight of source position etc.
 - all the keys / keybindings used should be configurable in config.
 
 ## 22. Hex colouring modes.

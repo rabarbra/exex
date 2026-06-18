@@ -33,15 +33,17 @@ func bytesHex(b []byte, maxN int) string {
 	return sb.String()
 }
 
-// truncate trims s to n bytes, appending an ellipsis when space allows.
+// truncate trims s to n display columns, appending an ellipsis when it doesn't
+// fit. It is width- and rune-aware (never splits a multi-byte rune), so it is
+// safe for arbitrary UTF-8 text.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	if n <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
 		return s
 	}
-	if n <= 1 {
-		return s[:n]
-	}
-	return s[:n-1] + "…"
+	return ansi.Truncate(s, n, "…")
 }
 
 // truncateMiddle keeps both ends of a string visible within n columns.
@@ -49,7 +51,7 @@ func truncateMiddle(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	plain := stripANSI(s)
+	plain := ansi.Strip(s)
 	if lipgloss.Width(plain) <= n {
 		return plain
 	}
@@ -75,21 +77,38 @@ func wrapStatus(on bool) string {
 // colorPathByPrefix renders display in a single colour chosen from keyPath's
 // directory prefix, so paths sharing a directory share a colour. keyPath is the
 // full path (used only for the colour key); display is what's drawn — which may
-// be a middle-truncated form of the same path.
-func colorPathByPrefix(keyPath, display string) string {
+// be a middle-truncated form of the same path. The palette comes from the theme,
+// so path colouring follows the active preset.
+func (t *Theme) colorPathByPrefix(keyPath, display string) string {
 	if display == "" {
 		return display
 	}
-	key := keyPath
-	if i := strings.LastIndexByte(keyPath, '/'); i > 0 {
-		key = keyPath[:i] // the directory
-	}
-	return pathPrefixStyle(key).Render(display)
+	return t.pathPrefixStyle(pathColorKey(keyPath)).Render(display)
 }
 
-// pathPrefixStyle chooses a deterministic color from a path prefix.
-func pathPrefixStyle(prefix string) lipgloss.Style {
-	colors := []lipgloss.ANSIColor{75, 114, 141, 173, 214, 213, 84, 39}
+// pathColorKey reduces a path to a coarse grouping key: at most its first two
+// directory components. This keeps whole subtrees (e.g. everything under
+// /usr/lib) one colour instead of giving every leaf directory its own.
+func pathColorKey(p string) string {
+	segs := strings.Split(strings.Trim(p, "/"), "/")
+	// Drop the filename (last segment) so siblings group together — bare names
+	// with no directory then all share one colour — and keep up to the first two
+	// directory components.
+	if len(segs) > 0 {
+		segs = segs[:len(segs)-1]
+	}
+	if len(segs) > 2 {
+		segs = segs[:2]
+	}
+	return strings.Join(segs, "/")
+}
+
+// pathPrefixStyle deterministically maps a path prefix to one of the theme's
+// path-palette styles.
+func (t *Theme) pathPrefixStyle(prefix string) lipgloss.Style {
+	if len(t.pathPalette) == 0 {
+		return lipgloss.NewStyle()
+	}
 	h := 0
 	for i := 0; i < len(prefix); i++ {
 		h = h*33 + int(prefix[i])
@@ -97,14 +116,25 @@ func pathPrefixStyle(prefix string) lipgloss.Style {
 	if h < 0 {
 		h = -h
 	}
-	return lipgloss.NewStyle().Foreground(colors[h%len(colors)])
+	return t.pathPalette[h%len(t.pathPalette)]
+}
+
+// padVisual right-pads s to a minimum display width of w columns (ANSI- and
+// width-aware), leaving a string that's already wider untouched. This is the
+// cell-accurate equivalent of fmt's "%-*s", which counts runes/bytes rather
+// than terminal cells and so misaligns columns containing wide or styled text.
+func padVisual(s string, w int) string {
+	if d := w - lipgloss.Width(s); d > 0 {
+		return s + strings.Repeat(" ", d)
+	}
+	return s
 }
 
 // padRight pads s to exactly w visible columns, truncating when it's longer so
 // an over-wide line (e.g. a long demangled symbol) can't wrap and shove the
 // layout down behind the status line.
 func padRight(s string, w int) string {
-	pw := lipgloss.Width(stripANSI(s))
+	pw := lipgloss.Width(s)
 	switch {
 	case pw == w:
 		return s
@@ -112,7 +142,7 @@ func padRight(s string, w int) string {
 		// Truncate (width-aware) and pad any remainder — a wide rune straddling
 		// the boundary can leave the result a cell short.
 		s = truncateANSI(s, w)
-		if d := w - lipgloss.Width(stripANSI(s)); d > 0 {
+		if d := w - lipgloss.Width(s); d > 0 {
 			s += strings.Repeat(" ", d)
 		}
 		return s
@@ -130,7 +160,7 @@ func padBody(s string, w, h int) string {
 	// Clamp every line to exactly w columns so nothing wraps and shoves the
 	// layout (and the status line) down.
 	for i, l := range lines {
-		if lipgloss.Width(stripANSI(l)) != w {
+		if lipgloss.Width(l) != w {
 			lines[i] = padRight(l, w)
 		}
 	}
@@ -179,7 +209,7 @@ func hardWrapLongRows(rows []string, w int) []string {
 	out := make([]string, 0, len(rows))
 
 	for _, row := range rows {
-		if lipgloss.Width(stripANSI(row)) <= w {
+		if lipgloss.Width(row) <= w {
 			out = append(out, row)
 			continue
 		}
@@ -405,27 +435,6 @@ func overlay(bg, fg string, x, y int) string {
 	return strings.Join(bgLines, "\n")
 }
 
-// stripANSI removes ANSI escape sequences for width math. Cheap and good enough
-// for our render strings, which only carry simple SGR codes from lipgloss.
-func stripANSI(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
-				j++
-			}
-			if j < len(s) {
-				j++
-			}
-			i = j - 1
-			continue
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
 // fitANSIWidth keeps a styled string intact when it fits within w visible
 // columns, and falls back to a plain truncation when it doesn't — so a single
 // over-long source line can't break the side-by-side layout while normal-width
@@ -434,7 +443,7 @@ func fitANSIWidth(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	if lipgloss.Width(stripANSI(s)) <= w {
+	if lipgloss.Width(s) <= w {
 		return s
 	}
 	return truncateANSI(s, w)

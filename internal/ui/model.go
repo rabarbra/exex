@@ -245,6 +245,13 @@ type interactionState struct {
 	wheelSuppressUntil time.Time // drop continuing momentum after a mode change
 	viewportDetached   bool      // mouse wheel scrolled the viewport without moving the caret
 
+	// Wheel coalescing: a burst of wheel events (trackpad momentum) accumulates
+	// into pendingWheel and is applied at most once per wheelCoalesceInterval via
+	// a tick, so the flood of events drains cheaply instead of running an
+	// expensive scroll+render per event and blocking clicks/keys behind it.
+	pendingWheel int
+	wheelTicking bool
+
 	// Last top row/offset actually rendered for each scrollable view. Wheel input
 	// starts from these screen snapshots so queued key/mouse events cannot snap
 	// the first wheel step back to the caret-derived top.
@@ -260,6 +267,14 @@ type interactionState struct {
 
 	// helpActive toggles the keybinding cheat-sheet overlay.
 	helpActive bool
+
+	// View output memoization. Bubble Tea calls View() after every message, so a
+	// burst of wheel events that only accumulate (without changing what's shown)
+	// would each recompute the whole screen. viewDirty defaults to true every
+	// Update; the few no-op paths (wheel coalescing) clear it so View() can reuse
+	// the last output instead of rebuilding it.
+	viewCache string
+	viewDirty bool
 }
 
 // setMode is the single place for mode-transition side effects. In particular,

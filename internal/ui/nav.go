@@ -5,8 +5,8 @@ package ui
 // live in one place instead of being copy-pasted per view.
 
 import (
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 // navKey applies a standard list-navigation key (up/down/k/j, pgup/pgdown,

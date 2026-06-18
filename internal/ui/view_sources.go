@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	sourceutil "github.com/rabarbra/exex/internal/sourcefiles"
 )
@@ -23,17 +23,17 @@ type srcMatch = sourceutil.Match
 // colColors keys the per-column highlight: the Nth distinct column on a source
 // line is drawn in colColors[N], and the instructions mapped to that column get
 // the same colour, so carets and disassembly line up visually.
-var colColors = []lipgloss.Color{"203", "220", "84", "39", "213", "51", "215", "141"}
+var colColors = []lipgloss.ANSIColor{203, 220, 84, 39, 213, 51, 215, 141}
 
 // columnColor returns the colour assigned to col among the line's sorted
 // distinct columns.
-func columnColor(cols []int, col int) (lipgloss.Color, bool) {
+func columnColor(cols []int, col int) (lipgloss.ANSIColor, bool) {
 	for i, c := range cols {
 		if c == col {
 			return colColors[i%len(colColors)], true
 		}
 	}
-	return "", false
+	return 0, false
 }
 
 // ensureSources loads the source-file list once.

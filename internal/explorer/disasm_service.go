@@ -22,14 +22,17 @@ type DisasmService struct {
 	order []disasmCacheKey
 }
 
+// disasmCacheKey identifies a decoded instruction window and its overlap start.
 type disasmCacheKey struct {
 	start       int
 	end         int
 	decodeStart int
 }
 
+// disasmCacheCap bounds decoded-window memory retained by the service.
 const disasmCacheCap = 24
 
+// NewDisasmService creates a bounded disassembly decoder/cache.
 func NewDisasmService(file *binfile.File, dis disasm.Disassembler, maxBytes, searchWorkers int) *DisasmService {
 	s := &DisasmService{
 		file:  file,
@@ -40,6 +43,7 @@ func NewDisasmService(file *binfile.File, dis disasm.Disassembler, maxBytes, sea
 	return s
 }
 
+// SetOptions updates the decode budget and search worker preference.
 func (s *DisasmService) SetOptions(maxBytes, searchWorkers int) {
 	if maxBytes <= 0 {
 		maxBytes = 1
@@ -50,64 +54,52 @@ func (s *DisasmService) SetOptions(maxBytes, searchWorkers int) {
 	s.searchWorkers = searchWorkers
 }
 
+// OverlapBytes returns the context decoded before each visible window.
 func (s *DisasmService) OverlapBytes() int {
 	maxBytes, _ := s.options()
 	return overlapBytes(maxBytes)
 }
 
+// overlapBytes derives a safe overlap from a decode budget.
 func overlapBytes(maxBytes int) int {
-	overlap := maxBytes / 8
-	if overlap < 4<<10 {
-		overlap = 4 << 10
-	}
+	overlap := max(maxBytes/8, 4<<10)
 	if overlap >= maxBytes {
 		overlap = max(1, maxBytes/2)
 	}
 	return overlap
 }
 
+// LeadBytes returns the preferred bytes of context before a target address.
 func (s *DisasmService) LeadBytes() int {
 	maxBytes, _ := s.options()
 	return leadBytes(maxBytes)
 }
 
+// leadBytes derives pre-target context from a decode budget.
 func leadBytes(maxBytes int) int {
 	overlap := overlapBytes(maxBytes)
-	lead := maxBytes / 4
-	if lead < overlap {
-		lead = overlap
-	}
+	lead := max(maxBytes/4, overlap)
 	if lead >= maxBytes {
 		lead = max(0, maxBytes-1)
 	}
 	return lead
 }
 
+// SearchChunkBytes returns the background-search chunk size.
 func (s *DisasmService) SearchChunkBytes() int {
 	maxBytes, _ := s.options()
 	return searchChunkBytes(maxBytes)
 }
 
+// searchChunkBytes derives a bounded search chunk size from a decode budget.
 func searchChunkBytes(maxBytes int) int {
-	chunk := maxBytes / 8
-	if chunk < 64<<10 {
-		chunk = 64 << 10
-	}
-	if chunk > 512<<10 {
-		chunk = 512 << 10
-	}
-	if chunk > maxBytes {
-		chunk = maxBytes
-	}
-	return chunk
+	return min(min(max(maxBytes/8, 64<<10), 512<<10), maxBytes)
 }
 
+// SearchBatchChunks returns how many chunks should be queued per search batch.
 func (s *DisasmService) SearchBatchChunks() int {
 	maxBytes, searchWorkers := s.options()
-	n := searchWorkersFor(searchWorkers, 0)
-	if n < 2 {
-		n = 2
-	}
+	n := max(searchWorkersFor(searchWorkers, 0), 2)
 	if searchChunkBytes(maxBytes) <= 128<<10 {
 		n *= 2
 	}
@@ -117,21 +109,17 @@ func (s *DisasmService) SearchBatchChunks() int {
 	return n
 }
 
+// SearchWorkersFor returns the worker count capped by available chunks.
 func (s *DisasmService) SearchWorkersFor(chunks int) int {
 	_, searchWorkers := s.options()
 	return searchWorkersFor(searchWorkers, chunks)
 }
 
+// searchWorkersFor applies configured/default worker policy.
 func searchWorkersFor(configured, chunks int) int {
 	workers := configured
 	if workers <= 0 {
-		workers = runtime.GOMAXPROCS(0)
-		if workers > 6 {
-			workers = 6
-		}
-		if workers < 1 {
-			workers = 1
-		}
+		workers = max(min(runtime.GOMAXPROCS(0), 6), 1)
 	}
 	if chunks > 0 && workers > chunks {
 		workers = chunks
@@ -142,6 +130,7 @@ func searchWorkersFor(configured, chunks int) int {
 	return workers
 }
 
+// DecodeWindow decodes instructions overlapping win, using cache and overlap.
 func (s *DisasmService) DecodeWindow(win binfile.Window) []disasm.Inst {
 	if len(win.Data) == 0 || s == nil || s.file == nil || s.dis == nil {
 		return nil
@@ -151,6 +140,7 @@ func (s *DisasmService) DecodeWindow(win binfile.Window) []disasm.Inst {
 	return s.decodeInstWindow(win, decodeStart)
 }
 
+// DecodeAt returns a window containing addr and the instructions overlapping it.
 func (s *DisasmService) DecodeAt(addr uint64, before int) (binfile.Window, []disasm.Inst) {
 	if s == nil || s.file == nil || s.dis == nil {
 		return binfile.Window{}, nil
@@ -174,6 +164,7 @@ func (s *DisasmService) DecodeAt(addr uint64, before int) (binfile.Window, []dis
 	return win, s.decodeInstWindow(win, decodeStart)
 }
 
+// PrefetchAround warms the decode cache around addr for smoother navigation.
 func (s *DisasmService) PrefetchAround(addr uint64) {
 	if s == nil || s.file == nil || s.dis == nil {
 		return
@@ -210,6 +201,7 @@ func (s *DisasmService) PrefetchAround(addr uint64) {
 	}
 }
 
+// decodeInstWindow decodes from decodeStart and filters to visible instructions.
 func (s *DisasmService) decodeInstWindow(win binfile.Window, decodeStart int) []disasm.Inst {
 	if len(win.Data) == 0 || s.file == nil || s.dis == nil {
 		return nil
@@ -236,6 +228,7 @@ func (s *DisasmService) decodeInstWindow(win binfile.Window, decodeStart int) []
 	return insts
 }
 
+// options returns a consistent snapshot of mutable service options.
 func (s *DisasmService) options() (maxBytes, searchWorkers int) {
 	s.mu.RLock()
 	maxBytes, searchWorkers = s.maxBytes, s.searchWorkers
@@ -243,6 +236,7 @@ func (s *DisasmService) options() (maxBytes, searchWorkers int) {
 	return maxBytes, searchWorkers
 }
 
+// cacheGet returns a cached decoded window.
 func (s *DisasmService) cacheGet(key disasmCacheKey) ([]disasm.Inst, bool) {
 	s.mu.RLock()
 	insts, ok := s.cache[key]
@@ -250,6 +244,7 @@ func (s *DisasmService) cacheGet(key disasmCacheKey) ([]disasm.Inst, bool) {
 	return insts, ok
 }
 
+// cachePut stores a decoded window and evicts the oldest entries over capacity.
 func (s *DisasmService) cachePut(key disasmCacheKey, insts []disasm.Inst) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

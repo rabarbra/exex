@@ -64,6 +64,7 @@ func demangleSwiftInto(syms []Symbol, out []string) {
 	}
 }
 
+// swiftDemangleBatch runs swift-demangle for a batch of mangled names.
 func swiftDemangleBatch(names []string) map[string]string {
 	var cmd *exec.Cmd
 	if p, err := exec.LookPath("swift-demangle"); err == nil {

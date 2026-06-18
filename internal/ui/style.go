@@ -1,7 +1,9 @@
 package ui
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"image/color"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/rabarbra/exex/internal/config"
 )
@@ -20,6 +22,7 @@ type Theme struct {
 	addrStyle       lipgloss.Style
 	mnemonicStyle   lipgloss.Style
 	symbolNameStyle lipgloss.Style
+	sectionStyle    lipgloss.Style
 
 	whiteStyle      lipgloss.Style
 	srcCurLineStyle lipgloss.Style
@@ -66,12 +69,14 @@ type Theme struct {
 	secRelocStyle   lipgloss.Style
 }
 
+// NewTheme returns the default theme with user color overrides applied.
 func NewTheme(c config.Colors) Theme {
 	t := DefaultTheme()
 	t.ApplyColors(c)
 	return t
 }
 
+// DefaultTheme returns the built-in visual palette.
 func DefaultTheme() Theme {
 	tabStyle := lipgloss.NewStyle().
 		Padding(0, 1).
@@ -111,8 +116,12 @@ func DefaultTheme() Theme {
 		symbolNameStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
 			Bold(true),
+		sectionStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			AlignHorizontal(lipgloss.Center).
+			Bold(true),
 		whiteStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231")),
+			Foreground(lipgloss.Color("252")),
 		srcCurLineStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("231")).
 			Background(lipgloss.Color("63")).
@@ -120,8 +129,8 @@ func DefaultTheme() Theme {
 		srcShadowStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")),
 		srcMappedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("23")),
+			Foreground(lipgloss.Color("153")),
+		// Background(lipgloss.Color("23")),
 		modalStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63")).
@@ -237,28 +246,29 @@ var byteHex [256]string
 // nibble — making structural patterns in raw bytes pop out visually.
 var byteFG [256]lipgloss.Style
 
+// init precomputes byte-level hex styles used by byte dump renderers.
 func init() {
 	// Indices: 0 = grey (special, 0x00); 1..16 = high-nibble buckets for
 	// 0x01..0xFE; 17 = white (special, 0xFF).
-	palette := [18]lipgloss.Color{
-		"#808080", // 0x00      grey
-		"#FF71A9", // 0x01..0x0F red
-		"#FF7A78", // 0x10..0x1F salmon
-		"#FF8123", // 0x20..0x2F red-orange
-		"#F79300", // 0x30..0x3F yellow-orange
-		"#E69F00", // 0x40..0x4F yellow
-		"#C1B200", // 0x50..0x5F green-yellow
-		"#82C600", // 0x60..0x6F lime
-		"#00D500", // 0x70..0x7F green
-		"#00D459", // 0x80..0x8F clover
-		"#00D091", // 0x90..0x9F teal
-		"#00CCBB", // 0xA0..0xAF cyan
-		"#00C7DE", // 0xB0..0xBF light blue
-		"#00BEFF", // 0xC0..0xCF blue
-		"#6CAFFF", // 0xD0..0xDF blurple
-		"#B298FF", // 0xE0..0xEF purple
-		"#FF4DFF", // 0xF0..0xFE pink
-		"#FFFFFF", // 0xFF      white
+	palette := [18]color.Color{
+		lipgloss.Color("#808080"), // 0x00       grey
+		lipgloss.Color("#FF71A9"), // 0x01..0x0F red
+		lipgloss.Color("#FF7A78"), // 0x10..0x1F salmon
+		lipgloss.Color("#FF8123"), // 0x20..0x2F red-orange
+		lipgloss.Color("#F79300"), // 0x30..0x3F yellow-orange
+		lipgloss.Color("#E69F00"), // 0x40..0x4F yellow
+		lipgloss.Color("#C1B200"), // 0x50..0x5F green-yellow
+		lipgloss.Color("#82C600"), // 0x60..0x6F lime
+		lipgloss.Color("#00D500"), // 0x70..0x7F green
+		lipgloss.Color("#00D459"), // 0x80..0x8F clover
+		lipgloss.Color("#00D091"), // 0x90..0x9F teal
+		lipgloss.Color("#00CCBB"), // 0xA0..0xAF cyan
+		lipgloss.Color("#00C7DE"), // 0xB0..0xBF light blue
+		lipgloss.Color("#00BEFF"), // 0xC0..0xCF blue
+		lipgloss.Color("#6CAFFF"), // 0xD0..0xDF blurple
+		lipgloss.Color("#B298FF"), // 0xE0..0xEF purple
+		lipgloss.Color("#FF4DFF"), // 0xF0..0xFE pink
+		lipgloss.Color("#FFFFFF"), // 0xFF       white
 	}
 	for i := 0; i < 256; i++ {
 		var idx int

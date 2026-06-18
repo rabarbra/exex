@@ -3,8 +3,8 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
@@ -13,6 +13,7 @@ import (
 	"github.com/rabarbra/exex/internal/syntax"
 )
 
+// New constructs a Bubble Tea model for a loaded binary.
 func New(f *binfile.File, opts ...Options) (*Model, error) {
 	d, err := disasm.For(f.Arch())
 	if err != nil {
@@ -38,7 +39,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 		theme: NewTheme(cfg.Colors),
 		mode:  modeInfo,
 		layoutState: layoutState{
-			headerVP: viewport.New(0, 0),
+			headerVP: viewport.New(),
 		},
 		sectionsState: sectionsState{
 			sections:       f.Sections,
@@ -51,7 +52,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 			disasmMaxBytes:      defaultDisasmMaxBytes,
 			disasmSearchWorkers: 0,
 			showSource:          true,
-			srcVP:               viewport.New(0, 0),
+			srcVP:               viewport.New(),
 			srcHighlighter:      syntax.NewHighlighter(cfg.Colors.SyntaxTheme),
 		},
 		sourcesState: sourcesState{
@@ -91,6 +92,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 	return m, nil
 }
 
+// newPromptInput returns a consistently configured modal/filter input.
 func newPromptInput(placeholder, prompt string) textinput.Model {
 	in := textinput.New()
 	in.Placeholder = placeholder
@@ -99,6 +101,7 @@ func newPromptInput(placeholder, prompt string) textinput.Model {
 	return in
 }
 
+// newKeyState combines default key bindings with user-provided aliases.
 func newKeyState(cfg config.Keys) keyState {
 	keys := defaultKeyMap()
 	keys.applyConfig(cfg)

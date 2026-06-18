@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
@@ -48,15 +48,8 @@ func TestRenderAllViews(t *testing.T) {
 
 	send := func(s string) {
 		t.Helper()
-		var msg tea.KeyMsg
-		switch s {
-		case "down", "up", "pgdown", "pgup", "end", "home", "enter", "right", "left":
-			msg = tea.KeyMsg{Type: keyType(s)}
-		default:
-			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
-		}
-		pump(msg)
-		if strings.TrimSpace(model.View()) == "" {
+		pump(keyPress(s))
+		if strings.TrimSpace(model.View().Content) == "" {
 			t.Fatalf("empty render after key %q", s)
 		}
 	}
@@ -113,23 +106,27 @@ func TestRenderAllViews(t *testing.T) {
 	assertDisasmBudget()
 
 	// Mouse: wheel scroll and a left click in a few views.
-	mouse := func(b tea.MouseButton, action tea.MouseAction, x, y int) {
+	mouse := func(b tea.MouseButton, x, y int) {
 		t.Helper()
-		pump(tea.MouseMsg{Button: b, Action: action, X: x, Y: y})
-		if strings.TrimSpace(model.View()) == "" {
+		if b == tea.MouseWheelUp || b == tea.MouseWheelDown {
+			pump(tea.MouseWheelMsg(tea.Mouse{Button: b, X: x, Y: y}))
+		} else {
+			pump(tea.MouseClickMsg(tea.Mouse{Button: b, X: x, Y: y}))
+		}
+		if strings.TrimSpace(model.View().Content) == "" {
 			t.Fatalf("empty render after mouse event")
 		}
 	}
 	for _, v := range []string{"2", "3", "4", "5", "7"} {
 		send(v)
-		mouse(tea.MouseButtonWheelDown, tea.MouseActionPress, 10, 10)
-		mouse(tea.MouseButtonWheelUp, tea.MouseActionPress, 10, 10)
-		mouse(tea.MouseButtonLeft, tea.MouseActionPress, 20, 6)
+		mouse(tea.MouseWheelDown, 10, 10)
+		mouse(tea.MouseWheelUp, 10, 10)
+		mouse(tea.MouseLeft, 20, 6)
 	}
 
 	// Clicking along the tab strip (y == 0) should switch views.
 	for x := 16; x < 90; x += 6 {
-		mouse(tea.MouseButtonLeft, tea.MouseActionPress, x, 0)
+		mouse(tea.MouseLeft, x, 0)
 	}
 
 	// Strings view: scroll and jump.
@@ -139,8 +136,8 @@ func TestRenderAllViews(t *testing.T) {
 
 	// Disasm double-click: two quick left clicks on the same row should follow.
 	send("4")
-	mouse(tea.MouseButtonLeft, tea.MouseActionPress, 30, 5)
-	mouse(tea.MouseButtonLeft, tea.MouseActionPress, 30, 5)
+	mouse(tea.MouseLeft, 30, 5)
+	mouse(tea.MouseLeft, 30, 5)
 
 	// Goto modal: type, watch the live result list, select and jump.
 	send("g")
@@ -175,8 +172,8 @@ func TestRenderAllViews(t *testing.T) {
 	send("down")
 
 	// macOS-friendly begin/end via ctrl+a / ctrl+e.
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	model, _ = model.Update(keyPress("ctrl+e"))
+	model, _ = model.Update(keyPress("ctrl+a"))
 
 	// Strings search.
 	send("8")
@@ -189,7 +186,7 @@ func TestRenderAllViews(t *testing.T) {
 	// Info view: Enter follows the entry point into disasm.
 	send("1")
 	send("enter")
-	if strings.TrimSpace(model.View()) == "" {
+	if strings.TrimSpace(model.View().Content) == "" {
 		t.Fatal("empty render at end")
 	}
 }
@@ -468,28 +465,37 @@ func TestDisasmSearchWorkersAndBatchSizing(t *testing.T) {
 	}
 }
 
-func keyType(s string) tea.KeyType {
+func keyPress(s string) tea.KeyPressMsg {
 	switch s {
 	case "down":
-		return tea.KeyDown
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})
 	case "up":
-		return tea.KeyUp
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
 	case "left":
-		return tea.KeyLeft
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft})
 	case "right":
-		return tea.KeyRight
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyRight})
 	case "pgdown":
-		return tea.KeyPgDown
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown})
 	case "pgup":
-		return tea.KeyPgUp
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp})
 	case "home":
-		return tea.KeyHome
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyHome})
 	case "end":
-		return tea.KeyEnd
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd})
 	case "enter":
-		return tea.KeyEnter
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
+	case "esc":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape})
+	case "tab":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})
+	case "ctrl+a":
+		return tea.KeyPressMsg(tea.Key{Code: 'a', Mod: tea.ModCtrl})
+	case "ctrl+e":
+		return tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl})
 	}
-	return tea.KeyRunes
+	r := []rune(s)
+	return tea.KeyPressMsg(tea.Key{Text: s, Code: r[0]})
 }
 
 func runModelCmd(t *testing.T, m *Model, cmd tea.Cmd) {

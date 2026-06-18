@@ -3,15 +3,9 @@ package syntax
 import (
 	"strings"
 	"testing"
-
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 func TestHighlightLines(t *testing.T) {
-	old := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	defer lipgloss.SetColorProfile(old)
 
 	src := []string{
 		"#include <stdio.h>",
@@ -41,6 +35,32 @@ func TestHighlightUnknownExtension(t *testing.T) {
 	hl := HighlightLines("data.unknownext", []string{"\x00\x01\x02"}, defaultTheme)
 	for _, line := range hl {
 		_ = line
+	}
+}
+
+func TestHighlighterNilReceiverAndInvalidTheme(t *testing.T) {
+	src := []string{"package main", "func main() {}"}
+	var h *Highlighter
+	if got := h.Highlight("main.go", src); len(got) != len(src) {
+		t.Fatalf("nil highlighter line count = %d, want %d", len(got), len(src))
+	}
+	got := HighlightLines("main.go", src, "definitely-not-a-theme")
+	if len(got) != len(src) {
+		t.Fatalf("invalid theme line count = %d, want %d", len(got), len(src))
+	}
+	for i := range src {
+		if plain := stripANSI(got[i]); plain != src[i] {
+			t.Fatalf("line %d plain text = %q, want %q", i, plain, src[i])
+		}
+	}
+}
+
+func TestHighlighterCachesByFilename(t *testing.T) {
+	h := NewHighlighter("")
+	first := h.Highlight("main.go", []string{"package main"})
+	second := h.Highlight("main.go", []string{"package changed"})
+	if len(first) != len(second) || stripANSI(second[0]) != "package main" {
+		t.Fatalf("cached highlight = %q, want first source", second)
 	}
 }
 

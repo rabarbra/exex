@@ -27,3 +27,67 @@ func TestFinalizeSymbolsInfersSizesOnCanonicalSymbols(t *testing.T) {
 		t.Fatalf("SymbolAt = %#v, %v; want canonical a with inferred size", sym, ok)
 	}
 }
+
+func TestSymbolDisplay(t *testing.T) {
+	if got := (Symbol{Name: "_Z3foov", Demangled: "foo()"}).Display(); got != "foo()" {
+		t.Fatalf("Display demangled = %q, want foo()", got)
+	}
+	if got := (Symbol{Name: "main"}).Display(); got != "main" {
+		t.Fatalf("Display raw = %q, want main", got)
+	}
+}
+
+func TestSymbolsInRangeHandlesBoundsAndOverlaps(t *testing.T) {
+	f := &File{symByAddr: []Symbol{
+		{Name: "a", Addr: 0x1000, Size: 0x10},
+		{Name: "b", Addr: 0x1020},
+		{Name: "c", Addr: 0x1030, Size: 0x08},
+	}}
+
+	tests := []struct {
+		name string
+		from uint64
+		to   uint64
+		want []string
+	}{
+		{name: "starts before first", from: 0x0, to: 0x1001, want: []string{"a"}},
+		{name: "overlaps previous", from: 0x1008, to: 0x100c, want: []string{"a"}},
+		{name: "zero sized at start", from: 0x1020, to: 0x1021, want: []string{"b"}},
+		{name: "last symbol", from: 0x1030, to: 0x1040, want: []string{"c"}},
+		{name: "after last", from: 0x1040, to: 0x1050},
+		{name: "empty range", from: 0x1020, to: 0x1020},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := f.SymbolsInRange(tt.from, tt.to)
+			if len(got) != len(tt.want) {
+				t.Fatalf("SymbolsInRange length = %d, want %d (%#v)", len(got), len(tt.want), got)
+			}
+			for i, want := range tt.want {
+				if got[i].Name != want {
+					t.Fatalf("symbol %d = %q, want %q", i, got[i].Name, want)
+				}
+			}
+		})
+	}
+}
+
+func TestNextPrevSymbol(t *testing.T) {
+	f := &File{symByAddr: []Symbol{
+		{Name: "a", Addr: 0x1000, Kind: SymFunc},
+		{Name: "b", Addr: 0x1010, Kind: SymObject},
+		{Name: "c", Addr: 0x1020, Kind: SymFunc},
+	}}
+	if got, ok := f.NextSymbol(0x1000, nil); !ok || got.Name != "b" {
+		t.Fatalf("NextSymbol = %#v, %v; want b", got, ok)
+	}
+	if got, ok := f.NextSymbol(0x1000, func(s Symbol) bool { return s.Kind == SymFunc }); !ok || got.Name != "c" {
+		t.Fatalf("NextSymbol func = %#v, %v; want c", got, ok)
+	}
+	if got, ok := f.PrevSymbol(0x1020, nil); !ok || got.Name != "b" {
+		t.Fatalf("PrevSymbol = %#v, %v; want b", got, ok)
+	}
+	if _, ok := f.PrevSymbol(0x1000, nil); ok {
+		t.Fatal("PrevSymbol before first succeeded, want false")
+	}
+}

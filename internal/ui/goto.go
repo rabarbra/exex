@@ -127,6 +127,7 @@ func (m *Model) openSourceForAddr(addr uint64) {
 	m.openSourceFile(file, line)
 }
 
+// closeGoto dismisses the goto modal and resets its transient state.
 func (m *Model) closeGoto() {
 	m.gotoActive = false
 	m.gotoInput.Blur()
@@ -151,6 +152,7 @@ func (m *Model) gotoAddr(addr uint64) {
 	m.setStatus(fmt.Sprintf("0x%x is not mapped; showing raw offset", addr), false)
 }
 
+// parseAddr parses decimal addresses unless a 0x prefix or hex digit is present.
 func parseAddr(s string) (uint64, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {

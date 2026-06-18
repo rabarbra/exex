@@ -26,6 +26,7 @@ func (f *File) Strings() []StringEntry {
 	return f.strings
 }
 
+// extractStrings performs the uncached printable-string scan.
 func (f *File) extractStrings() []StringEntry {
 	var out []StringEntry
 	data := f.raw

@@ -9,7 +9,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -39,6 +39,7 @@ func bytesHex(b []byte, maxN int) string {
 	return sb.String()
 }
 
+// truncate trims s to n bytes, appending an ellipsis when space allows.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -49,6 +50,7 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
+// truncateMiddle keeps both ends of a string visible within n columns.
 func truncateMiddle(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -68,6 +70,7 @@ func truncateMiddle(s string, n int) string {
 	return left + "…" + right
 }
 
+// wrapStatus returns the footer label for the current wrap setting.
 func wrapStatus(on bool) string {
 	if on {
 		return "wrap: on"
@@ -90,8 +93,9 @@ func colorPathByPrefix(keyPath, display string) string {
 	return pathPrefixStyle(key).Render(display)
 }
 
+// pathPrefixStyle chooses a deterministic color from a path prefix.
 func pathPrefixStyle(prefix string) lipgloss.Style {
-	colors := []lipgloss.Color{"75", "114", "141", "173", "214", "213", "84", "39"}
+	colors := []lipgloss.ANSIColor{75, 114, 141, 173, 214, 213, 84, 39}
 	h := 0
 	for i := 0; i < len(prefix); i++ {
 		h = h*33 + int(prefix[i])
@@ -123,6 +127,7 @@ func padRight(s string, w int) string {
 	}
 }
 
+// padBody clamps and pads a rendered body to exactly w by h cells.
 func padBody(s string, w, h int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	if len(lines) > h {
@@ -141,6 +146,7 @@ func padBody(s string, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+// padBodyRows clamps and pads pre-split rows to exactly w by h cells.
 func padBodyRows(lines []string, w, h int) string {
 	if len(lines) > h {
 		lines = lines[:h]
@@ -154,67 +160,97 @@ func padBodyRows(lines []string, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+// tableHeader renders a full-width table header line.
 func (m *Model) tableHeader(s string) string {
 	return m.theme.tableHeaderStyle.Render(padRight(truncateMiddle(s, m.width), m.width))
 }
 
+// renderLineRows renders one logical line into one or more fixed-width rows.
 func renderLineRows(line string, w int, wrap bool) []string {
 	return renderLineRowsIndented(line, w, wrap, 0)
 }
 
-func renderLineRowsIndented(line string, w int, wrap bool, indent int) []string {
-	if !wrap {
-		return []string{padRight(line, w)}
-	}
-	if indent < 0 {
-		indent = 0
-	}
-	if indent >= w {
-		indent = max(0, w-1)
-	}
-	wrapped := ansi.Wrap(line, w, " \t/.-_:")
+// wrapRows splits s into width-limited rows using ansi.Wrap.
+func wrapRows(s string, w int, cutset string) []string {
+	wrapped := ansi.Wrap(s, w, cutset)
 	rows := strings.Split(strings.TrimRight(wrapped, "\n"), "\n")
 	if len(rows) == 0 {
-		return []string{strings.Repeat(" ", w)}
-	}
-	for i := 0; i < len(rows); i++ {
-		if lipgloss.Width(stripANSI(rows[i])) <= w {
-			continue
-		}
-		hard := ansi.Wrap(rows[i], w, "")
-		parts := strings.Split(strings.TrimRight(hard, "\n"), "\n")
-		rows = append(rows[:i], append(parts, rows[i+1:]...)...)
-		i += len(parts) - 1
-	}
-	if indent > 0 {
-		prefix := strings.Repeat(" ", indent)
-		contW := max(1, w-indent)
-		indented := rows[:1]
-		for _, row := range rows[1:] {
-			cont := strings.TrimLeft(row, " ")
-			if lipgloss.Width(stripANSI(cont)) > contW {
-				cont = ansi.Wrap(cont, contW, " \t/.-_:")
-			}
-			parts := strings.Split(strings.TrimRight(cont, "\n"), "\n")
-			if len(parts) == 0 {
-				parts = []string{""}
-			}
-			for _, part := range parts {
-				indented = append(indented, prefix+part)
-			}
-		}
-		rows = indented
-	}
-	for i, row := range rows {
-		rows[i] = padRight(row, w)
+		return []string{""}
 	}
 	return rows
 }
 
+// hardWrapLongRows splits any row still wider than w columns.
+func hardWrapLongRows(rows []string, w int) []string {
+	out := make([]string, 0, len(rows))
+
+	for _, row := range rows {
+		if lipgloss.Width(stripANSI(row)) <= w {
+			out = append(out, row)
+			continue
+		}
+
+		out = append(out, wrapRows(row, w, "")...)
+	}
+
+	return out
+}
+
+// indentContinuationRows applies a hanging indent after the first row.
+func indentContinuationRows(rows []string, w int, indent int) []string {
+	if len(rows) <= 1 {
+		return rows
+	}
+
+	prefix := strings.Repeat(" ", indent)
+	contW := max(1, w-indent)
+
+	out := make([]string, 0, len(rows))
+	out = append(out, rows[0])
+
+	for _, row := range rows[1:] {
+		cont := strings.TrimLeft(row, " ")
+
+		for _, part := range wrapRows(cont, contW, " \t/.-_:") {
+			out = append(out, prefix+part)
+		}
+	}
+
+	return out
+}
+
+// clamp constrains v to the inclusive range [lo, hi].
+func clamp(v, lo, hi int) int {
+	return min(max(v, lo), hi)
+}
+
+// renderLineRowsIndented renders a logical line with optional hanging indent.
+func renderLineRowsIndented(line string, w int, wrap bool, indent int) []string {
+	if !wrap {
+		return []string{padRight(line, w)}
+	}
+
+	indent = clamp(indent, 0, max(0, w-1))
+
+	rows := wrapRows(line, w, " \t/.-_:")
+	rows = hardWrapLongRows(rows, w)
+
+	if indent > 0 {
+		rows = indentContinuationRows(rows, w, indent)
+	}
+
+	for i := range rows {
+		rows[i] = padRight(rows[i], w)
+	}
+	return rows
+}
+
+// appendRenderedRows appends rendered rows until limit is reached.
 func appendRenderedRows(lines *[]string, line string, w int, wrap bool, limit int) bool {
 	return appendRenderedRowsIndented(lines, line, w, wrap, 0, limit)
 }
 
+// appendRenderedRowsIndented appends indented rendered rows until limit is reached.
 func appendRenderedRowsIndented(lines *[]string, line string, w int, wrap bool, indent int, limit int) bool {
 	for _, row := range renderLineRowsIndented(line, w, wrap, indent) {
 		if len(*lines) >= limit {
@@ -225,10 +261,12 @@ func appendRenderedRowsIndented(lines *[]string, line string, w int, wrap bool, 
 	return len(*lines) < limit
 }
 
+// ensureVisualTop updates top so cur remains visible.
 func ensureVisualTop(cur int, top *int, n, visible int, rowHeight func(int) int) {
 	*top = visualTop(cur, *top, n, visible, rowHeight)
 }
 
+// visualTopForView respects detached viewport state when computing list top.
 func (m *Model) visualTopForView(cur, top, n, visible int, rowHeight func(int) int) int {
 	if m.viewportDetached {
 		return viewportTop(top, n, visible, rowHeight)
@@ -236,6 +274,7 @@ func (m *Model) visualTopForView(cur, top, n, visible int, rowHeight func(int) i
 	return visualTop(cur, top, n, visible, rowHeight)
 }
 
+// viewportTop clamps a detached viewport top for variable-height rows.
 func viewportTop(top, n, visible int, rowHeight func(int) int) int {
 	if n <= 0 {
 		return 0
@@ -256,6 +295,7 @@ func viewportTop(top, n, visible int, rowHeight func(int) int) int {
 	return top
 }
 
+// maxViewportTop returns the latest top row that can fill the viewport.
 func maxViewportTop(n, visible int, rowHeight func(int) int) int {
 	if n <= 0 {
 		return 0
@@ -279,6 +319,7 @@ func maxViewportTop(n, visible int, rowHeight func(int) int) int {
 	return top
 }
 
+// visualTop returns the nearest top that keeps cur visible.
 func visualTop(cur, top, n, visible int, rowHeight func(int) int) int {
 	if n <= 0 {
 		return 0
@@ -325,6 +366,7 @@ func visualTop(cur, top, n, visible int, rowHeight func(int) int) int {
 	return top
 }
 
+// visualRowsBetween sums rendered row heights in [start, end).
 func visualRowsBetween(start, end int, rowHeight func(int) int) int {
 	rows := 0
 	for i := start; i < end; i++ {
@@ -333,6 +375,7 @@ func visualRowsBetween(start, end int, rowHeight func(int) int) int {
 	return rows
 }
 
+// visualItemAtRow maps a visual row offset to a logical item index.
 func visualItemAtRow(top, n, row int, rowHeight func(int) int) (int, bool) {
 	if row < 0 {
 		return 0, false

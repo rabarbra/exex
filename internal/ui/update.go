@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func (m *Model) Init() tea.Cmd {
@@ -67,10 +67,10 @@ func (m *Model) resize(width, height int) {
 	}
 	m.width, m.height = width, height
 	bodyH := m.bodyHeight()
-	m.headerVP.Width = m.width
-	m.headerVP.Height = bodyH
-	m.srcVP.Width = m.width / 2
-	m.srcVP.Height = bodyH
+	m.headerVP.SetWidth(m.width)
+	m.headerVP.SetHeight(bodyH)
+	m.srcVP.SetWidth(m.width / 2)
+	m.srcVP.SetHeight(bodyH)
 }
 
 func (m *Model) handleDisasmReady(msg disasmReadyMsg) (tea.Model, tea.Cmd) {

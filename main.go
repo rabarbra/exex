@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
@@ -39,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
 		os.Exit(1)

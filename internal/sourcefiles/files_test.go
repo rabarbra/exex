@@ -20,6 +20,25 @@ func TestSortForProjectRanksProjectFilesFirst(t *testing.T) {
 	}
 }
 
+func TestRankBucketsSources(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	tests := []struct {
+		file string
+		want int
+	}{
+		{file: filepath.Join(root, "main.go"), want: 0},
+		{file: "relative.c", want: 0},
+		{file: filepath.Join(t.TempDir(), "generated.c"), want: 1},
+		{file: "/usr/include/stdio.h", want: 2},
+		{file: filepath.Join(string(filepath.Separator), "home", "me", "go", "pkg", "mod", "x.go"), want: 2},
+	}
+	for _, tt := range tests {
+		if got := Rank(tt.file, root); got != tt.want {
+			t.Fatalf("Rank(%q) = %d, want %d", tt.file, got, tt.want)
+		}
+	}
+}
+
 func TestFindInLines(t *testing.T) {
 	lines := []string{"alpha", "Beta", "gamma beta"}
 	if got := FindInLines(lines, "beta", 1, true); got != 2 {
@@ -30,6 +49,15 @@ func TestFindInLines(t *testing.T) {
 	}
 	if got := FindInLines(lines, "missing", 1, true); got != 0 {
 		t.Fatalf("missing = %d, want 0", got)
+	}
+	if got := FindInLines(lines, "alpha", -10, true); got != 1 {
+		t.Fatalf("negative forward start = %d, want 1", got)
+	}
+	if got := FindInLines(lines, "beta", 100, false); got != 3 {
+		t.Fatalf("oversized backward start = %d, want 3", got)
+	}
+	if got := FindInLines(lines, "", 1, true); got != 0 {
+		t.Fatalf("empty query = %d, want 0", got)
 	}
 }
 
@@ -45,6 +73,12 @@ func TestGrep(t *testing.T) {
 	}
 	if matches[0] != (Match{File: "a.go", Line: 2}) || matches[1] != (Match{File: "b.go", Line: 1}) {
 		t.Fatalf("matches = %#v", matches)
+	}
+	if matches := Grep(files, func(file string) []string { return contents[file] }, "needle", 0); matches != nil {
+		t.Fatalf("zero limit matches = %#v, want nil", matches)
+	}
+	if matches := Grep(files, func(file string) []string { return contents[file] }, "", 2); matches != nil {
+		t.Fatalf("empty query matches = %#v, want nil", matches)
 	}
 }
 

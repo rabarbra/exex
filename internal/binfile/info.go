@@ -68,6 +68,7 @@ const (
 	TriNo
 )
 
+// String returns "yes", "no", or "unknown" for display.
 func (t Tristate) String() string {
 	switch t {
 	case TriYes:
@@ -92,6 +93,7 @@ func splitColon(v []string) []string {
 	return out
 }
 
+// align4 rounds n up to the next multiple of four.
 func align4(n int) int {
 	if r := n & 3; r != 0 {
 		return n + (4 - r)
@@ -128,6 +130,7 @@ func extractGlibcVersion(s []byte) string {
 	return strings.TrimSpace(rest[:j])
 }
 
+// extractMuslVersion finds the first dotted version near a musl libc banner.
 func extractMuslVersion(data []byte) string {
 	idx := indexBytes(data, "musl libc")
 	if idx < 0 {
@@ -150,6 +153,7 @@ func extractMuslVersion(data []byte) string {
 	return ""
 }
 
+// indexBytes returns the byte index of an ASCII string inside haystack.
 func indexBytes(haystack []byte, needle string) int {
 	return strings.Index(string(haystack), needle)
 }

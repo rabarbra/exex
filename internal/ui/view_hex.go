@@ -14,7 +14,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
@@ -335,10 +336,7 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 	bodyH := m.bodyHeight()
 	row := bytesPerHexRow
 	addrW := m.file.AddrHexWidth()
-	visible := bodyH - 1
-	if visible < 1 {
-		visible = 1
-	}
+	visible := max(bodyH-1, 1)
 	top := hexVisibleTop(cur, *topPtr, visible)
 	if m.viewportDetached {
 		top = scrollByteViewportTop(*topPtr, len(data), visible, 0)
@@ -351,10 +349,7 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 	}
 
 	rows := []string{m.theme.stickySymStyle.Render(padRight(banner, m.width))}
-	end := top + visible*row
-	if end > len(data) {
-		end = len(data)
-	}
+	end := min(top+visible*row, len(data))
 	// Emit a "── section ──" separator whenever the section covering a row
 	// changes. Section starts rarely land on a 16-byte row boundary, so keying
 	// off equality would miss almost all of them. Seed with the section of the
@@ -366,10 +361,23 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 	for off := top; off < end; off += row {
 		sec := m.hexSectionName(md, off, addrAt)
 		if sec != "" && sec != prevSec {
-			appendRenderedRows(&rows, m.theme.footerStyle.Render("── "+sec+" ──"), m.width, m.wrap, bodyH)
+			appendRenderedRows(
+				&rows,
+				m.theme.sectionStyle.Render(lipgloss.PlaceHorizontal(
+					addrW+73,
+					lipgloss.Center,
+					" "+sec+" ",
+					lipgloss.WithWhitespaceChars("="),
+				)),
+				m.width, m.wrap, addrW+75,
+			)
 		}
 		prevSec = sec
-		if !appendRenderedRowsIndented(&rows, m.renderHexRow(md, data, cur, off, addrW, addrAt), m.width, m.wrap, addrW+75, bodyH) {
+		if !appendRenderedRowsIndented(
+			&rows,
+			m.renderHexRow(md, data, cur, off, addrW, addrAt),
+			m.width, m.wrap, addrW+75, bodyH,
+		) {
 			break
 		}
 	}
@@ -408,10 +416,7 @@ func (m *Model) hexSectionName(md mode, off int, addrAt func(pos int) uint64) st
 
 func (m *Model) renderHexRow(md mode, data []byte, cur, off, addrW int, addrAt func(pos int) uint64) string {
 	row := bytesPerHexRow
-	end := off + row
-	if end > len(data) {
-		end = len(data)
-	}
+	end := min(off+row, len(data))
 	addr := addrAt(off)
 	var hexCol, asciiCol strings.Builder
 	for i := off; i < off+row; i++ {
@@ -439,21 +444,26 @@ func (m *Model) renderHexRow(md mode, data []byte, cur, off, addrW int, addrAt f
 			asciiCol.WriteString(byteFG[b].Render(string(ascii)))
 		}
 	}
-	line := fmt.Sprintf(" %s  %s  %s",
+	var line strings.Builder
+	fmt.Fprintf(&line, " %s  %s  |%s|",
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, addr)),
 		hexCol.String(),
-		"|"+asciiCol.String()+"|",
+		asciiCol.String(),
 	)
-	if sym, ok := m.file.SymbolAt(addr); ok && sym.Addr == addr {
-		line += "  " + m.theme.addrStyle.Render(sym.Display())
-	} else if sec := m.file.SectionAt(addr); sec != nil && sec.Addr == addr {
-		line += "  " + m.theme.addrStyle.Render(sec.Name)
-	} else if md == modeRaw {
-		if sec := m.sectionAtOffset(uint64(off)); sec != nil {
-			line += "  " + m.theme.addrStyle.Render(sec.Name)
+	if md == modeHex {
+		if syms := m.file.SymbolsInRange(addr, addrAt(end)); len(syms) != 0 {
+			for _, sym := range syms {
+				line.WriteString(" [")
+				line.WriteString(m.theme.addrStyle.Render(sym.Display()))
+				line.WriteString("]")
+			}
+		} else if sec := m.file.SectionAt(addr); sec != nil && sec.Addr == addr {
+			line.WriteString("  ")
+			line.WriteString(m.theme.addrStyle.Render(sec.Name))
+		} else if sec := m.sectionAtOffset(addr); sec != nil && sec.Offset == addr {
+			line.WriteString("  ")
+			line.WriteString(m.theme.addrStyle.Render(sec.Name))
 		}
-	} else if sec := m.sectionAtOffset(addr); sec != nil && sec.Offset == addr {
-		line += "  " + m.theme.addrStyle.Render(sec.Name)
 	}
-	return line
+	return line.String()
 }

@@ -8,7 +8,7 @@ package ui
 import (
 	"sort"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/disasm"

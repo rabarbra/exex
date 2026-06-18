@@ -1,3 +1,4 @@
+// Package sourcefiles ranks and searches source files referenced by debug info.
 package sourcefiles
 
 import (
@@ -28,6 +29,8 @@ func SortForProject(files []string, binPath, workDir string) {
 	})
 }
 
+// Rank assigns a stable priority bucket: project-local files first, generated or
+// ambiguous files next, and system/vendor files last.
 func Rank(file, root string) int {
 	if root != "" {
 		if rel, err := filepath.Rel(root, file); err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {

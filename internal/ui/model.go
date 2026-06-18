@@ -3,8 +3,8 @@ package ui
 import (
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
@@ -13,6 +13,7 @@ import (
 	"github.com/rabarbra/exex/internal/syntax"
 )
 
+// mode identifies the active top-level view.
 type mode int
 
 const (
@@ -27,8 +28,10 @@ const (
 	modeSources
 )
 
+// defaultDisasmMaxBytes bounds each decoded disassembly window by default.
 const defaultDisasmMaxBytes = 2 << 20
 
+// String returns the tab label for a mode.
 func (m mode) String() string {
 	switch m {
 	case modeInfo:
@@ -53,11 +56,13 @@ func (m mode) String() string {
 	return "?"
 }
 
+// layoutState tracks terminal dimensions and the header viewport.
 type layoutState struct {
 	width, height int
 	headerVP      viewport.Model
 }
 
+// sectionsState stores list/filter state for the Sections view.
 type sectionsState struct {
 	sections           []binfile.Section
 	sectionsFilter     textinput.Model
@@ -68,6 +73,7 @@ type sectionsState struct {
 	sectionHeightCache map[sectionRowCacheKey]int
 }
 
+// sectionRowCacheKey identifies a rendered Sections row variant.
 type sectionRowCacheKey struct {
 	i     int
 	width int
@@ -75,6 +81,7 @@ type sectionRowCacheKey struct {
 	wrap  bool
 }
 
+// symbolRowCacheKey identifies a rendered Symbols row variant.
 type symbolRowCacheKey struct {
 	i     int
 	width int
@@ -82,6 +89,7 @@ type symbolRowCacheKey struct {
 	wrap  bool
 }
 
+// symbolsState stores list/filter state for the Symbols view.
 type symbolsState struct {
 	symbolsFilter     textinput.Model
 	symbolsFiltered   []int // indices into file.Symbols (sorted by name)
@@ -94,21 +102,25 @@ type symbolsState struct {
 	symbolHeightCache map[symbolRowCacheKey]int
 }
 
+// clearSymbolCaches drops cached symbol rows and heights.
 func (m *Model) clearSymbolCaches() {
 	m.symbolRowCache = nil
 	m.symbolHeightCache = nil
 }
 
+// clearSectionCaches drops cached section rows and heights.
 func (m *Model) clearSectionCaches() {
 	m.sectionRowCache = nil
 	m.sectionHeightCache = nil
 }
 
+// clearStringCaches drops cached string rows and heights.
 func (m *Model) clearStringCaches() {
 	m.stringRowCache = nil
 	m.stringHeightCache = nil
 }
 
+// clearAllViewCaches drops all row caches affected by global layout toggles.
 func (m *Model) clearAllViewCaches() {
 	m.clearSymbolCaches()
 	m.clearSectionCaches()
@@ -142,6 +154,7 @@ type disasmState struct {
 	sourceAsmRowCache   map[sourceAsmRowCacheKey]string
 }
 
+// sourceAsmRowCacheKey identifies a cached source/assembly mapping row.
 type sourceAsmRowCacheKey struct {
 	i    int
 	w    int
@@ -149,6 +162,7 @@ type sourceAsmRowCacheKey struct {
 	line int
 }
 
+// historyState stores disassembly navigation history.
 type historyState struct {
 	// Last `historyCap` disasm jump targets. historyPos indicates where in that
 	// ring we are; left arrow steps back, right arrow steps forward.
@@ -156,23 +170,27 @@ type historyState struct {
 	historyPos int
 }
 
+// hexState stores cursor and viewport state for the mapped hex view.
 type hexState struct {
 	hexImg *binfile.Image
 	hexCur int // byte position into hexImg.Data
 	hexTop int // first row's byte position (multiple of bytesPerHexRow)
 }
 
+// rawState stores cursor and viewport state for the raw file view.
 type rawState struct {
 	rawData []byte
 	rawCur  int
 	rawTop  int
 }
 
+// libsState stores cursor and viewport state for the Libraries view.
 type libsState struct {
 	libsCur int
 	libsTop int
 }
 
+// stringRowCacheKey identifies a rendered Strings row variant.
 type stringRowCacheKey struct {
 	i     int
 	width int
@@ -180,6 +198,7 @@ type stringRowCacheKey struct {
 	wrap  bool
 }
 
+// stringsState stores list and cache state for printable strings.
 type stringsState struct {
 	stringsList       []binfile.StringEntry
 	stringsCur        int
@@ -188,6 +207,7 @@ type stringsState struct {
 	stringHeightCache map[stringRowCacheKey]int
 }
 
+// sourcesState stores file-list and open-file state for the Sources view.
 type sourcesState struct {
 	sourcesFiles     []string
 	sourcesFilter    textinput.Model
@@ -205,11 +225,13 @@ type sourcesState struct {
 	srcSearchAll     bool // scope of the next search in this view
 }
 
+// sourceLineCacheKey identifies cached line-column metadata.
 type sourceLineCacheKey struct {
 	file string
 	line int
 }
 
+// interactionState stores cross-view input and viewport state.
 type interactionState struct {
 	// Global long-line wrap toggle (the `w` key). Views default to truncating to
 	// preserve table geometry; turning wrap on lets them show full rows.
@@ -251,6 +273,7 @@ func (m *Model) setMode(md mode) {
 	m.wheelSuppressUntil = time.Now().Add(wheelQuietInterval)
 }
 
+// gotoState stores modal state for address/symbol navigation.
 type gotoState struct {
 	gotoInput   textinput.Model
 	gotoActive  bool
@@ -259,6 +282,7 @@ type gotoState struct {
 	gotoTop     int // scroll offset into gotoResults
 }
 
+// searchState stores modal and async state for view searches.
 type searchState struct {
 	searchInput      textinput.Model
 	searchActive     bool
@@ -274,11 +298,13 @@ type searchState struct {
 	searchFromCursor bool
 }
 
+// statusState stores the footer status message.
 type statusState struct {
 	status      string
 	statusError bool
 }
 
+// keyState stores resolved key bindings and aliases.
 type keyState struct {
 	keys keyMap
 	// keyAlias maps user-configured per-view keys (copy/next/prev) to their

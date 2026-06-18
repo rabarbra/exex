@@ -3,9 +3,10 @@ package ui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
+// handleKey routes a key message through modal, global, and active-view handlers.
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -56,6 +57,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return model, cmd
 }
 
+// cursorState snapshots cursor fields that should reattach a detached viewport.
 type cursorState struct {
 	mode        mode
 	sectionsCur int
@@ -70,6 +72,7 @@ type cursorState struct {
 	srcCur      int
 }
 
+// activeCursorState captures all cursors relevant to viewport attachment.
 func (m *Model) activeCursorState() cursorState {
 	return cursorState{
 		mode:        m.mode,
@@ -86,6 +89,7 @@ func (m *Model) activeCursorState() cursorState {
 	}
 }
 
+// keyReattachesViewport reports whether key is explicit viewport navigation.
 func keyReattachesViewport(key string) bool {
 	switch key {
 	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "G":
@@ -99,16 +103,16 @@ func (m *Model) handleDisasmPaneKey(msg tea.KeyMsg, key string) (tea.Model, tea.
 		return m, nil, false
 	}
 	switch {
-	case msg.Type == tea.KeyShiftTab || key == "shift+tab":
+	case key == "shift+tab":
 		m.switchSourcePane()
 		return m, nil, true
 	case key == "tab":
 		m.toggleSourcePane()
 		return m, nil, true
-	case m.rightPaneActive() && (msg.Type == tea.KeyShiftUp || key == "shift+up"):
+	case m.rightPaneActive() && key == "shift+up":
 		m.scrollRightPane(-1)
 		return m, nil, true
-	case m.rightPaneActive() && (msg.Type == tea.KeyShiftDown || key == "shift+down"):
+	case m.rightPaneActive() && key == "shift+down":
 		m.scrollRightPane(1)
 		return m, nil, true
 	}
@@ -295,6 +299,7 @@ func (m *Model) ensureSourcePaneAvailable() bool {
 	return false
 }
 
+// normalizeNavKey maps platform-specific navigation aliases to canonical keys.
 func (m *Model) normalizeNavKey(key string) string {
 	// macOS keyboards often lack Home/End and dedicated PgUp/PgDn; accept the
 	// emacs-style ctrl+a / ctrl+e as begin/end and Cmd+Up / Cmd+Down as page

@@ -103,6 +103,7 @@ func (f *File) sourceLanguage() string {
 	return ""
 }
 
+// dwarfLanguage returns the first compile unit's source language.
 func dwarfLanguage(d *dwarf.Data) string {
 	r := d.Reader()
 	for {

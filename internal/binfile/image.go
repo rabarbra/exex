@@ -71,14 +71,18 @@ func (im *Image) PosForAddr(addr uint64) (int, bool) {
 
 // RegionAt returns the region containing pos, or nil.
 func (im *Image) RegionAt(pos int) *Region {
-	if im == nil || len(im.Regions) == 0 {
+	if im == nil || len(im.Regions) == 0 || pos < 0 {
 		return nil
 	}
 	i := sort.Search(len(im.Regions), func(i int) bool { return im.Regions[i].Off > pos })
 	if i == 0 {
 		return nil
 	}
-	return &im.Regions[i-1]
+	r := &im.Regions[i-1]
+	if uint64(pos-r.Off) >= r.Size {
+		return nil
+	}
+	return r
 }
 
 // Window returns a clamped byte window into the image.
@@ -95,10 +99,7 @@ func (im *Image) Window(start, size int) Window {
 	if size > len(im.Data)-start {
 		size = len(im.Data) - start
 	}
-	end := start + size
-	if end < start {
-		end = start
-	}
+	end := max(start+size, start)
 	return Window{
 		Addr:  im.AddrAt(start),
 		Data:  im.Data[start:end],
@@ -126,15 +127,9 @@ func (im *Image) WindowContaining(addr uint64, size, before int) (Window, bool) 
 	if before >= size {
 		before = size - 1
 	}
-	start := pos - before
-	if start < 0 {
-		start = 0
-	}
+	start := max(pos-before, 0)
 	if start+size > len(im.Data) {
-		start = len(im.Data) - size
-		if start < 0 {
-			start = 0
-		}
+		start = max(len(im.Data)-size, 0)
 	}
 	return im.Window(start, size), true
 }

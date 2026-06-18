@@ -44,6 +44,37 @@ func TestUnsupportedArch(t *testing.T) {
 	}
 }
 
+func TestForSupportedArchitecturesDecodeNop(t *testing.T) {
+	tests := []struct {
+		arch Arch
+		name string
+		code []byte
+	}{
+		{arch: ArchAMD64, name: "x86-64", code: []byte{0x90}},
+		{arch: ArchX86, name: "x86", code: []byte{0x90}},
+		{arch: ArchARM64, name: "arm64", code: []byte{0x1f, 0x20, 0x03, 0xd5}},
+		{arch: ArchRISCV64, name: "riscv64", code: []byte{0x13, 0x00, 0x00, 0x00}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := For(tt.arch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := d.Name(); got != tt.name {
+				t.Fatalf("Name = %q, want %q", got, tt.name)
+			}
+			inst, err := d.Decode(tt.code, 0x1000)
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if inst.Addr != 0x1000 || len(inst.Bytes) == 0 || inst.Text == "" {
+				t.Fatalf("decoded instruction = %#v", inst)
+			}
+		})
+	}
+}
+
 func TestResolveRelTargets(t *testing.T) {
 	cases := map[string]string{
 		"bl .+0xfffffffffffffc58": "bl 0xc58",     // negative (two's complement) → 0x1000-0x3a8
@@ -76,6 +107,20 @@ func TestAMD64RangeRecoversFromDecoderPanic(t *testing.T) {
 	}
 }
 
+func TestRangeHonorsMaxInst(t *testing.T) {
+	d, err := For(ArchAMD64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insts := Range(d, []byte{0x90, 0x90, 0x90}, 0x1000, 2)
+	if len(insts) != 2 {
+		t.Fatalf("Range maxInst length = %d, want 2", len(insts))
+	}
+	if insts[0].Addr != 0x1000 || insts[1].Addr != 0x1001 {
+		t.Fatalf("instruction addresses = %#v", insts)
+	}
+}
+
 func TestClassifyBranches(t *testing.T) {
 	cond := []string{"cbz x0, 0x100", "cbnz w1, 0x100", "tbz x0, #1, 0x100", "tbnz x0, #1, 0x100", "b.gt 0x100", "je 0x100"}
 	for _, s := range cond {
@@ -85,5 +130,14 @@ func TestClassifyBranches(t *testing.T) {
 	}
 	if c := Classify("b 0x100"); c != ClassJumpUnc {
 		t.Errorf("Classify(b)=%v, want ClassJumpUnc", c)
+	}
+	if c := Classify("syscall"); c != ClassSyscall {
+		t.Errorf("Classify(syscall)=%v, want ClassSyscall", c)
+	}
+	if c := Classify("nop"); c != ClassNop {
+		t.Errorf("Classify(nop)=%v, want ClassNop", c)
+	}
+	if c := Classify("callq 0x100"); c != ClassCall {
+		t.Errorf("Classify(callq)=%v, want ClassCall", c)
 	}
 }

@@ -4,10 +4,11 @@ import "testing"
 
 func TestSourceFilesAndLineToAddr(t *testing.T) {
 	f := &File{lines: []lineEntry{
-		{Addr: 0x1000, File: "a.c", Line: 10},
-		{Addr: 0x1010, File: "a.c", Line: 11},
+		{Addr: 0x1000, File: "a.c", Line: 10, Col: 5},
+		{Addr: 0x1010, File: "a.c", Line: 11, Col: 2},
 		{Addr: 0x1020, File: "b.c", Line: 5},
-		{Addr: 0x1030, File: "a.c", Line: 12},
+		{Addr: 0x1030, File: "a.c", Line: 11, Col: 9},
+		{Addr: 0x1040, File: "a.c", Line: 12},
 	}}
 
 	files := f.SourceFiles()
@@ -31,5 +32,22 @@ func TestSourceFilesAndLineToAddr(t *testing.T) {
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("LineToAddr(%q, %d) = 0x%x, %v; want 0x%x, %v", c.file, c.line, got, ok, c.want, c.ok)
 		}
+	}
+
+	file, line, col := f.LookupAddrCol(0x1035)
+	if file != "a.c" || line != 11 || col != 9 {
+		t.Fatalf("LookupAddrCol = %q:%d:%d, want a.c:11:9", file, line, col)
+	}
+	mapped := f.MappedLines("a.c")
+	if !mapped[10] || !mapped[11] || !mapped[12] || mapped[5] {
+		t.Fatalf("MappedLines(a.c) = %#v", mapped)
+	}
+	mapped[10] = false
+	if f.MappedLines("a.c")[10] != true {
+		t.Fatal("MappedLines returned map was not a defensive copy")
+	}
+	cols := f.LineColumns("a.c", 11)
+	if len(cols) != 2 || cols[0] != 2 || cols[1] != 9 {
+		t.Fatalf("LineColumns = %#v, want [2 9]", cols)
 	}
 }

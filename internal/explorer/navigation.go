@@ -1,3 +1,5 @@
+// Package explorer contains format-neutral navigation and service logic shared
+// by the TUI.
 package explorer
 
 import "github.com/rabarbra/exex/internal/binfile"
@@ -50,6 +52,7 @@ func DefaultExecAddr(f *binfile.File, strategy string) uint64 {
 	return 0
 }
 
+// symbolAddr returns the first executable symbol matching one of names.
 func symbolAddr(f *binfile.File, names ...string) (uint64, bool) {
 	want := map[string]bool{}
 	for _, n := range names {
@@ -65,6 +68,7 @@ func symbolAddr(f *binfile.File, names ...string) (uint64, bool) {
 	return 0, false
 }
 
+// execSectionAddr returns the address of a named executable section.
 func execSectionAddr(f *binfile.File, names ...string) (uint64, bool) {
 	for i := range f.Sections {
 		s := &f.Sections[i]

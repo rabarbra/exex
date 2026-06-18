@@ -7,7 +7,7 @@ package ui
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	searchutil "github.com/rabarbra/exex/internal/bytesearch"
 )

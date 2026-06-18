@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
 // View renders the screen.
-func (m *Model) View() string {
+func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
-		return "initializing…"
+		return tea.NewView("initializing…")
 	}
 	parts := []string{m.renderTabs()}
 	body := ""
@@ -46,7 +46,10 @@ func (m *Model) View() string {
 	case m.searchActive:
 		out = m.overlayCenter(out, m.renderSearchModal())
 	}
-	return out
+	v := tea.NewView(out)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 // renderHelpModal lists the keybindings, grouped by scope, in two columns. The

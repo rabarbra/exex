@@ -1,13 +1,14 @@
+// Package syntax highlights source files for display in the TUI source pane.
 package syntax
 
 import (
 	"strings"
 	"sync"
 
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/lipgloss"
 )
 
 const defaultTheme = "catppuccin-mocha"
@@ -19,6 +20,8 @@ type Highlighter struct {
 	cache map[string][]string
 }
 
+// NewHighlighter creates a cached source highlighter. An empty theme selects the
+// project default.
 func NewHighlighter(theme string) *Highlighter {
 	if theme == "" {
 		theme = defaultTheme
@@ -26,6 +29,9 @@ func NewHighlighter(theme string) *Highlighter {
 	return &Highlighter{theme: theme, cache: map[string][]string{}}
 }
 
+// Highlight returns ANSI-styled source lines for filename, using a per-filename
+// cache. A nil receiver falls back to one-shot highlighting with the default
+// theme.
 func (h *Highlighter) Highlight(filename string, src []string) []string {
 	if h == nil {
 		return HighlightLines(filename, src, defaultTheme)
@@ -43,6 +49,8 @@ func (h *Highlighter) Highlight(filename string, src []string) []string {
 	return hl
 }
 
+// HighlightLines returns ANSI-styled source lines without using a cache. It
+// returns nil when Chroma cannot identify a lexer for the file/content.
 func HighlightLines(filename string, src []string, theme string) []string {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
@@ -89,6 +97,7 @@ func HighlightLines(filename string, src []string, theme string) []string {
 	return lines
 }
 
+// chromaToLipgloss converts the subset of Chroma style attributes used here.
 func chromaToLipgloss(e chroma.StyleEntry) lipgloss.Style {
 	s := lipgloss.NewStyle()
 	if e.Colour.IsSet() {

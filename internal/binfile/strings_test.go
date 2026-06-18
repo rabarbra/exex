@@ -32,6 +32,16 @@ func TestExtractStrings(t *testing.T) {
 	}
 }
 
+func TestStringsCachesExtraction(t *testing.T) {
+	f := &File{raw: []byte("hello\x00world")}
+	first := f.Strings()
+	f.raw = []byte("changed")
+	second := f.Strings()
+	if len(first) != len(second) || first[0].Text != second[0].Text {
+		t.Fatalf("Strings cache changed: first=%#v second=%#v", first, second)
+	}
+}
+
 func TestExtractStringsMapsAddress(t *testing.T) {
 	// A section whose file bytes cover the string maps it to a virtual address.
 	raw := make([]byte, 64)

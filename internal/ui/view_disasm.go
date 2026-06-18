@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m *Model) updateDisasm(key string) (tea.Model, tea.Cmd) {

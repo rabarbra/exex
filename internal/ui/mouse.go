@@ -8,8 +8,8 @@ package ui
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // doubleClickWindow is how close two clicks must be (in time, on the same row)
@@ -19,41 +19,45 @@ const doubleClickWindow = 350 * time.Millisecond
 const wheelQuietInterval = 120 * time.Millisecond
 
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if msg.Shift && msg.Button == tea.MouseButtonLeft {
+	ms := msg.Mouse()
+	shift := ms.Mod&tea.ModShift != 0
+	if shift && ms.Button == tea.MouseLeft {
 		return m, nil
 	}
-	if m.searchActive && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		m.handleSearchPopupClick(msg.X, msg.Y)
+	if _, ok := msg.(tea.MouseClickMsg); ok && m.searchActive && ms.Button == tea.MouseLeft {
+		m.handleSearchPopupClick(ms.X, ms.Y)
 		return m, nil
 	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		if msg.Shift && m.rightPaneActive() {
-			m.scrollRightPane(-3)
-			return m, nil
+	if _, ok := msg.(tea.MouseWheelMsg); ok {
+		switch ms.Button {
+		case tea.MouseWheelUp:
+			if shift && m.rightPaneActive() {
+				m.scrollRightPane(-3)
+				return m, nil
+			}
+			return m.enqueueWheel(-3)
+		case tea.MouseWheelDown:
+			if shift && m.rightPaneActive() {
+				m.scrollRightPane(3)
+				return m, nil
+			}
+			return m.enqueueWheel(3)
 		}
-		return m.enqueueWheel(-3)
-	case tea.MouseButtonWheelDown:
-		if msg.Shift && m.rightPaneActive() {
-			m.scrollRightPane(3)
-			return m, nil
-		}
-		return m.enqueueWheel(3)
 	}
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		if msg.Y == 0 { // the tab strip
-			if md, ok := m.tabHitTest(msg.X); ok {
+	if _, ok := msg.(tea.MouseClickMsg); ok && ms.Button == tea.MouseLeft {
+		if ms.Y == 0 { // the tab strip
+			if md, ok := m.tabHitTest(ms.X); ok {
 				return m, m.switchMode(md)
 			}
 			return m, nil
 		}
 		now := time.Now()
-		isDouble := m.mode == modeDisasm && msg.Y == m.lastClickY &&
+		isDouble := m.mode == modeDisasm && ms.Y == m.lastClickY &&
 			now.Sub(m.lastClickAt) < doubleClickWindow
-		m.lastClickY = msg.Y
+		m.lastClickY = ms.Y
 		m.lastClickAt = now
 
-		m.handleClick(msg.X, msg.Y)
+		m.handleClick(ms.X, ms.Y)
 		if isDouble {
 			m.followCurrentDisasm()
 		}
@@ -109,9 +113,9 @@ func (m *Model) routeScroll(delta int) (tea.Model, tea.Cmd) {
 		}
 	case modeInfo:
 		if delta < 0 {
-			m.headerVP.LineUp(-delta)
+			m.headerVP.ScrollUp(-delta)
 		} else {
-			m.headerVP.LineDown(delta)
+			m.headerVP.ScrollDown(delta)
 		}
 	}
 	return m, nil

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/disasm"
@@ -71,6 +71,77 @@ func TestGotoUnmappedAddressOpensRaw(t *testing.T) {
 	}
 	if m.rawCur != 0 {
 		t.Fatalf("raw cursor = %d, want clamped 0", m.rawCur)
+	}
+}
+
+func TestParseAddr(t *testing.T) {
+	tests := []struct {
+		in   string
+		want uint64
+	}{
+		{in: "123", want: 123},
+		{in: "0x10", want: 16},
+		{in: "0X20", want: 32},
+		{in: "deadbeef", want: 0xdeadbeef},
+		{in: " 42 ", want: 42},
+	}
+	for _, tt := range tests {
+		got, err := parseAddr(tt.in)
+		if err != nil || got != tt.want {
+			t.Fatalf("parseAddr(%q) = 0x%x, %v; want 0x%x", tt.in, got, err, tt.want)
+		}
+	}
+	if _, err := parseAddr("not an address"); err == nil {
+		t.Fatal("parseAddr invalid input succeeded, want error")
+	}
+}
+
+func TestDefaultViewAndNavHelpers(t *testing.T) {
+	if got := parseDefaultView(" DISASM "); got != modeDisasm {
+		t.Fatalf("parseDefaultView(DISASM) = %v, want disasm", got)
+	}
+	if got := parseDefaultView("unknown"); got != modeInfo {
+		t.Fatalf("parseDefaultView(unknown) = %v, want info", got)
+	}
+	m := &Model{}
+	if got := m.normalizeNavKey("ctrl+a"); got != "home" {
+		t.Fatalf("normalize ctrl+a = %q, want home", got)
+	}
+	if got := m.normalizeNavKey("alt+down"); got != "pgdown" {
+		t.Fatalf("normalize alt+down = %q, want pgdown", got)
+	}
+	if !keyReattachesViewport("pgdown") || keyReattachesViewport("enter") {
+		t.Fatal("keyReattachesViewport returned unexpected values")
+	}
+}
+
+func TestHexColumnToByteBounds(t *testing.T) {
+	addrW := 8
+	start := hexBodyStart(addrW)
+	if got := hexColumnToByte(addrW, start-10); got != 0 {
+		t.Fatalf("column before hex body = %d, want 0", got)
+	}
+	if got := hexColumnToByte(addrW, start); got != 0 {
+		t.Fatalf("first byte column = %d, want 0", got)
+	}
+	if got := hexColumnToByte(addrW, start+3*8+1); got != 8 {
+		t.Fatalf("column after midpoint gap = %d, want 8", got)
+	}
+	if got := hexColumnToByte(addrW, start+1000); got != bytesPerHexRow-1 {
+		t.Fatalf("column after row = %d, want last byte", got)
+	}
+}
+
+func TestPadBodyRowsClampsAndPads(t *testing.T) {
+	got := padBodyRows([]string{"abc", "abcdef"}, 4, 3)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("padded line count = %d, want 3", len(lines))
+	}
+	for i, line := range lines {
+		if w := lipgloss.Width(stripANSI(line)); w != 4 {
+			t.Fatalf("line %d width = %d, want 4 (%q)", i, w, line)
+		}
 	}
 }
 

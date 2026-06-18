@@ -15,7 +15,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // srcGutter renders the line-number gutter for a source line. Only the number

@@ -8,8 +8,12 @@ import (
 	"github.com/rabarbra/exex/internal/binfile"
 )
 
+// FileExists abstracts filesystem probes for tests and alternate resolvers.
 type FileExists func(string) bool
 
+// ResolveLibPath resolves a dynamic-library reference to an on-disk path.
+// Mach-O @loader_path, @executable_path, and @rpath tokens are expanded using
+// the binary path and loader-provided runpath/rpath entries.
 func ResolveLibPath(lib, binaryPath string, info *binfile.Info, exists FileExists) (string, bool) {
 	if exists == nil {
 		exists = diskFileExists
@@ -60,12 +64,15 @@ func ResolveLibPath(lib, binaryPath string, info *binfile.Info, exists FileExist
 	return "", false
 }
 
+// IsDyldSharedCacheLib reports whether lib is normally served from Apple's dyld
+// shared cache instead of as a standalone user-openable file.
 func IsDyldSharedCacheLib(lib string) bool {
 	return strings.HasPrefix(lib, "/usr/lib/") ||
 		strings.HasPrefix(lib, "/System/Library/") ||
 		strings.HasPrefix(lib, "/Library/Apple/")
 }
 
+// defaultLibDirs are fallback ELF-style library search directories.
 var defaultLibDirs = []string{
 	"/lib",
 	"/usr/lib",
@@ -78,6 +85,7 @@ var defaultLibDirs = []string{
 	"/usr/lib/aarch64-linux-gnu",
 }
 
+// diskFileExists reports whether p names an existing non-directory file.
 func diskFileExists(p string) bool {
 	if p == "" {
 		return false

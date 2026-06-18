@@ -36,6 +36,30 @@ func TestParsePatternModes(t *testing.T) {
 	if got := ParsePattern("abc", ModeHex); got != nil {
 		t.Fatalf("invalid hex = % x, want nil", got)
 	}
+	if got := ParsePattern("0XCA\tFE", ModeHex); !bytes.Equal(got, []byte{0xca, 0xfe}) {
+		t.Fatalf("uppercase prefix/tab hex = % x, want ca fe", got)
+	}
+}
+
+func TestModeStringAndNextMode(t *testing.T) {
+	if got := ModeAuto.String(); got != "auto" {
+		t.Fatalf("ModeAuto.String = %q", got)
+	}
+	if got := ModeText.String(); got != "text" {
+		t.Fatalf("ModeText.String = %q", got)
+	}
+	if got := ModeHex.String(); got != "hex" {
+		t.Fatalf("ModeHex.String = %q", got)
+	}
+	if got := NextMode(ModeAuto); got != ModeText {
+		t.Fatalf("NextMode(auto) = %v, want text", got)
+	}
+	if got := NextMode(ModeText); got != ModeHex {
+		t.Fatalf("NextMode(text) = %v, want hex", got)
+	}
+	if got := NextMode(ModeHex); got != ModeAuto {
+		t.Fatalf("NextMode(hex) = %v, want auto", got)
+	}
 }
 
 func TestFindBytes(t *testing.T) {
@@ -59,5 +83,14 @@ func TestFindBytes(t *testing.T) {
 	}
 	if got := FindBytes(data, pat, 8, true); got != -1 {
 		t.Errorf("forward past last match = %d, want -1", got)
+	}
+	if got := FindBytes(data, pat, -100, true); got != 0 {
+		t.Errorf("forward negative start = %d, want 0", got)
+	}
+	if got := FindBytes(data, pat, 100, false); got != 5 {
+		t.Errorf("backward oversized start = %d, want 5", got)
+	}
+	if got := FindBytes(data, nil, 0, true); got != -1 {
+		t.Errorf("empty pattern = %d, want -1", got)
 	}
 }

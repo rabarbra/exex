@@ -4,18 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/muesli/termenv"
 )
 
 // TestOverlayPreservesBackground guards the popup-overlay bug: the background
 // to the left/right of a modal must keep its colour and must not shift width
 // (the disasm source-pane border was moving right before the fix).
 func TestOverlayPreservesBackground(t *testing.T) {
-	old := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	defer lipgloss.SetColorProfile(old)
 
 	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
 	const w = 30

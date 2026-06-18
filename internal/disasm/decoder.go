@@ -14,6 +14,7 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
+// Arch aliases the shared architecture selector used by binary loaders.
 type Arch = arch.Arch
 
 const (
@@ -112,6 +113,7 @@ type Disassembler interface {
 	Name() string
 }
 
+// For returns a single-instruction decoder for a supported architecture.
 func For(a Arch) (Disassembler, error) {
 	switch a {
 	case ArchAMD64:
@@ -126,10 +128,16 @@ func For(a Arch) (Disassembler, error) {
 	return nil, fmt.Errorf("unsupported architecture")
 }
 
+// amd64 adapts x/arch's 64-bit x86 decoder.
 type amd64 struct{}
 
+// Name returns the decoder's short display name.
 func (amd64) Name() string { return "x86-64" }
-func (amd64) Step() int    { return 1 }
+
+// Step returns the resynchronization stride after decode errors.
+func (amd64) Step() int { return 1 }
+
+// Decode decodes one x86-64 instruction at addr.
 func (amd64) Decode(code []byte, addr uint64) (Inst, error) {
 	inst, err := decodeX86(code, 64)
 	if err != nil {
@@ -139,10 +147,16 @@ func (amd64) Decode(code []byte, addr uint64) (Inst, error) {
 	return Inst{Addr: addr, Bytes: code[:inst.Len], Text: text, Class: Classify(text)}, nil
 }
 
+// x86 adapts x/arch's 32-bit x86 decoder.
 type x86 struct{}
 
+// Name returns the decoder's short display name.
 func (x86) Name() string { return "x86" }
-func (x86) Step() int    { return 1 }
+
+// Step returns the resynchronization stride after decode errors.
+func (x86) Step() int { return 1 }
+
+// Decode decodes one x86 instruction at addr.
 func (x86) Decode(code []byte, addr uint64) (Inst, error) {
 	inst, err := decodeX86(code, 32)
 	if err != nil {
@@ -152,6 +166,7 @@ func (x86) Decode(code []byte, addr uint64) (Inst, error) {
 	return Inst{Addr: addr, Bytes: code[:inst.Len], Text: text, Class: Classify(text)}, nil
 }
 
+// decodeX86 wraps x86asm.Decode and turns decoder panics into errors.
 func decodeX86(code []byte, mode int) (inst x86asm.Inst, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -161,10 +176,16 @@ func decodeX86(code []byte, mode int) (inst x86asm.Inst, err error) {
 	return x86asm.Decode(code, mode)
 }
 
+// arm64d adapts x/arch's ARM64 decoder.
 type arm64d struct{}
 
+// Name returns the decoder's short display name.
 func (arm64d) Name() string { return "arm64" }
-func (arm64d) Step() int    { return 4 }
+
+// Step returns the resynchronization stride after decode errors.
+func (arm64d) Step() int { return 4 }
+
+// Decode decodes one ARM64 instruction at addr.
 func (arm64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if len(code) < 4 {
 		return Inst{}, fmt.Errorf("short read")
@@ -177,10 +198,16 @@ func (arm64d) Decode(code []byte, addr uint64) (Inst, error) {
 	return Inst{Addr: addr, Bytes: code[:4], Text: text, Class: Classify(text)}, nil
 }
 
+// riscv64d adapts x/arch's RISC-V 64 decoder.
 type riscv64d struct{}
 
+// Name returns the decoder's short display name.
 func (riscv64d) Name() string { return "riscv64" }
-func (riscv64d) Step() int    { return 2 }
+
+// Step returns the resynchronization stride after decode errors.
+func (riscv64d) Step() int { return 2 }
+
+// Decode decodes one RISC-V 64 instruction at addr.
 func (riscv64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if len(code) < 2 {
 		return Inst{}, fmt.Errorf("short read")
@@ -238,6 +265,7 @@ func resolveRelTargets(text string, addr uint64) string {
 	return b.String()
 }
 
+// isHexDigit reports whether c is an ASCII hex digit.
 func isHexDigit(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }

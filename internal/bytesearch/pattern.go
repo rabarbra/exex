@@ -1,3 +1,5 @@
+// Package bytesearch turns UI search queries into byte patterns and scans byte
+// slices in either direction.
 package bytesearch
 
 import (
@@ -15,6 +17,7 @@ const (
 	ModeHex
 )
 
+// String returns the user-facing name of the search mode.
 func (m Mode) String() string {
 	switch m {
 	case ModeText:
@@ -26,6 +29,7 @@ func (m Mode) String() string {
 	}
 }
 
+// NextMode cycles Auto -> Text -> Hex -> Auto.
 func NextMode(m Mode) Mode {
 	return (m + 1) % 3
 }
@@ -43,19 +47,28 @@ func ParsePattern(q string, mode Mode) []byte {
 		return []byte(q)
 	}
 	if mode == ModeHex {
-		compact := strings.TrimPrefix(strings.ReplaceAll(trimmed, " ", ""), "0x")
+		compact := compactHexPattern(trimmed)
 		return parseHexPattern(compact)
 	}
 	if len(trimmed) >= 2 && trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"' {
 		return []byte(trimmed[1 : len(trimmed)-1])
 	}
-	compact := strings.TrimPrefix(strings.ReplaceAll(trimmed, " ", ""), "0x")
+	compact := compactHexPattern(trimmed)
 	if q == trimmed && len(compact) >= 2 && len(compact)%2 == 0 && isHexStr(compact) {
 		return parseHexPattern(compact)
 	}
 	return []byte(q)
 }
 
+// compactHexPattern removes whitespace and an optional 0x/0X prefix.
+func compactHexPattern(s string) string {
+	compact := strings.Join(strings.Fields(s), "")
+	compact = strings.TrimPrefix(compact, "0x")
+	compact = strings.TrimPrefix(compact, "0X")
+	return compact
+}
+
+// parseHexPattern decodes an even-length string of hex digits.
 func parseHexPattern(compact string) []byte {
 	if len(compact)%2 != 0 || !isHexStr(compact) {
 		return nil
@@ -96,6 +109,7 @@ func FindBytes(data, pat []byte, start int, forward bool) int {
 	return bytes.LastIndex(data[:end], pat)
 }
 
+// isHexStr reports whether s is non-empty and contains only hex digits.
 func isHexStr(s string) bool {
 	if s == "" {
 		return false

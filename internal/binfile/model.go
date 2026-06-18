@@ -107,6 +107,7 @@ func (s Symbol) Display() string {
 	return s.Name
 }
 
+// File is the format-neutral representation of one loaded binary.
 type File struct {
 	Path     string
 	Format   Format
@@ -147,11 +148,6 @@ type lineKey struct {
 	Line int
 }
 
-// finalizeSymbols sorts symbols, fills in missing sizes, and builds the
-// address-indexed copy used for reverse lookups. Loaders append unsorted
-// symbols with their Size left at 0 when the container doesn't record one
-// (notably Mach-O); we infer those from the gap to the next symbol so the
-// disasm view can still annotate ranges and SymbolAt can cover an address.
 // finalizeSymbols sorts symbols and builds the address index. Demangling is
 // intentionally NOT done here — it's the slowest part of loading a big symbol
 // table, so callers run it separately (ComputeDemangled/ApplyDemangled) off the
@@ -280,6 +276,7 @@ func (f *File) lineEntries() []lineEntry {
 	return f.lines
 }
 
+// ensureLineIndexes builds source-line lookup maps from the lazy DWARF line table.
 func (f *File) ensureLineIndexes() {
 	f.indexOnce.Do(func() {
 		colsSeen := map[lineKey]map[int]bool{}
@@ -326,6 +323,7 @@ func (f *File) sectionData(s *Section) []byte {
 	return f.raw[s.Offset:end]
 }
 
+// loadLines extracts and sorts DWARF line-table entries.
 func loadLines(d *dwarf.Data) []lineEntry {
 	var out []lineEntry
 	r := d.Reader()
@@ -467,6 +465,42 @@ func (f *File) SymbolAt(addr uint64) (Symbol, bool) {
 	return Symbol{}, false
 }
 
+// SymbolsInRange returns address-indexed symbols that overlap [from, to).
+func (f *File) SymbolsInRange(from uint64, to uint64) []Symbol {
+	if len(f.symByAddr) == 0 || to <= from {
+		return []Symbol{}
+	}
+	i := sort.Search(len(f.symByAddr), func(i int) bool { return f.symByAddr[i].Addr >= from })
+	if i > 0 {
+		prev := f.symByAddr[i-1]
+		prevEnd := prev.Addr + prev.Size
+		if prev.Size > 0 && (prevEnd < prev.Addr || prevEnd > from) {
+			i--
+		}
+	}
+	res := []Symbol{}
+	for ; i < len(f.symByAddr); i++ {
+		s := f.symByAddr[i]
+		if s.Addr >= to {
+			break
+		}
+		if s.Size == 0 {
+			if s.Addr >= from {
+				res = append(res, s)
+			}
+			continue
+		}
+		end := s.Addr + s.Size
+		if end < s.Addr {
+			end = ^uint64(0)
+		}
+		if s.Addr < to && end > from {
+			res = append(res, s)
+		}
+	}
+	return res
+}
+
 // NextSymbol returns the first symbol (by address) strictly after addr that
 // satisfies pred (a nil pred accepts any symbol).
 func (f *File) NextSymbol(addr uint64, pred func(Symbol) bool) (Symbol, bool) {
@@ -520,6 +554,9 @@ func IsExecSection(s *Section) bool { return s != nil && s.Exec && s.Size > 0 }
 func (f *File) SourceLines(name string) []string {
 	if name == "" {
 		return nil
+	}
+	if f.sources == nil {
+		f.sources = map[string][]string{}
 	}
 	if v, ok := f.sources[name]; ok {
 		return v

@@ -100,106 +100,122 @@ a live, selectable result list that updates as you type.
 
 ## 9. Sources view
 
-New view shouwing list of source files used in this binary (based on
-dwarf / dSYM info). Source files can be open - then go to disasm view (source first
-mode with mapping to disasm pane on the right). Sources should be searchable
-(in current source file and across all the sources). Color based on similar prefixes of 
-source pathes with similar colors (the whole path colored in same color though).
-Trim length in the middle if too long.
-On c copy path. Show sources belonging to project itself (not external) on top.
-Opening of some source file should lead to disasm view with source first mode.
-w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
+- ✅ New view shouwing list of source files used in this binary (based on
+dwarf / dSYM info).
+- ✅ Source files can be open - then go to disasm view (source first
+mode with mapping to disasm pane on the right).
+- ✅ Sources should be searchable in current source file
+- Sources should be searchable across all the sources.
+- ✅ Color based on similar prefixes of source pathes with similar colors (the whole path colored in same color though).
+- Trim length in the middle if too long.
+- ✅ On c copy path.
+- Show sources belonging to project itself (not external) on top.
+- ✅ Opening of some source file should lead to disasm view with source first mode.
+- ✅ w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
 
 ## 10. Disasm view
 
-There should be an option to switch panes from disasm first to source fisrt.
-If source first is selected navigation should be in source file, not in disasm.
-Same about search. In source first view only line numbers should be dimmed for
-not mapped lines, not the whole lines of source code. Same for disasm first view 
-(now it is not like this). Also for disasm pane in source first view - 
-not mapped lines of disasm should be dimmed (only address).
-Show annotation after assembly, now inside. Add annotations also if address is
-some object symbol - for move instructions etc. Highlight addresses for current
-symbol on the left to wich there is a jump with same color as address in jump
-instruction. Increase history to 30 items.
-There should be an option to turn of the source pane.
-w button should wrap long lines. cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
+- ✅ There should be an option to switch panes from disasm first to source fisrt.
+- ✅ If source first is selected navigation should be in source file, not in disasm.
+- ✅ Same about search. In source first view only line numbers should be dimmed for
+not mapped lines, not the whole lines of source code. Same for disasm first view.
+- ✅ Also for disasm pane in source first view - not mapped lines of disasm should be dimmed (only address).
+- ✅ Show annotation after assembly, now inside.
+- ✅ Add annotations also if address is some object symbol - for move instructions etc.
+- ✅ Highlight addresses for current symbol on the left to wich there is a jump with same color as address in jump
+instruction.
+- ✅ Increase history to 30 items.
+- ✅ There should be an option to turn of the source pane.
+- ✅ w button should wrap long lines.
+- ✅ cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
+- ✅ mouse scroll if mouse position is above right pane should scroll the right pane
 
 ## 11. Libs view
 
-Color pathes by prefix - similar prefix means similar color. The whole path should
+- ✅ Color pathes by prefix - similar prefix means similar color. The whole path should
 be colored in same color.
-There should be an option to copy lib path on c button. There should be and option
-go open lib - this should show symbols from this lib used. Now doesnt work - always
-0 symbols.
-There should be and option to open this lib as primary (maybe o button) - to 
+- ✅ There should be an option to copy lib path on c button.
+- ✅ There should be and option go open lib - this should show symbols from this lib used.
+- ✅ There should be and option to open this lib as primary (maybe o button) - to
 info, sections, symbols, disasm etc. Now there is an error "library path is not directly
 openable" - resolution of the path is needed.
-Assembly column should always fit and never be wrapped. Selection on cursor should be
-for only current line and only untill assembly - annotation should be not colored,
+- ✅ Assembly column should always fit and never be wrapped.
+- ✅ Selection on cursor should be for only current line and only untill assembly - annotation should be not colored,
 empty space on next line as well.
-If no sources available source pane should not be open.
-Navigation for source-first view is now broken - sometimes it is not possible to go up.
-w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
+- ✅ If no sources available source pane should not be open.
+- ✅ Navigation for source-first view is now broken - sometimes it is not possible to go up.
+- ✅ w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
 
 ## 12. Symbols view.
 
-There should be an option to filter by type.
-Address should be gray.
-w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
+- ✅ There should be an option to filter by type.
+- ✅ Address should be gray.
+- ✅ w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
 
 ## 13. Hex view.
 
-Show symbols annotation on the right. Split with sections (now works only partially).
-d should lead to diasm if this address is executable.
-w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
-shift+[ and shift+] should go to next / prev section
-Keys configurable in config.
+- ✅ Show symbols annotation on the right.
+- ✅ Split with sections (now works only partially).
+- ✅ d should lead to diasm if this address is executable.
+- ✅ w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
+- ✅ shift+[ and shift+] should go to next / prev section. Section separator should be shown on
+top of the viewport.
+- ✅ The whole section should be below section separator. Even if address is not aligned (make offset on
+the line in this case)
 
-## 14. Sections view
+## 14. Raw view
 
-Keep numeration gray. Color names and types based on type.
-Enter should always lead to hex view. d button should lead to disasm view if executable.
-w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
+- ✅ Split with sections if makes sense.
+- ✅ cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
+- ✅ shift+[ and shift+] should go to next / prev section. Section separator should be shown on
+top of the viewport.
+- ✅ The whole section should be below section separator. Even if address is not aligned (make offset on
+the line in this case)
 
-## 15. Info view
+## 15. Sections view
+
+- ✅ Keep numeration gray. Color names and types based on type.
+- ✅ Enter should always lead to hex view. d button should lead to disasm view if executable.
+- ✅ w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
+
+## 16. Info view
 
 Polish it. Centralize maybe. Think about what else to add.
 
-## 16. String view
+## 17. String view
 
-Offset and address should be gray. String should be always white.
-w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
-
-## 17. Raw view
-
-Split with sections if makes sense.
-cmd up / cmd down on macos should act as page up / page down.
-Keys configurable in config.
+- ✅ Offset and address should be gray. String should be always white.
+- ✅ w button should wrap lines. cmd up / cmd down on macos should act as page up / page down.
+- ✅ Keys configurable in config.
 
 ## 18. Search popup (disasm view, hex view, raw view, strings view)
 
-There should be clear switch for mode and direction clickable with mouse.
-Input field should be emptied on open.
+- ✅ There should be clear switch for mode and direction clickable with mouse.
+- ✅ Input field should be emptied on open.
 
 ## 19. Help popup
 
-Fix layout - alignment is broken now. Colors are also bad. Not all the info needed is there.
+- ✅ Fix layout - alignment is broken now. Colors are also bad.
+- ✅ Help lists the missing right-pane scroll, section jump, search, and source controls.
 
 ## 20. Goto popup
 
-Make wider in case of long names in results.
-If address is not in mapped section go to raw view.
+- ✅ Make wider in case of long names in results.
+- ✅ If address is not in mapped section go to raw view.
 
 ## 21. Themes
 
-Implement themes
+- Implement different themes.
+- All the colors used should be configurable through theme and config -
+including hex coloring, highlight of source position etc. Now it is not like this.
+- all the keys / keybindings used should be configurable in config.
 
 ## 22. Hex colouring modes.
 

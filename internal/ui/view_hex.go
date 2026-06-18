@@ -22,6 +22,10 @@ import (
 
 const bytesPerHexRow = 16
 
+// identityAddr is the addrAt mapping for the raw file view, where a byte's
+// "address" is just its file offset.
+func identityAddr(pos int) uint64 { return uint64(pos) }
+
 // Hex row layout, shared by renderHexRow (drawing) and hexColumnToByte
 // (hit-testing) so the two never drift. A row is:
 //
@@ -75,7 +79,13 @@ func (m *Model) openHexAt(addr uint64) {
 	}
 	m.hexCur = pos
 	m.hexTop = (pos / bytesPerHexRow) * bytesPerHexRow
+	if sec := m.file.SectionAt(addr); sec != nil && sec.Addr == addr {
+		m.hexTop = pos
+	}
+	m.renderedHexTop = m.hexTop
+	m.viewportDetached = false
 	m.setMode(modeHex)
+	m.pinCurrentByteSectionStart()
 	m.status = ""
 }
 
@@ -88,7 +98,13 @@ func (m *Model) openRawAt(off uint64) {
 	}
 	m.rawCur = pos
 	m.rawTop = (pos / bytesPerHexRow) * bytesPerHexRow
+	if sec := m.sectionAtOffset(off); sec != nil && sec.Offset == off {
+		m.rawTop = pos
+	}
+	m.renderedRawTop = m.rawTop
+	m.viewportDetached = false
 	m.setMode(modeRaw)
+	m.pinCurrentByteSectionStart()
 	m.status = ""
 }
 
@@ -151,13 +167,13 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("no symbol at this address", true)
 		}
 	case "]":
-		m.hexCur = m.seekNonZero(data, m.hexCur, true)
+		m.jumpByteCursor(modeHex, m.seekHexSection(true))
 	case "[":
+		m.jumpByteCursor(modeHex, m.seekHexSection(false))
+	case "}", "shift+]":
+		m.hexCur = m.seekNonZero(data, m.hexCur, true)
+	case "{", "shift+[":
 		m.hexCur = m.seekNonZero(data, m.hexCur, false)
-	case "}":
-		m.hexCur = m.seekHexSection(true)
-	case "{":
-		m.hexCur = m.seekHexSection(false)
 	case "/":
 		m.openSearch()
 	case "n":
@@ -168,6 +184,29 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 		m.hexCur = m.moveByteCursor(key, m.hexCur, len(data))
 	}
 	return m, nil
+}
+
+// jumpByteCursor parks both the cursor and the viewport top on pos, reattaches
+// the viewport and pins the section separator at the top. It is the shared tail
+// of the hex/raw section-seek keys; a no-op when pos is already the cursor (the
+// seek helpers return the current position when there is nowhere to go).
+func (m *Model) jumpByteCursor(md mode, pos int) {
+	switch md {
+	case modeHex:
+		if pos == m.hexCur {
+			return
+		}
+		m.hexCur, m.hexTop, m.renderedHexTop = pos, pos, pos
+	case modeRaw:
+		if pos == m.rawCur {
+			return
+		}
+		m.rawCur, m.rawTop, m.renderedRawTop = pos, pos, pos
+	default:
+		return
+	}
+	m.viewportDetached = false
+	m.pinCurrentByteSectionStart()
 }
 
 // seekHexSection moves the byte cursor to the start of the next/previous mapped
@@ -238,13 +277,13 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("offset is not inside any section's file data", true)
 		}
 	case "]":
-		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, true)
+		m.jumpByteCursor(modeRaw, m.seekRawSection(true))
 	case "[":
+		m.jumpByteCursor(modeRaw, m.seekRawSection(false))
+	case "}", "shift+]":
+		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, true)
+	case "{", "shift+[":
 		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, false)
-	case "}":
-		m.rawCur = m.seekRawSection(true)
-	case "{":
-		m.rawCur = m.seekRawSection(false)
 	case "/":
 		m.openSearch()
 	case "n":
@@ -326,7 +365,7 @@ func (m *Model) renderRaw() string {
 		banner = fmt.Sprintf(" raw file · offset 0x%x · in %s · %d bytes total",
 			m.rawCur, sec.Name, len(m.rawData))
 	}
-	return m.renderHexDump(modeRaw, m.rawData, m.rawCur, &m.rawTop, func(pos int) uint64 { return uint64(pos) }, banner)
+	return m.renderHexDump(modeRaw, m.rawData, m.rawCur, &m.rawTop, identityAddr, banner)
 }
 
 // renderHexDump draws a classic offset|hex|ascii table. addrAt maps a byte
@@ -334,12 +373,16 @@ func (m *Model) renderRaw() string {
 // serves both the VA image and the raw file view.
 func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt func(pos int) uint64, banner string) string {
 	bodyH := m.bodyHeight()
-	row := bytesPerHexRow
 	addrW := m.file.AddrHexWidth()
 	visible := max(bodyH-1, 1)
-	top := hexVisibleTop(cur, *topPtr, visible)
+	top := m.hexVisibleTop(md, cur, *topPtr, visible, addrAt)
 	if m.viewportDetached {
-		top = scrollByteViewportTop(*topPtr, len(data), visible, 0)
+		top = m.scrollByteViewportTop(md, data, *topPtr, visible, 0, addrAt)
+	} else if secStart, ok := m.currentHexSectionStart(md, cur); ok && top < secStart && secStart <= cur {
+		top = secStart
+	}
+	if pinned, ok := m.pinnedByteSectionTop(md); ok && top < pinned && cur >= pinned {
+		top = pinned
 	}
 	*topPtr = top
 	if md == modeRaw {
@@ -349,18 +392,8 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 	}
 
 	rows := []string{m.theme.stickySymStyle.Render(padRight(banner, m.width))}
-	end := min(top+visible*row, len(data))
-	// Emit a "── section ──" separator whenever the section covering a row
-	// changes. Section starts rarely land on a 16-byte row boundary, so keying
-	// off equality would miss almost all of them. Seed with the section of the
-	// row above the window so the first visible row only splits when it's new.
-	prevSec := ""
-	if top >= row {
-		prevSec = m.hexSectionName(md, top-row, addrAt)
-	}
-	for off := top; off < end; off += row {
-		sec := m.hexSectionName(md, off, addrAt)
-		if sec != "" && sec != prevSec {
+	for off := top; off < len(data) && len(rows) < bodyH; {
+		if sec := m.hexSectionStartName(md, off); sec != "" {
 			appendRenderedRows(
 				&rows,
 				m.theme.sectionStyle.Render(lipgloss.PlaceHorizontal(
@@ -372,31 +405,109 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 				m.width, m.wrap, addrW+75,
 			)
 		}
-		prevSec = sec
+		row := m.hexRowSpan(md, data, off, addrAt)
 		if !appendRenderedRowsIndented(
 			&rows,
-			m.renderHexRow(md, data, cur, off, addrW, addrAt),
+			m.renderHexRow(md, data, cur, row, addrW, addrAt),
 			m.width, m.wrap, addrW+75, bodyH,
 		) {
 			break
 		}
+		off = row.end
 	}
 	return padBodyRows(rows, m.width, bodyH)
 }
 
-func hexVisibleTop(cur, top, visibleRows int) int {
-	row := bytesPerHexRow
-	curRow := cur / row
-	topRow := top / row
-	if curRow < topRow {
-		topRow = curRow
-	} else if curRow >= topRow+visibleRows {
-		topRow = curRow - visibleRows + 1
+type hexRowSpan struct {
+	start    int
+	end      int
+	lineAddr uint64
+	lead     int
+}
+
+func (m *Model) hexRowSpan(md mode, data []byte, start int, addrAt func(pos int) uint64) hexRowSpan {
+	addr := addrAt(start)
+	lead := int(addr % bytesPerHexRow)
+	lineAddr := addr - uint64(lead)
+	end := min(start+bytesPerHexRow-lead, len(data))
+	if next, ok := m.nextHexSectionStart(md, start); ok && next < end {
+		end = next
 	}
-	if topRow < 0 {
-		topRow = 0
+	if end <= start {
+		end = min(start+1, len(data))
 	}
-	return topRow * row
+	return hexRowSpan{start: start, end: end, lineAddr: lineAddr, lead: lead}
+}
+
+// Row geometry note: a row's leading address is aligned to bytesPerHexRow on
+// the *address* grid (addr % bytesPerHexRow), not the data-position grid. The
+// two differ whenever a section's start address isn't row-aligned, so all of
+// the scroll math below is expressed in terms of these address-aware helpers
+// rather than raw data offsets. Otherwise the top visible row of an unaligned
+// section would render a spurious leading gap (only a section's first and last
+// rows may be partial).
+
+// hexRowTop returns the byte position of the start of the row containing pos.
+// The start is aligned to the address grid but never crosses below the start of
+// pos's own section, so a section's first row begins exactly at the section even
+// when its address is unaligned.
+func (m *Model) hexRowTop(md mode, pos int, addrAt func(pos int) uint64) int {
+	if pos <= 0 {
+		return 0
+	}
+	start := pos - int(addrAt(pos)%bytesPerHexRow)
+	if secStart, ok := m.currentHexSectionStart(md, pos); ok && start < secStart {
+		start = secStart
+	}
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
+// hexPrevRowTop returns the start of the row immediately above pos's row.
+func (m *Model) hexPrevRowTop(md mode, pos int, addrAt func(pos int) uint64) int {
+	rs := m.hexRowTop(md, pos, addrAt)
+	if rs <= 0 {
+		return 0
+	}
+	return m.hexRowTop(md, rs-1, addrAt)
+}
+
+// hexMaxTop returns the highest row-start that still fills the last screen.
+func (m *Model) hexMaxTop(md mode, data []byte, visibleRows int, addrAt func(pos int) uint64) int {
+	if len(data) == 0 {
+		return 0
+	}
+	top := m.hexRowTop(md, len(data)-1, addrAt)
+	for i := 0; i < visibleRows-1 && top > 0; i++ {
+		top = m.hexPrevRowTop(md, top, addrAt)
+	}
+	return top
+}
+
+// hexVisibleTop returns the row-start to render from so the cursor stays on
+// screen, scrolling the viewport by whole rows only as far as needed.
+func (m *Model) hexVisibleTop(md mode, cur, top, visibleRows int, addrAt func(pos int) uint64) int {
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+	top = m.hexRowTop(md, top, addrAt)
+	curStart := m.hexRowTop(md, cur, addrAt)
+	if curStart <= top {
+		return curStart
+	}
+	// The highest top that still keeps curStart on screen is curStart walked up
+	// (visibleRows-1) rows; if our current top sits above it, the cursor has
+	// scrolled past the bottom, so jump down to that limit.
+	limit := curStart
+	for i := 0; i < visibleRows-1 && limit > 0; i++ {
+		limit = m.hexPrevRowTop(md, limit, addrAt)
+	}
+	if top < limit {
+		return limit
+	}
+	return top
 }
 
 // hexSectionName returns the name of the section covering the byte at off (a VA
@@ -414,19 +525,115 @@ func (m *Model) hexSectionName(md mode, off int, addrAt func(pos int) uint64) st
 	return ""
 }
 
-func (m *Model) renderHexRow(md mode, data []byte, cur, off, addrW int, addrAt func(pos int) uint64) string {
-	row := bytesPerHexRow
-	end := min(off+row, len(data))
-	addr := addrAt(off)
+func (m *Model) hexSectionStartName(md mode, off int) string {
+	if off < 0 {
+		return ""
+	}
+	if md == modeHex {
+		if r := m.hexImg.RegionAt(off); r != nil && r.Off == off {
+			return r.Name
+		}
+		return ""
+	}
+	for i := range m.file.Sections {
+		s := &m.file.Sections[i]
+		if s.FileSize > 0 && s.Offset == uint64(off) {
+			return s.Name
+		}
+	}
+	return ""
+}
+
+func (m *Model) currentHexSectionStart(md mode, cur int) (int, bool) {
+	if cur < 0 {
+		return 0, false
+	}
+	if md == modeHex {
+		if r := m.hexImg.RegionAt(cur); r != nil {
+			return r.Off, true
+		}
+		return 0, false
+	}
+	sec := m.sectionAtOffset(uint64(cur))
+	if sec == nil || sec.Offset > uint64(int(^uint(0)>>1)) {
+		return 0, false
+	}
+	return int(sec.Offset), true
+}
+
+func (m *Model) pinCurrentByteSectionStart() {
+	switch m.mode {
+	case modeHex:
+		if start, ok := m.currentHexSectionStart(modeHex, m.hexCur); ok && start == m.hexCur {
+			m.hexPinnedTop = start
+			m.hexPinned = true
+			return
+		}
+		m.hexPinned = false
+	case modeRaw:
+		if start, ok := m.currentHexSectionStart(modeRaw, m.rawCur); ok && start == m.rawCur {
+			m.rawPinnedTop = start
+			m.rawPinned = true
+			return
+		}
+		m.rawPinned = false
+	}
+}
+
+func (m *Model) clearByteSectionPin(md mode) {
+	switch md {
+	case modeHex:
+		m.hexPinned = false
+	case modeRaw:
+		m.rawPinned = false
+	}
+}
+
+func (m *Model) pinnedByteSectionTop(md mode) (int, bool) {
+	switch md {
+	case modeHex:
+		return m.hexPinnedTop, m.hexPinned
+	case modeRaw:
+		return m.rawPinnedTop, m.rawPinned
+	}
+	return 0, false
+}
+
+func (m *Model) nextHexSectionStart(md mode, off int) (int, bool) {
+	best := 0
+	found := false
+	if md == modeHex {
+		for _, r := range m.hexImg.Regions {
+			if r.Off > off && (!found || r.Off < best) {
+				best, found = r.Off, true
+			}
+		}
+		return best, found
+	}
+	for i := range m.file.Sections {
+		s := &m.file.Sections[i]
+		if s.FileSize == 0 || s.Offset > uint64(int(^uint(0)>>1)) {
+			continue
+		}
+		start := int(s.Offset)
+		if start > off && (!found || start < best) {
+			best, found = start, true
+		}
+	}
+	return best, found
+}
+
+func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, addrW int, addrAt func(pos int) uint64) string {
 	var hexCol, asciiCol strings.Builder
-	for i := off; i < off+row; i++ {
-		if i > off {
+	for slot := 0; slot < bytesPerHexRow; slot++ {
+		if slot > 0 {
 			hexCol.WriteByte(' ')
-			if i == off+row/2 {
+			if slot == bytesPerHexRow/2 {
 				hexCol.WriteByte(' ')
 			}
 		}
-		if i >= end {
+		i := span.start + slot - span.lead
+		if slot < span.lead || i < span.start || i >= span.end {
 			hexCol.WriteString("  ")
 			asciiCol.WriteByte(' ')
 			continue
@@ -446,21 +653,20 @@ func (m *Model) renderHexRow(md mode, data []byte, cur, off, addrW int, addrAt f
 	}
 	var line strings.Builder
 	fmt.Fprintf(&line, " %s  %s  |%s|",
-		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, addr)),
+		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, span.lineAddr)),
 		hexCol.String(),
 		asciiCol.String(),
 	)
 	if md == modeHex {
-		if syms := m.file.SymbolsInRange(addr, addrAt(end)); len(syms) != 0 {
+		addr := addrAt(span.start)
+		endAddr := addr + uint64(span.end-span.start)
+		if syms := m.file.SymbolsInRange(addr, endAddr); len(syms) != 0 {
 			for _, sym := range syms {
 				line.WriteString(" [")
 				line.WriteString(m.theme.addrStyle.Render(sym.Display()))
 				line.WriteString("]")
 			}
 		} else if sec := m.file.SectionAt(addr); sec != nil && sec.Addr == addr {
-			line.WriteString("  ")
-			line.WriteString(m.theme.addrStyle.Render(sec.Name))
-		} else if sec := m.sectionAtOffset(addr); sec != nil && sec.Offset == addr {
 			line.WriteString("  ")
 			line.WriteString(m.theme.addrStyle.Render(sec.Name))
 		}

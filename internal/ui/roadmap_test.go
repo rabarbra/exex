@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
@@ -129,6 +132,385 @@ func TestHexColumnToByteBounds(t *testing.T) {
 	}
 	if got := hexColumnToByte(addrW, start+1000); got != bytesPerHexRow-1 {
 		t.Fatalf("column after row = %d, want last byte", got)
+	}
+}
+
+func TestHexVisibleTopPreservesUnalignedSectionStart(t *testing.T) {
+	// Two regions: an aligned one [0x00,0x65) and an unaligned section B that
+	// starts at data position 0x65 / address 0x2003 (lead 3).
+	const sectionStart = 0x65
+	m := &Model{
+		theme: DefaultTheme(),
+		file:  &binfile.File{},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data: make([]byte, 0x200),
+			Regions: []binfile.Region{
+				{Addr: 0x1000, Size: sectionStart, Off: 0, Name: "A"},
+				{Addr: 0x2003, Size: 0x200 - sectionStart, Off: sectionStart, Name: "B"},
+			},
+		}},
+	}
+	addrAt := m.hexImg.AddrAt
+
+	if got := m.hexVisibleTop(modeHex, sectionStart, sectionStart, 10, addrAt); got != sectionStart {
+		t.Fatalf("hexVisibleTop at section start = 0x%x, want 0x%x", got, sectionStart)
+	}
+	// The row ending the previous section is address-aligned at 0x60.
+	if got := m.hexVisibleTop(modeHex, sectionStart-1, sectionStart, 10, addrAt); got != 0x60 {
+		t.Fatalf("hexVisibleTop before section start = 0x%x, want 0x60", got)
+	}
+	if got := m.scrollByteViewportTop(modeHex, m.hexImg.Data, sectionStart, 10, -1, addrAt); got != 0x60 {
+		t.Fatalf("scrollByteViewportTop up = 0x%x, want 0x60", got)
+	}
+	// Section B's first row spans the 13 bytes up to the next aligned address.
+	if got := m.scrollByteViewportTop(modeHex, m.hexImg.Data, sectionStart, 10, 1, addrAt); got != sectionStart+13 {
+		t.Fatalf("scrollByteViewportTop down = 0x%x, want 0x%x", got, sectionStart+13)
+	}
+}
+
+// TestHexMiddleRowsNeverGap guards the rule that only a section's first and last
+// rows may be partial: when scrolled into the middle of an unaligned section,
+// every visible row must be full (no leading gap on the top row).
+func TestHexMiddleRowsNeverGap(t *testing.T) {
+	data := make([]byte, 0x200)
+	for i := range data {
+		data[i] = byte(i + 1) // non-zero so a blank slot is unambiguous
+	}
+	m := &Model{
+		mode:        modeHex,
+		theme:       DefaultTheme(),
+		file:        &binfile.File{},
+		layoutState: layoutState{width: 120, height: 12},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data:    data,
+			Regions: []binfile.Region{{Addr: 0x1029052b8, Size: uint64(len(data)), Off: 0, Name: "__objc_data"}},
+		}},
+	}
+	for range 40 { // scroll well past the section start
+		m.updateHex("down")
+	}
+	lines := strings.Split(stripANSI(m.renderHex()), "\n")
+	var body []string
+	for _, ln := range lines {
+		if strings.Contains(ln, "0x0000000") {
+			body = append(body, ln)
+		}
+	}
+	if len(body) < 3 {
+		t.Fatalf("expected several body rows, got %d", len(body))
+	}
+	for i, ln := range body {
+		// Hex column begins after " 0x"+addr digits+"  "; check its first slot.
+		addrW := m.file.AddrHexWidth()
+		first := ln[hexBodyStart(addrW) : hexBodyStart(addrW)+2]
+		if first == "  " {
+			t.Fatalf("row %d has a leading gap (mid-section row must be full):\n%s", i, ln)
+		}
+	}
+}
+
+func TestHexAndRawRowsSplitAtUnalignedSectionStart(t *testing.T) {
+	raw := make([]byte, 0x40)
+	copy(raw[0x14:], []byte{'e', 'd', 0, 'C', 'G', 'C', 'o', 'l', 'o', 'r'})
+	sections := []binfile.Section{
+		{Name: "prev", Addr: 0x10203cb04, Size: 0x13, Offset: 0x14, FileSize: 3, Alloc: true},
+		{Name: "__objc_methname", Addr: 0x10203cb17, Size: 0x20, Offset: 0x17, FileSize: 0x20, Alloc: true},
+	}
+	rawModel := &Model{
+		theme:       DefaultTheme(),
+		file:        &binfile.File{Sections: sections},
+		layoutState: layoutState{width: 120, height: 10},
+		rawState:    rawState{rawData: raw, rawCur: 0x17, rawTop: 0x14},
+	}
+	assertSectionBytesBelowSeparator(t, stripANSI(rawModel.renderRaw()), "__objc_methname", "43  47 43", "0x0000000000000010")
+
+	hexData := make([]byte, 0x30)
+	copy(hexData[0x10:], []byte{'e', 'd', 0, 'C', 'G', 'C', 'o', 'l', 'o', 'r'})
+	hexModel := &Model{
+		theme:            DefaultTheme(),
+		file:             &binfile.File{Sections: sections},
+		layoutState:      layoutState{width: 120, height: 10},
+		interactionState: interactionState{viewportDetached: true},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data: hexData,
+			Regions: []binfile.Region{
+				{Addr: 0x10203cb04, Size: 0x13, Off: 0, Name: "prev"},
+				{Addr: 0x10203cb17, Size: 0x20, Off: 0x13, Name: "__objc_methname"},
+			},
+		}, hexCur: 0x13, hexTop: 0x10},
+	}
+	assertSectionBytesBelowSeparator(t, stripANSI(hexModel.renderHex()), "__objc_methname", "43  47 43", "0x000000010203cb10")
+}
+
+func TestOpeningUnalignedSectionPinsSeparatorAtTop(t *testing.T) {
+	section := binfile.Section{Name: "__objc_methname", Addr: 0x10203cb17, Size: 0x20, Offset: 0x17, FileSize: 0x20, Alloc: true}
+	hexModel := &Model{
+		theme:       DefaultTheme(),
+		file:        &binfile.File{Sections: []binfile.Section{section}},
+		layoutState: layoutState{width: 120, height: 8},
+		interactionState: interactionState{
+			viewportDetached: true,
+			renderedHexTop:   99,
+		},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data:    []byte("CGColor.CGContext._device"),
+			Regions: []binfile.Region{{Addr: section.Addr, Size: section.FileSize, Off: 0, Name: section.Name}},
+		}},
+	}
+	hexModel.openHexAt(section.Addr)
+	if hexModel.viewportDetached {
+		t.Fatal("openHexAt did not reattach viewport")
+	}
+	if hexModel.hexTop != hexModel.hexCur {
+		t.Fatalf("hexTop = %d, want section cursor %d", hexModel.hexTop, hexModel.hexCur)
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(hexModel.renderHex()), section.Name)
+
+	rawModel := &Model{
+		theme:       DefaultTheme(),
+		file:        &binfile.File{Sections: []binfile.Section{section}},
+		layoutState: layoutState{width: 120, height: 8},
+		interactionState: interactionState{
+			viewportDetached: true,
+			renderedRawTop:   99,
+		},
+		rawState: rawState{rawData: []byte("abcdefghijklmnopqrstuvwxyzzzzzzzzzzzzzzzzzzzzzz")},
+	}
+	rawModel.openRawAt(section.Offset)
+	if rawModel.viewportDetached {
+		t.Fatal("openRawAt did not reattach viewport")
+	}
+	if rawModel.rawTop != rawModel.rawCur {
+		t.Fatalf("rawTop = %d, want section cursor %d", rawModel.rawTop, rawModel.rawCur)
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(rawModel.renderRaw()), section.Name)
+}
+
+func TestCurrentUnalignedSectionSnapsPastPreviousSectionGap(t *testing.T) {
+	sections := []binfile.Section{
+		{Name: "prev", Addr: 0x102043bb0, Size: 0x3e, Offset: 0x10, FileSize: 0x3e, Alloc: true},
+		{Name: "__objc_classname", Addr: 0x102043bee, Size: 0x80, Offset: 0x4e, FileSize: 0x80, Alloc: true},
+	}
+	hexData := make([]byte, 0xd0)
+	copy(hexData[0x4e:], []byte("VibrantLayer.MetalBuffer.FramebufferDescriptor"))
+	hexModel := &Model{
+		mode:        modeHex,
+		theme:       DefaultTheme(),
+		file:        &binfile.File{Sections: sections},
+		layoutState: layoutState{width: 120, height: 10},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data: hexData,
+			Regions: []binfile.Region{
+				{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
+				{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x4e, Name: sections[1].Name},
+			},
+		}, hexCur: 0x7f, hexTop: 0},
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(hexModel.renderHex()), sections[1].Name)
+	if got, want := hexModel.hexTop, 0x4e; got != want {
+		t.Fatalf("hexTop = 0x%x, want current section start 0x%x", got, want)
+	}
+	model, _ := hexModel.handleMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp, X: 10, Y: 4}))
+	hexModel = model.(*Model)
+	if !hexModel.viewportDetached {
+		t.Fatal("hex wheel up did not detach viewport")
+	}
+	if got, limit := hexModel.hexTop, 0x4e; got >= limit {
+		t.Fatalf("hex wheel up top = 0x%x, want before section start 0x%x", got, limit)
+	}
+
+	rawData := make([]byte, 0xd0)
+	copy(rawData[0x4e:], []byte("VibrantLayer.MetalBuffer.FramebufferDescriptor"))
+	rawModel := &Model{
+		mode:        modeRaw,
+		theme:       DefaultTheme(),
+		file:        &binfile.File{Sections: sections},
+		layoutState: layoutState{width: 120, height: 10},
+		rawState:    rawState{rawData: rawData, rawCur: 0x7f, rawTop: 0x10},
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(rawModel.renderRaw()), sections[1].Name)
+	if got, want := rawModel.rawTop, 0x4e; got != want {
+		t.Fatalf("rawTop = 0x%x, want current section start 0x%x", got, want)
+	}
+	model, _ = rawModel.handleMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp, X: 10, Y: 4}))
+	rawModel = model.(*Model)
+	if !rawModel.viewportDetached {
+		t.Fatal("raw wheel up did not detach viewport")
+	}
+	if got, limit := rawModel.rawTop, 0x4e; got >= limit {
+		t.Fatalf("raw wheel up top = 0x%x, want before section start 0x%x", got, limit)
+	}
+}
+
+func TestPinnedUnalignedSectionOverridesStaleDetachedTop(t *testing.T) {
+	sections := []binfile.Section{
+		{Name: "prev", Addr: 0x10203cab0, Size: 0x67, Offset: 0, FileSize: 0x67, Alloc: true},
+		{Name: "__objc_methname", Addr: 0x10203cb17, Size: 0x80, Offset: 0x67, FileSize: 0x80, Alloc: true},
+	}
+	hexData := make([]byte, 0x100)
+	copy(hexData[0x67:], []byte("CGColor.CGContext._device"))
+	m := &Model{
+		mode:        modeHex,
+		theme:       DefaultTheme(),
+		file:        &binfile.File{Sections: sections},
+		layoutState: layoutState{width: 120, height: 10},
+		interactionState: interactionState{
+			viewportDetached: true,
+			renderedHexTop:   0,
+		},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data: hexData,
+			Regions: []binfile.Region{
+				{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
+				{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x67, Name: sections[1].Name},
+			},
+		}, hexCur: 0x67, hexTop: 0, hexPinnedTop: 0x67, hexPinned: true},
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), sections[1].Name)
+	if got, want := m.hexTop, 0x67; got != want {
+		t.Fatalf("hexTop = 0x%x, want pinned section start 0x%x", got, want)
+	}
+	m.wheelSuppressUntil = time.Time{}
+	model, _ := m.handleMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp, X: 10, Y: 4}))
+	m = model.(*Model)
+	if m.hexPinned {
+		t.Fatal("wheel up did not clear pinned section")
+	}
+	if got, limit := m.hexTop, 0x67; got >= limit {
+		t.Fatalf("wheel up top = 0x%x, want before pinned section 0x%x", got, limit)
+	}
+}
+
+func TestHexSearchReattachesViewportAtUnalignedSectionStart(t *testing.T) {
+	sections := []binfile.Section{
+		{Name: "prev", Addr: 0x102043bb0, Size: 0x3e, Offset: 0x10, FileSize: 0x3e, Alloc: true},
+		{Name: "__objc_classname", Addr: 0x102043bee, Size: 0x80, Offset: 0x4e, FileSize: 0x80, Alloc: true},
+	}
+	hexData := make([]byte, 0xd0)
+	copy(hexData[0x4e:], []byte("VibrantLayer.MetalBuffer.FramebufferDescriptor"))
+	m := &Model{
+		mode:             modeHex,
+		theme:            DefaultTheme(),
+		file:             &binfile.File{Sections: sections},
+		layoutState:      layoutState{width: 120, height: 10},
+		interactionState: interactionState{viewportDetached: true},
+		searchState:      searchState{searchActive: true, searchMode: searchModeText, searchForward: true, searchFromCursor: false},
+		hexState: hexState{hexImg: &binfile.Image{
+			Data: hexData,
+			Regions: []binfile.Region{
+				{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
+				{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x4e, Name: sections[1].Name},
+			},
+		}, hexCur: 0, hexTop: 0},
+	}
+	m.searchInput = textinput.New()
+	m.searchInput.SetValue("Vibrant")
+	model, _ := m.updateSearchInput(keyPress("enter"), "enter")
+	m = model.(*Model)
+	if m.viewportDetached {
+		t.Fatal("search did not reattach viewport")
+	}
+	if got, want := m.hexCur, 0x4e; got != want {
+		t.Fatalf("hex search cursor = 0x%x, want 0x%x", got, want)
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), sections[1].Name)
+}
+
+func TestGhosttyObjcMethnameOpenPinsSeparatorAtTop(t *testing.T) {
+	const path = "/Users/psimonenko/Prog/pr/sources/ghostty/macos/build/Debug/Ghostty.app/Contents/MacOS/ghostty"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("ghostty debug binary unavailable")
+	}
+	f, err := binfile.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m, err := New(f)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	m.width, m.height = 120, 20
+	m.openHexAt(0x10203cb17)
+	if m.hexTop != m.hexCur {
+		t.Fatalf("hexTop = %d addr 0x%x, hexCur = %d addr 0x%x", m.hexTop, m.hexImg.AddrAt(m.hexTop), m.hexCur, m.hexImg.AddrAt(m.hexCur))
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), "__objc_methname")
+}
+
+func TestGhosttyObjcMethnameSectionKeyPinsSeparatorAtTop(t *testing.T) {
+	const path = "/Users/psimonenko/Prog/pr/sources/ghostty/macos/build/Debug/Ghostty.app/Contents/MacOS/ghostty"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("ghostty debug binary unavailable")
+	}
+	f, err := binfile.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m, err := New(f)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	m.width, m.height = 120, 20
+	// ] jumps to the next section start and pins the separator at the top.
+	m.openHexAt(0x10203cae0)
+	model, _ := m.updateHex("]")
+	m = model.(*Model)
+	addr := m.hexImg.AddrAt(m.hexCur)
+	if addr != 0x10203cb17 {
+		t.Fatalf("] landed at 0x%x, want 0x10203cb17", addr)
+	}
+	if m.hexTop != m.hexCur {
+		t.Fatalf("hexTop = %d addr 0x%x, hexCur = %d addr 0x%x", m.hexTop, m.hexImg.AddrAt(m.hexTop), m.hexCur, m.hexImg.AddrAt(m.hexCur))
+	}
+	assertSeparatorDirectlyUnderBanner(t, stripANSI(m.renderHex()), "__objc_methname")
+
+	// [ jumps back to the previous section, again pinning its separator on top.
+	model, _ = m.updateHex("[")
+	m = model.(*Model)
+	if m.hexTop != m.hexCur {
+		t.Fatalf("after [ hexTop = %d, hexCur = %d", m.hexTop, m.hexCur)
+	}
+	if got := m.hexImg.AddrAt(m.hexCur); got >= 0x10203cb17 {
+		t.Fatalf("[ landed at 0x%x, want a section before 0x10203cb17", got)
+	}
+}
+
+func assertSeparatorDirectlyUnderBanner(t *testing.T, out, section string) {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("rendered output has too few lines:\n%s", out)
+	}
+	if !strings.Contains(lines[1], section) || !strings.Contains(lines[1], "===") {
+		t.Fatalf("first content row is not %q separator:\n%s", section, out)
+	}
+}
+
+func assertSectionBytesBelowSeparator(t *testing.T, out, section, bytes, lineAddr string) {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	sepLine := -1
+	byteLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, section) && strings.Contains(line, "===") && sepLine < 0 {
+			sepLine = i
+		}
+		if strings.Contains(line, bytes) && byteLine < 0 {
+			byteLine = i
+		}
+	}
+	if sepLine < 0 {
+		t.Fatalf("section separator %q not found in:\n%s", section, out)
+	}
+	if byteLine <= sepLine {
+		t.Fatalf("bytes %q line = %d, separator line = %d; output:\n%s", bytes, byteLine, sepLine, out)
+	}
+	line := lines[byteLine]
+	if !strings.Contains(line, lineAddr) {
+		t.Fatalf("post-separator line %q does not contain aligned address %q", line, lineAddr)
+	}
+	if idx := strings.Index(line, bytes[:2]); idx <= hexBodyStart(16) {
+		t.Fatalf("post-separator bytes are not offset on line: %q", line)
 	}
 }
 

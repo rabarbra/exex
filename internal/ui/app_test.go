@@ -2,8 +2,11 @@ package ui
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -188,6 +191,102 @@ func TestRenderAllViews(t *testing.T) {
 	send("enter")
 	if strings.TrimSpace(model.View().Content) == "" {
 		t.Fatal("empty render at end")
+	}
+}
+
+func TestCtrlENavigatesDisasmToEnd(t *testing.T) {
+	path := firstExisting("/bin/ls", "/usr/bin/true", "/bin/cat")
+	if path == "" {
+		t.Skip("no system binary available")
+	}
+	f, err := binfile.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m, err := New(f)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	m.width, m.height = 120, 40
+	m.disasmMaxBytes = 16 << 10
+	m.jumpDisasmBoundary(false)
+	if len(m.disasmInst) < 2 {
+		t.Skip("not enough disassembly to test end navigation")
+	}
+	m.disasmCur = 0
+
+	model, _ := m.handleKey(keyPress("ctrl+e"))
+	m = model.(*Model)
+	if got, want := m.disasmCur, len(m.disasmInst)-1; got != want {
+		t.Fatalf("ctrl+e disasm cursor = %d, want %d", got, want)
+	}
+	_ = m.View()
+	rowHeight := func(i int) int { return m.disasmInstVisualHeight(i, m.disasmRenderWidth()) }
+	if got, want := m.disasmTop, maxViewportTop(len(m.disasmInst), m.disasmViewportHeight(), rowHeight); got != want {
+		t.Fatalf("ctrl+e disasm top = %d, want bottom-aligned %d", got, want)
+	}
+
+	endCur := m.disasmCur
+	endTop := m.disasmTop
+	model, _ = m.handleKey(keyPress("up"))
+	m = model.(*Model)
+	if got, want := m.disasmCur, endCur-1; got != want {
+		t.Fatalf("up after ctrl+e cursor = %d, want %d", got, want)
+	}
+	if got := m.disasmTop; got != endTop {
+		t.Fatalf("up after ctrl+e top = %d, want unchanged %d", got, endTop)
+	}
+
+	model, _ = m.handleKey(keyPress("ctrl+e"))
+	m = model.(*Model)
+	_ = m.View()
+	endTop = m.disasmTop
+	endLo := m.disasmPosLo
+	endAddr := m.disasmInst[m.disasmCur].Addr
+	m.wheelSuppressUntil = time.Time{}
+	model, _ = m.handleMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp, X: 2, Y: 5}))
+	m = model.(*Model)
+	if !m.viewportDetached {
+		t.Fatal("wheel up after ctrl+e did not detach viewport")
+	}
+	if endTop == 0 && endLo > 0 {
+		if got := m.disasmPosLo; got >= endLo {
+			t.Fatalf("wheel up after ctrl+e posLo = %d, want before %d", got, endLo)
+		}
+		if got := m.disasmInst[m.disasmCur].Addr; got > endAddr {
+			t.Fatalf("wheel up after ctrl+e cursor addr = 0x%x, want at or before 0x%x", got, endAddr)
+		}
+	} else if got := m.disasmTop; got >= endTop {
+		t.Fatalf("wheel up after ctrl+e top = %d, want less than %d", got, endTop)
+	}
+}
+
+func TestMouseWheelOverRightDisasmPaneScrollsRightPane(t *testing.T) {
+	path := buildDebugSample(t)
+	f, err := binfile.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if !f.HasDWARF() {
+		t.Skip("debug sample has no DWARF")
+	}
+	m, err := New(f)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	m.width, m.height = 120, 30
+	m.disasmMaxBytes = 16 << 10
+	m.jumpDisasmBoundary(false)
+	m.wheelSuppressUntil = time.Time{}
+	if !m.rightPaneActive() {
+		t.Skip("right pane is not active")
+	}
+	m.rightScroll = 9
+
+	model, _ := m.handleMouse(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp, X: m.width - 2, Y: 10}))
+	m = model.(*Model)
+	if got := m.rightScroll; got != 6 {
+		t.Fatalf("rightScroll after wheel up = %d, want 6", got)
 	}
 }
 
@@ -510,6 +609,39 @@ func runModelCmd(t *testing.T, m *Model, cmd tea.Cmd) {
 		}
 		m = mm
 	}
+}
+
+func buildDebugSample(t *testing.T) string {
+	t.Helper()
+	cc, err := exec.LookPath("gcc")
+	if err != nil {
+		cc, err = exec.LookPath("cc")
+	}
+	if err != nil {
+		t.Skip("no C compiler available")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "sample.c")
+	bin := filepath.Join(dir, "sample")
+	const code = `
+#include <stdio.h>
+static int twice(int x) {
+    return x * 2;
+}
+int main(int argc, char **argv) {
+    int value = twice(argc);
+    printf("%d\n", value);
+    return value;
+}
+`
+	if err := os.WriteFile(src, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(cc, "-g", "-O0", "-o", bin, src).CombinedOutput()
+	if err != nil {
+		t.Fatalf("compile failed: %v\n%s", err, out)
+	}
+	return bin
 }
 
 func firstExisting(paths ...string) string {

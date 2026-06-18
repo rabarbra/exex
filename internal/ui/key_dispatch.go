@@ -8,7 +8,7 @@ import (
 
 // handleKey routes a key message through modal, global, and active-view handlers.
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
+	key := canonicalKeyString(msg.String())
 
 	// The help overlay swallows the next keypress to dismiss itself.
 	if m.helpActive {
@@ -55,6 +55,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewportDetached = false
 	}
 	return model, cmd
+}
+
+func canonicalKeyString(key string) string {
+	if strings.Contains(key, "+") {
+		return strings.ToLower(key)
+	}
+	return key
 }
 
 // cursorState snapshots cursor fields that should reattach a detached viewport.
@@ -161,10 +168,16 @@ func (m *Model) updateSearchInput(msg tea.KeyMsg, key string) (tea.Model, tea.Cm
 		m.searchFromCursor = !m.searchFromCursor
 		return m, nil
 	case "enter":
+		before := m.activeCursorState()
 		m.searchQuery = strings.TrimSpace(m.searchInput.Value())
 		m.searchActive = false
 		m.searchInput.Blur()
-		return m, m.runSearchFromPrompt()
+		cmd := m.runSearchFromPrompt()
+		if before != m.activeCursorState() {
+			m.viewportDetached = false
+			m.pinCurrentByteSectionStart()
+		}
+		return m, cmd
 	}
 	var cmd tea.Cmd
 	m.searchInput, cmd = m.searchInput.Update(msg)
@@ -301,6 +314,7 @@ func (m *Model) ensureSourcePaneAvailable() bool {
 
 // normalizeNavKey maps platform-specific navigation aliases to canonical keys.
 func (m *Model) normalizeNavKey(key string) string {
+	key = canonicalKeyString(key)
 	// macOS keyboards often lack Home/End and dedicated PgUp/PgDn; accept the
 	// emacs-style ctrl+a / ctrl+e as begin/end and Cmd+Up / Cmd+Down as page
 	// up / page down (modals and filter inputs were handled above, so this only

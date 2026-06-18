@@ -183,16 +183,20 @@ type historyState struct {
 
 // hexState stores cursor and viewport state for the mapped hex view.
 type hexState struct {
-	hexImg *binfile.Image
-	hexCur int // byte position into hexImg.Data
-	hexTop int // first row's byte position (multiple of bytesPerHexRow)
+	hexImg       *binfile.Image
+	hexCur       int // byte position into hexImg.Data
+	hexTop       int // first row's byte position
+	hexPinnedTop int // section start pinned by jump/search until wheel scroll
+	hexPinned    bool
 }
 
 // rawState stores cursor and viewport state for the raw file view.
 type rawState struct {
-	rawData []byte
-	rawCur  int
-	rawTop  int
+	rawData      []byte
+	rawCur       int
+	rawTop       int
+	rawPinnedTop int // section start pinned by jump/search until wheel scroll
+	rawPinned    bool
 }
 
 // libsState stores cursor and viewport state for the Libraries view.

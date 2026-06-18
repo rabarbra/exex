@@ -516,28 +516,6 @@ func selectedDisasmSegment(s string) string {
 	return sel + strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m"+sel) + "\x1b[0m"
 }
 
-func (m *Model) renderDisasmColumns(inst disasm.Inst, w int) string {
-	asm := m.renderInstText(inst.Text, inst.Class, inst.Addr)
-	note := m.instAnnotation(inst.Text, inst.Class)
-	if note == "" {
-		return asm
-	}
-	asmCol := m.disasmAsmColumn()
-	annCol := max(asmCol+24, w/2)
-	asmW := annCol - asmCol - 2
-	if asmW < 12 {
-		asmW = 12
-	}
-	if !m.wrap {
-		asm = fitANSIWidth(asm, asmW)
-	}
-	pad := annCol - asmCol - lipgloss.Width(stripANSI(asm))
-	if pad < 2 {
-		pad = 2
-	}
-	return asm + strings.Repeat(" ", pad) + m.theme.addrStyle.Render(note)
-}
-
 func (m *Model) currentIntraJumpTargets() map[uint64]lipgloss.Style {
 	out := map[uint64]lipgloss.Style{}
 	if len(m.disasmInst) == 0 || m.disasmCur < 0 || m.disasmCur >= len(m.disasmInst) {

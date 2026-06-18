@@ -94,12 +94,13 @@ func (m *Model) renderHelpModal() string {
 		row("/  n/N", "search · next/prev"),
 		row("Tab", "show / hide right pane"),
 		row("⇧Tab", "swap source / disasm"),
+		row("⇧↑/⇧↓", "scroll right pane"),
 		"",
 		head("Hex / Raw"),
 		row("↑/↓/←/→", "move byte cursor"),
 		row("d", "disassemble (if exec)"),
-		row("[ / ]", "prev / next nonzero"),
-		row("⇧[ / ⇧]", "prev / next section"),
+		row("[ / ]", "prev / next section"),
+		row("⇧[ / ⇧]", "prev / next nonzero"),
 		row("/  n/N", "search bytes/\"text\"/0x…"),
 		"",
 		head("Sources"),
@@ -127,7 +128,7 @@ func (m *Model) renderHelpModal() string {
 	}
 	cols := lipgloss.JoinHorizontal(lipgloss.Top, col(left), "    ", col(right))
 	body := m.theme.titleStyle.Render(" Keybindings ") + "\n\n" + cols +
-		"\n\n" + m.theme.footerStyle.Render("Mouse: wheel scrolls · click selects · click tabs · double-click follows")
+		"\n\n" + m.theme.footerStyle.Render("Mouse: wheel scrolls · over right pane scrolls it · click selects · double-click follows")
 	return m.theme.modalStyle.Render(body)
 }
 
@@ -330,9 +331,9 @@ func (m *Model) renderFooter() string {
 			help = "Esc cancel search · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
 		}
 	case modeHex:
-		help = "[ ] non-zero · / search · a/s copy · g goto · ? help · q quit"
+		help = "[ ] section · ⇧[ / ⇧] non-zero · / search · a/s copy · g goto · ? help · q quit"
 	case modeRaw:
-		help = "[ ] non-zero · / search · a/s copy · g goto · ? help · q quit"
+		help = "[ ] section · ⇧[ / ⇧] non-zero · / search · a/s copy · g goto · ? help · q quit"
 	case modeSources:
 		help = "Enter open in disasm · / filter · ^F grep all · c copy · g goto · ? help · q quit"
 	case modeLibs:

@@ -64,10 +64,6 @@ func (m *Model) prefetchDisasmAroundCmd(addr uint64) tea.Cmd {
 	}
 }
 
-func (m *Model) disasmDecodeWindow(win binfile.Window) []disasm.Inst {
-	return m.disasmService().DecodeWindow(win)
-}
-
 func (m *Model) decodeDisasmAt(addr uint64, before int) (binfile.Window, []disasm.Inst) {
 	return m.disasmService().DecodeAt(addr, before)
 }
@@ -185,6 +181,25 @@ func (m *Model) setDisasmWindow(win binfile.Window, insts []disasm.Inst) bool {
 
 func (m *Model) loadDisasmWindow(addr uint64, before int) bool {
 	win, insts := m.decodeDisasmAt(addr, before)
+	if !m.setDisasmWindow(win, insts) {
+		m.setStatus("no executable code to disassemble", true)
+		return false
+	}
+	m.setMode(modeDisasm)
+	return true
+}
+
+func (m *Model) loadDisasmWindowEnding(end int) bool {
+	img := m.file.ExecImage()
+	if end <= 0 || img.Len() == 0 {
+		return false
+	}
+	if end > img.Len() {
+		end = img.Len()
+	}
+	start := max(0, end-m.disasmMaxBytes)
+	win := img.Window(start, end-start)
+	insts := m.disasmService().DecodeWindow(win)
 	if !m.setDisasmWindow(win, insts) {
 		m.setStatus("no executable code to disassemble", true)
 		return false

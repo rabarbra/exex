@@ -61,7 +61,9 @@ func (m *Model) loadDisasmAtNoHistory(addr uint64) bool {
 	idx := m.instIndexAtOrAfterAddr(target)
 	m.disasmCur = idx
 	m.disasmTop = idx
+	m.renderedDisasmTop = m.disasmTop
 	m.disasmPositioned = true
+	m.viewportDetached = false
 	m.setMode(modeDisasm)
 	return true
 }
@@ -83,8 +85,8 @@ func (m *Model) ensureDisasmViewport(h int) {
 			m.disasmTop = m.disasmCur - h + 1
 		}
 		end := min(len(m.disasmInst), m.disasmTop+h)
-		needAbove := m.disasmTop == 0 && m.disasmPosLo > 0
-		needBelow := end == len(m.disasmInst) && m.disasmPosHi < img.Len()
+		needAbove := m.disasmTop == 0 && m.disasmCur == 0 && m.disasmPosLo > 0
+		needBelow := end == len(m.disasmInst) && m.disasmCur == len(m.disasmInst)-1 && m.disasmPosHi < img.Len()
 		if !needAbove && !needBelow {
 			return
 		}
@@ -196,14 +198,22 @@ func (m *Model) jumpDisasmBoundary(forward bool) {
 		}
 		m.disasmCur = 0
 		m.disasmTop = 0
+		m.renderedDisasmTop = 0
+		m.viewportDetached = false
 		return
 	}
-	lastPos := img.Len() - 1
-	if !m.loadDisasmWindow(img.AddrAt(lastPos), m.disasmMaxBytes-1) {
+	if !m.loadDisasmWindowEnding(img.Len()) {
 		return
 	}
 	m.disasmCur = len(m.disasmInst) - 1
-	m.scrollDisasmContext(m.bodyHeight() / 2)
+	m.scrollDisasmToBottom()
+	m.renderedDisasmTop = m.disasmTop
+}
+
+func (m *Model) scrollDisasmToBottom() {
+	w := m.disasmRenderWidth()
+	rowHeight := func(i int) int { return m.disasmInstVisualHeight(i, w) }
+	m.disasmTop = maxViewportTop(len(m.disasmInst), m.disasmViewportHeight(), rowHeight)
 }
 
 // snapshotCursorToHistory updates the current history entry to the precise

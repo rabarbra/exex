@@ -255,11 +255,6 @@ func appendRenderedRowsIndented(lines *[]string, line string, w int, wrap bool, 
 	return len(*lines) < limit
 }
 
-// ensureVisualTop updates top so cur remains visible.
-func ensureVisualTop(cur int, top *int, n, visible int, rowHeight func(int) int) {
-	*top = visualTop(cur, *top, n, visible, rowHeight)
-}
-
 // visualTopForView respects detached viewport state when computing list top.
 func (m *Model) visualTopForView(cur, top, n, visible int, rowHeight func(int) int) int {
 	if m.viewportDetached {
@@ -358,15 +353,6 @@ func visualTop(cur, top, n, visible int, rowHeight func(int) int) int {
 		top = minTop
 	}
 	return top
-}
-
-// visualRowsBetween sums rendered row heights in [start, end).
-func visualRowsBetween(start, end int, rowHeight func(int) int) int {
-	rows := 0
-	for i := start; i < end; i++ {
-		rows += max(1, rowHeight(i))
-	}
-	return rows
 }
 
 // visualItemAtRow maps a visual row offset to a logical item index.

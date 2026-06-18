@@ -1,0 +1,89 @@
+package ui
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/rabarbra/exex/internal/binfile"
+)
+
+func TestResolveSymbolGoto(t *testing.T) {
+	m := &Model{file: &binfile.File{Symbols: []binfile.Symbol{
+		{Name: "xmainy", Addr: 0x3000},
+		{Name: "main_helper", Addr: 0x2000},
+		{Name: "main", Addr: 0x1000},
+	}}}
+	// "main" matches all three by substring, but is a unique exact name.
+	best, count, exact, exactN := m.resolveSymbolGoto("main")
+	if count != 3 || exactN != 1 || exact.Name != "main" || best.Name != "main" {
+		t.Fatalf("resolve(main): count=%d exactN=%d exact=%q best=%q", count, exactN, exact.Name, best.Name)
+	}
+	// "main_h" is a single prefix match, no exact.
+	best, count, _, exactN = m.resolveSymbolGoto("main_h")
+	if count != 1 || exactN != 0 || best.Name != "main_helper" {
+		t.Fatalf("resolve(main_h): count=%d exactN=%d best=%q", count, exactN, best.Name)
+	}
+	if _, count, _, _ := m.resolveSymbolGoto("definitely_absent"); count != 0 {
+		t.Fatalf("absent needle matched %d", count)
+	}
+}
+
+func TestStartupGotoMultipleMatchesOpensSymbols(t *testing.T) {
+	m := &Model{
+		theme:        DefaultTheme(),
+		layoutState:  layoutState{width: 120, height: 30},
+		file:         &binfile.File{Symbols: []binfile.Symbol{{Name: "do_thing", Addr: 0x1000}, {Name: "do_other", Addr: 0x2000}}},
+		symbolsState: symbolsState{},
+	}
+	m.symbolsFilter = newPromptInput("", "/ ")
+	m.recomputeSymbols()
+	m.gotoTargetString("do_") // two substring matches, no exact
+	if m.mode != modeSymbols {
+		t.Fatalf("multiple matches should open Symbols view, got mode %v", m.mode)
+	}
+	if got := m.symbolsFilter.Value(); got != "do_" {
+		t.Fatalf("filter = %q, want do_", got)
+	}
+	if len(m.symbolsFiltered) != 2 {
+		t.Fatalf("filtered count = %d, want 2", len(m.symbolsFiltered))
+	}
+}
+
+func TestGotoTargetStringUnknownReportsError(t *testing.T) {
+	m := &Model{theme: DefaultTheme(), file: &binfile.File{}}
+	m.gotoTargetString("definitely_not_here_zz")
+	if !m.statusError {
+		t.Fatalf("unknown goto target should set an error status; got %q", m.status)
+	}
+}
+
+func TestStartupGotoNavigatesAwayFromDefault(t *testing.T) {
+	path := firstExisting("/bin/ls", "/usr/bin/true", "/bin/cat")
+	if path == "" {
+		t.Skip("no system binary available")
+	}
+	f, err := binfile.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m, err := New(f, Options{Goto: fmt.Sprintf("0x%x", f.Entry())})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if m.mode == modeInfo {
+		t.Fatal("startup goto to the entry point should have navigated off the Info view")
+	}
+}
+
+func TestOpenWithMissingDebugPathStillOpens(t *testing.T) {
+	path := firstExisting("/bin/ls", "/usr/bin/true", "/bin/cat")
+	if path == "" {
+		t.Skip("no system binary available")
+	}
+	// A bogus debug path must be ignored, not fatal.
+	f, err := binfile.Open(path, binfile.WithDebugPath("/no/such/debug/path"))
+	if err != nil {
+		t.Fatalf("Open with bogus debug path: %v", err)
+	}
+	f.Close()
+}

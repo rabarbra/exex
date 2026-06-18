@@ -115,6 +115,7 @@ type File struct {
 	Symbols  []Symbol // sorted by Name
 	Info     *Info
 
+	debugPath string       // explicit external debug-symbols path (--debug), or ""
 	raw       []byte       // entire file contents (mmap'd or read; raw view + section data)
 	unmap     func() error // releases the mapping backing raw (nil-safe via Close)
 	arch      arch.Arch

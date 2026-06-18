@@ -2,8 +2,26 @@ package binfile
 
 import "fmt"
 
+// Option customises how Open loads a binary.
+type Option func(*openOptions)
+
+type openOptions struct {
+	debugPath string
+}
+
+// WithDebugPath points the loader at an explicit external debug-symbols file or
+// directory (an ELF .debug companion, or a .dSYM bundle / DWARF file for
+// Mach-O), tried before the conventional auto-discovered locations.
+func WithDebugPath(p string) Option {
+	return func(o *openOptions) { o.debugPath = p }
+}
+
 // Open reads path, detects its container format, and builds the neutral model.
-func Open(path string) (*File, error) {
+func Open(path string, opts ...Option) (*File, error) {
+	var o openOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	// mapFile mmaps the file where that's safe (always on Linux; on macOS only
 	// when the Mach-O carries no code signature, since mmap'ing a signed binary
 	// gets the process SIGKILL'd), otherwise it reads the file into the heap.
@@ -12,10 +30,11 @@ func Open(path string) (*File, error) {
 		return nil, err
 	}
 	f := &File{
-		Path:    path,
-		raw:     raw,
-		unmap:   closer,
-		sources: map[string][]string{},
+		Path:      path,
+		debugPath: o.debugPath,
+		raw:       raw,
+		unmap:     closer,
+		sources:   map[string][]string{},
 	}
 	switch {
 	case len(raw) >= 4 && raw[0] == 0x7f && raw[1] == 'E' && raw[2] == 'L' && raw[3] == 'F':

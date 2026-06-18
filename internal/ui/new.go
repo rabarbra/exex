@@ -89,6 +89,11 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 
 	// Open the configured default view (info when unset).
 	m.switchMode(parseDefaultView(cfg.Behavior.DefaultView))
+
+	// A startup goto target (CLI arg) overrides the default view.
+	if len(opts) > 0 && strings.TrimSpace(opts[0].Goto) != "" {
+		m.gotoTargetString(opts[0].Goto)
+	}
 	return m, nil
 }
 

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,13 +16,33 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
-		fmt.Fprintf(os.Stderr, "usage: %s <binary>   (path or a command name on $PATH)\n", os.Args[0])
+	var debugPath string
+	flag.StringVar(&debugPath, "debug", "", "path to an external debug-symbols file or directory (ELF .debug / Mach-O .dSYM)")
+	flag.StringVar(&debugPath, "d", "", "shorthand for -debug")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: %s [-debug PATH] <binary> [goto]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "  <binary>  path to an ELF/Mach-O/PE file, or a command name on $PATH")
+		fmt.Fprintln(os.Stderr, "  goto      optional address (0x…) or symbol name to jump to on open")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 1 || len(args) > 2 {
+		flag.Usage()
 		os.Exit(2)
 	}
-	path := resolveTarget(os.Args[1])
+	path := resolveTarget(args[0])
+	gotoTarget := ""
+	if len(args) == 2 {
+		gotoTarget = args[1]
+	}
 
-	f, err := binfile.Open(path)
+	var openOpts []binfile.Option
+	if debugPath != "" {
+		openOpts = append(openOpts, binfile.WithDebugPath(debugPath))
+	}
+	f, err := binfile.Open(path, openOpts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
 		os.Exit(1)
@@ -33,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	m, err := ui.New(f, ui.Options{Config: cfg})
+	m, err := ui.New(f, ui.Options{Config: cfg, Goto: gotoTarget})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
 		os.Exit(1)

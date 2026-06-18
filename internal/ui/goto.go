@@ -137,6 +137,89 @@ func (m *Model) closeGoto() {
 	m.gotoTop = 0
 }
 
+// gotoTargetString navigates to a startup goto argument: an explicit address
+// (0x… or a hex/decimal literal), or a symbol by name (raw or demangled). A
+// single match jumps straight to it; several matches open the Symbols view with
+// the query pre-applied as a filter so the user can pick. Reports via the status
+// line when nothing matches.
+func (m *Model) gotoTargetString(s string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	// A 0x-prefixed value is unambiguously an address.
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		if a, err := parseAddr(s); err == nil {
+			m.gotoAddr(a)
+			return
+		}
+	}
+	// Resolve against the symbol table (names beat numbers like "main").
+	best, count, exact, exactN := m.resolveSymbolGoto(s)
+	switch {
+	case exactN == 1:
+		// A unique exact name is unambiguous even amid substring matches.
+		m.openSymbol(exact)
+		return
+	case count == 1:
+		m.openSymbol(best)
+		return
+	case count > 1:
+		m.openSymbolsFiltered(s)
+		return
+	}
+	// No symbol matched: fall back to a bare address parse.
+	if a, err := parseAddr(s); err == nil {
+		m.gotoAddr(a)
+		return
+	}
+	m.setStatus(fmt.Sprintf("goto %q: no matching symbol or address", s), true)
+}
+
+// resolveSymbolGoto scans the symbol table for needle (raw or demangled name),
+// returning the best-ranked match (exact → prefix → substring), the total number
+// of matches, and the unique exact match when there is exactly one.
+func (m *Model) resolveSymbolGoto(s string) (best binfile.Symbol, count int, exact binfile.Symbol, exactN int) {
+	needle := strings.ToLower(s)
+	bestRank := 99
+	for _, sym := range m.file.Symbols {
+		if sym.Addr == 0 {
+			continue
+		}
+		name, dem := strings.ToLower(sym.Name), strings.ToLower(sym.Demangled)
+		isExact := name == needle || dem == needle
+		if !isExact && !strings.Contains(name, needle) && (dem == "" || !strings.Contains(dem, needle)) {
+			continue
+		}
+		count++
+		if isExact {
+			exact, exactN = sym, exactN+1
+		}
+		rank := 2
+		switch {
+		case isExact:
+			rank = 0
+		case strings.HasPrefix(name, needle) || (dem != "" && strings.HasPrefix(dem, needle)):
+			rank = 1
+		}
+		if rank < bestRank {
+			bestRank, best = rank, sym
+		}
+	}
+	return best, count, exact, exactN
+}
+
+// openSymbolsFiltered shows the Symbols view with q applied as the live filter.
+func (m *Model) openSymbolsFiltered(q string) {
+	m.symbolsFilter.SetValue(q)
+	m.recomputeSymbols()
+	m.symbolsCur = 0
+	m.symbolsTop = 0
+	m.viewportDetached = false
+	m.setMode(modeSymbols)
+	m.setStatus(fmt.Sprintf("%d symbols match %q", len(m.symbolsFiltered), q), false)
+}
+
 // gotoAddr jumps to a virtual address: disasm if it lands in executable code,
 // otherwise the hex view if it lands in any mapped section.
 func (m *Model) gotoAddr(addr uint64) {

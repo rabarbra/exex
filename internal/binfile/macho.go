@@ -218,10 +218,13 @@ func (f *File) machoDWARF(mf *macho.File) *dwarf.Data {
 	base := filepath.Base(f.Path)
 	dir := filepath.Dir(f.Path)
 
-	// Candidate dSYM DWARF files: the conventional <binary>.dSYM first, then any
-	// sibling *.dSYM bundle (Xcode names it after the .app, e.g.
-	// Ghostty.app.dSYM, sitting next to the executable).
-	cands := []string{f.Path + ".dSYM/Contents/Resources/DWARF/" + base}
+	// An explicit --debug path wins: it may be a DWARF/Mach-O file directly, a
+	// .dSYM bundle, or a directory to search for one.
+	var cands []string
+	cands = append(cands, f.dsymDebugCandidates(base)...)
+	// Then the conventional <binary>.dSYM, then any sibling *.dSYM bundle (Xcode
+	// names it after the .app, e.g. Ghostty.app.dSYM, next to the executable).
+	cands = append(cands, f.Path+".dSYM/Contents/Resources/DWARF/"+base)
 	if entries, err := os.ReadDir(dir); err == nil {
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".dSYM") {
@@ -243,6 +246,53 @@ func (f *File) machoDWARF(mf *macho.File) *dwarf.Data {
 		}
 	}
 	return nil
+}
+
+// dsymDebugCandidates expands an explicit --debug path into candidate Mach-O
+// DWARF files: the path itself, the DWARF binary inside a .dSYM bundle, or a
+// search of a plain directory for one.
+func (f *File) dsymDebugCandidates(base string) []string {
+	if f.debugPath == "" {
+		return nil
+	}
+	dsymDWARF := func(bundle string) []string {
+		dir := filepath.Join(bundle, "Contents/Resources/DWARF")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			// Fall back to the binary's own name inside the bundle.
+			return []string{filepath.Join(dir, base)}
+		}
+		var out []string
+		for _, e := range entries {
+			if !e.IsDir() {
+				out = append(out, filepath.Join(dir, e.Name()))
+			}
+		}
+		return out
+	}
+
+	st, err := os.Stat(f.debugPath)
+	switch {
+	case err != nil:
+		return nil
+	case strings.HasSuffix(f.debugPath, ".dSYM") && st.IsDir():
+		return dsymDWARF(f.debugPath)
+	case st.IsDir():
+		// A plain directory: try any .dSYM bundle inside, else treat its files as
+		// candidate DWARF Mach-O files.
+		var out []string
+		if entries, err := os.ReadDir(f.debugPath); err == nil {
+			for _, e := range entries {
+				if strings.HasSuffix(e.Name(), ".dSYM") {
+					out = append(out, dsymDWARF(filepath.Join(f.debugPath, e.Name()))...)
+				}
+			}
+		}
+		out = append(out, filepath.Join(f.debugPath, base))
+		return out
+	default:
+		return []string{f.debugPath}
+	}
 }
 
 func pickFatArch(ff *macho.FatFile) macho.FatArch {

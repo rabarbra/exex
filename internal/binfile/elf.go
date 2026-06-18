@@ -6,6 +6,7 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -19,15 +20,30 @@ func (f *File) elfDWARF(ef *elf.File) *dwarf.Data {
 		return d
 	}
 	name := elfDebugLink(ef)
-	if name == "" {
-		return nil
-	}
 	dir := filepath.Dir(f.Path)
-	for _, c := range []string{
-		filepath.Join(dir, name),
-		filepath.Join(dir, ".debug", name),
-		filepath.Join("/usr/lib/debug", dir, name),
-	} {
+
+	// An explicit --debug path wins: it may be the debug file itself or a
+	// directory that contains it (under either the debuglink name or the
+	// binary's own name).
+	var cands []string
+	if f.debugPath != "" {
+		if st, err := os.Stat(f.debugPath); err == nil && st.IsDir() {
+			if name != "" {
+				cands = append(cands, filepath.Join(f.debugPath, name))
+			}
+			cands = append(cands, filepath.Join(f.debugPath, filepath.Base(f.Path)))
+		} else {
+			cands = append(cands, f.debugPath)
+		}
+	}
+	if name != "" {
+		cands = append(cands,
+			filepath.Join(dir, name),
+			filepath.Join(dir, ".debug", name),
+			filepath.Join("/usr/lib/debug", dir, name),
+		)
+	}
+	for _, c := range cands {
 		de, err := elf.Open(c)
 		if err != nil {
 			continue

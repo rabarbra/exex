@@ -95,8 +95,9 @@ a live, selectable result list that updates as you type.
 
 ## 8. Command line options
 
- - address or string to pass to goto as third arg
- - some options to provide path to debug symbols file / directory
+ - ✅ address or string to pass to goto as third arg (`exex <binary> <addr|symbol>`)
+ - ✅ option to provide path to debug symbols file / directory (`-debug`/`-d PATH`,
+   ELF .debug companion or Mach-O .dSYM bundle/file)
 
 ## 9. Sources view
 

@@ -370,4 +370,7 @@ type Model struct {
 // construct a UI model. Omitted options keep built-in defaults.
 type Options struct {
 	Config *config.Config
+	// Goto is an optional startup target (an address like "0x1000" or a symbol
+	// name) navigated to once the model is built, overriding the default view.
+	Goto string
 }

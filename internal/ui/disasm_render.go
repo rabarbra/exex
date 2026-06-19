@@ -9,44 +9,13 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/alecthomas/chroma/v2"
-	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/rabarbra/exex/internal/arch"
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/disasm"
 )
 
-const disasmSyntaxDefaultTheme = "catppuccin-mocha"
-
-var disasmAsmLexer chroma.Lexer = nil
-
-type disasmAddrSpan struct {
-	start int
-	end   int
-	style lipgloss.Style
-}
-
-func newDisasmAsmLexer(arch arch.Arch) chroma.Lexer {
-	lexer_names := []string{"ArmAsm", "GAS", "asm", "NASM"}
-	switch arch {
-	case disasm.ArchX86, disasm.ArchAMD64, disasm.ArchRISCV64:
-		lexer_names = append([]string{"GAS"}, lexer_names...)
-	case disasm.ArchARM64:
-		lexer_names = append([]string{"ArmAsm"}, lexer_names...)
-	}
-	for _, name := range lexer_names {
-		if lexer := lexers.Get(name); lexer != nil {
-			return chroma.Coalesce(lexer)
-		}
-	}
-	return nil
-}
-
-// renderInstText uses Chroma for assembly syntax, then overlays semantic link
-// styles on followable address literals.
+// renderInstText colours an instruction's assembly text, caching the result.
 func (m *Model) renderInstText(text string, class disasm.InstClass, instAddr uint64) string {
 	key := disasmAsmCacheKey{text: text, addr: instAddr, cls: class}
 	if m.disasmAsmCache != nil {
@@ -54,7 +23,7 @@ func (m *Model) renderInstText(text string, class disasm.InstClass, instAddr uin
 			return rendered
 		}
 	}
-	rendered := m.renderInstTextUncached(text, class, instAddr)
+	rendered := m.renderInstTextStyled(text, class, instAddr)
 	if m.disasmAsmCache == nil {
 		m.disasmAsmCache = make(map[disasmAsmCacheKey]string)
 	}
@@ -62,81 +31,16 @@ func (m *Model) renderInstText(text string, class disasm.InstClass, instAddr uin
 	return rendered
 }
 
-func (m *Model) renderInstTextUncached(text string, class disasm.InstClass, instAddr uint64) string {
-	if disasmAsmLexer == nil {
-		disasmAsmLexer = newDisasmAsmLexer(m.file.Arch())
-	}
-	if disasmAsmLexer == nil {
-		return m.renderInstTextFallback(text, class, instAddr)
-	}
-	tokens, err := chroma.Tokenise(disasmAsmLexer, nil, text)
-	if err != nil {
-		return m.renderInstTextFallback(text, class, instAddr)
-	}
-	spans := m.disasmAddrSpans(text, instAddr)
-	pos := 0
-	var b strings.Builder
-	for _, tok := range tokens {
-		if tok == chroma.EOF {
-			break
-		}
-		b.WriteString(m.renderDisasmToken(tok, pos, spans))
-		pos += len(tok.Value)
-	}
-	return b.String()
+// disasmAddrSpan marks a run of instruction text (a followable mapped address)
+// that should be drawn in a link colour rather than the operand-token colours.
+type disasmAddrSpan struct {
+	start int
+	end   int
+	style lipgloss.Style
 }
 
-func (m *Model) renderInstTextFallback(text string, class disasm.InstClass, instAddr uint64) string {
-	classSt := m.theme.styleForClass(class)
-	curSym, hasCur := m.file.SymbolAt(instAddr)
-
-	from := 0
-	var b strings.Builder
-	for {
-		addr, start, end, ok := extractTargetAt(text, from)
-		if !ok {
-			b.WriteString(classSt.Render(text[from:]))
-			return b.String()
-		}
-		if !m.file.IsMapped(addr) {
-			b.WriteString(classSt.Render(text[from:end]))
-			from = end
-			continue
-		}
-		// Pick intra vs inter colour.
-		isIntra := hasCur && curSym.Size > 0 && addr >= curSym.Addr && addr < curSym.Addr+curSym.Size
-		linkSt := m.theme.linkAddrInterStyle
-		if isIntra {
-			linkSt = m.theme.linkAddrIntraStyle
-		}
-		b.WriteString(classSt.Render(text[from:start]))
-		b.WriteString(linkSt.Render(text[start:end]))
-		from = end
-	}
-}
-
-func (m *Model) renderDisasmToken(tok chroma.Token, pos int, spans []disasmAddrSpan) string {
-	st := m.disasmTokenStyle(tok.Type)
-	from := 0
-	var b strings.Builder
-	for _, span := range spans {
-		lo := max(span.start, pos)
-		hi := min(span.end, pos+len(tok.Value))
-		if hi <= lo {
-			continue
-		}
-		if rel := lo - pos; rel > from {
-			b.WriteString(st.Render(tok.Value[from:rel]))
-		}
-		b.WriteString(span.style.Render(tok.Value[lo-pos : hi-pos]))
-		from = hi - pos
-	}
-	if from < len(tok.Value) {
-		b.WriteString(st.Render(tok.Value[from:]))
-	}
-	return b.String()
-}
-
+// disasmAddrSpans finds the followable (mapped) address literals in text and the
+// link style each should use (intra- vs inter-function).
 func (m *Model) disasmAddrSpans(text string, instAddr uint64) []disasmAddrSpan {
 	if m.file == nil {
 		return nil
@@ -161,41 +65,30 @@ func (m *Model) disasmAddrSpans(text string, instAddr uint64) []disasmAddrSpan {
 	}
 }
 
-func (m *Model) disasmTokenStyle(tt chroma.TokenType) lipgloss.Style {
-	if m.disasmTokenStyles == nil {
-		m.disasmTokenStyles = make(map[chroma.TokenType]lipgloss.Style)
+// renderInstTextFallback colours an instruction by its class and link addresses
+// only (no per-token highlighting). It is the shared fallback the Chroma path
+// uses when no asm lexer matches or tokenising fails.
+func (m *Model) renderInstTextFallback(text string, class disasm.InstClass, instAddr uint64) string {
+	classSt := m.theme.styleForClass(class)
+	from := 0
+	var b strings.Builder
+	spans := m.disasmAddrSpans(text, instAddr)
+	si := 0
+	for from < len(text) {
+		if si < len(spans) && spans[si].start == from {
+			b.WriteString(spans[si].style.Render(text[from:spans[si].end]))
+			from = spans[si].end
+			si++
+			continue
+		}
+		next := len(text)
+		if si < len(spans) {
+			next = spans[si].start
+		}
+		b.WriteString(classSt.Render(text[from:next]))
+		from = next
 	}
-	if st, ok := m.disasmTokenStyles[tt]; ok {
-		return st
-	}
-	theme := m.cfg.Colors.SyntaxTheme
-	if theme == "" {
-		theme = disasmSyntaxDefaultTheme
-	}
-	chromaStyle := styles.Get(theme)
-	if chromaStyle == nil {
-		chromaStyle = styles.Fallback
-	}
-	st := chromaStyleEntryToLipgloss(chromaStyle.Get(tt))
-	m.disasmTokenStyles[tt] = st
-	return st
-}
-
-func chromaStyleEntryToLipgloss(e chroma.StyleEntry) lipgloss.Style {
-	st := lipgloss.NewStyle()
-	if e.Colour.IsSet() {
-		st = st.Foreground(lipgloss.Color(e.Colour.String()))
-	}
-	if e.Bold == chroma.Yes {
-		st = st.Bold(true)
-	}
-	if e.Italic == chroma.Yes {
-		st = st.Italic(true)
-	}
-	if e.Underline == chroma.Yes {
-		st = st.Underline(true)
-	}
-	return st
+	return b.String()
 }
 
 func (m *Model) instAnnotation(text string, class disasm.InstClass) string {

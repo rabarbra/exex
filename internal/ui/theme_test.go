@@ -43,6 +43,22 @@ func TestNewThemePresetAndOverridePrecedence(t *testing.T) {
 	}
 }
 
+func TestSourceSyntaxThemeFollowsPresetUnlessOverridden(t *testing.T) {
+	if got := sourceSyntaxTheme(config.Config{Theme: "solarized-light"}); got != "solarized-light" {
+		t.Fatalf("solarized-light syntax theme = %q", got)
+	}
+	if got := sourceSyntaxTheme(config.Config{Theme: "nord"}); got != "nord" {
+		t.Fatalf("nord syntax theme = %q", got)
+	}
+	got := sourceSyntaxTheme(config.Config{
+		Theme:  "solarized-light",
+		Colors: config.Colors{SyntaxTheme: "dracula"},
+	})
+	if got != "dracula" {
+		t.Fatalf("syntax theme override = %q, want dracula", got)
+	}
+}
+
 func TestPathColorKeyGroupsCoarsely(t *testing.T) {
 	cases := map[string]string{
 		"/usr/lib/clang/foo.h":   "usr/lib",

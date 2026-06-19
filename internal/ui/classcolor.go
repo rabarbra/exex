@@ -26,6 +26,10 @@ func (t Theme) styleForClass(c disasm.InstClass) lipgloss.Style {
 		return t.classSyscallStyle
 	case disasm.ClassNop:
 		return t.classNopStyle
+	case disasm.ClassMove:
+		return t.asmMoveStyle
+	case disasm.ClassArithmetic:
+		return t.asmArithStyle
 	}
 	return t.mnemonicStyle
 }

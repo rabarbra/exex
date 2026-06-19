@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
-	"github.com/alecthomas/chroma/v2"
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
@@ -149,7 +148,9 @@ type disasmState struct {
 	srcHighlighter      *syntax.Highlighter
 	sourceAsmRowCache   map[sourceAsmRowCacheKey]string
 	disasmAsmCache      map[disasmAsmCacheKey]string
-	disasmTokenStyles   map[chroma.TokenType]lipgloss.Style
+	// disasmTokenStyles caches Chroma token-type → style (default build only); it
+	// is keyed by int(chroma.TokenType) so the model stays chroma-free for `lite`.
+	disasmTokenStyles map[int]lipgloss.Style
 	// disasmHeightCache memoizes per-instruction rendered height (it otherwise
 	// re-renders each instruction to count rows, which the scroll math calls
 	// dozens of times per wheel tick). Reset whenever disasmInst is replaced.

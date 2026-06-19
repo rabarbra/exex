@@ -33,6 +33,14 @@ colors:
   address_link_intra_function: "85"          # local jump targets
   address_link_inter_function: "51"          # cross-function calls / PLT
 
+  # ---- Disassembly: mnemonic + operand tokens (built-in highlighter) -----
+  # Used by the lite build, and by the full build when no Chroma asm lexer
+  # matches. (The full build's normal asm colours come from `syntax_theme`.)
+  asm_register: "152"                        # registers in operands (rax, x0, %rdi)
+  asm_immediate: "215"                       # immediate / numeric literals
+  asm_move: "80"                             # mov / load / store / push / pop / lea
+  asm_arith: "176"                           # add / sub / cmp / test / logic / shifts
+
   # ---- Sticky "current symbol" banner above the disasm scroller ----------
   sticky_symbol_banner_fg: "231"
   sticky_symbol_banner_bg: "236"
@@ -59,7 +67,7 @@ colors:
 
   # ---- Source pane syntax-highlighting theme -----------------------------
   # Any chroma style name, e.g. monokai, github-dark, nord, dracula,
-  # catppuccin-mocha, onedark, vulcan. Unknown names fall back gracefully.
+  # catppuccin-mocha, onedark, vulcan. Omit to follow the built-in theme.
   syntax_theme: catppuccin-mocha
 
   # ---- Source pane: cursor position + code-mapping highlight --------------

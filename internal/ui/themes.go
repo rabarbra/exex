@@ -84,6 +84,10 @@ func nord() config.Colors {
 		AddressColumn:                nord3,
 		AddressLinkIntraFunction:     nord7,
 		AddressLinkInterFunction:     nord8,
+		AsmRegister:                  nord8,
+		AsmImmediate:                 nord12,
+		AsmMove:                      nord7,
+		AsmArith:                     nord15,
 		StickySymbolBannerFG:         nord6,
 		StickySymbolBannerBG:         nord1,
 		SymbolFunction:               nord14,
@@ -156,10 +160,14 @@ func solarized(body, emph, muted, panelBG, contrastFG, edgeBG string) config.Col
 		InstructionSyscall:           solGreen,
 		InstructionNop:               muted,
 		InstructionMnemonicDefault:   body,
-		// Disassembly: addresses + operand links.
+		// Disassembly: addresses + operand links + operand tokens.
 		AddressColumn:            muted,
 		AddressLinkIntraFunction: solCyan,
 		AddressLinkInterFunction: solBlue,
+		AsmRegister:              solCyan,
+		AsmImmediate:             solOrange,
+		AsmMove:                  solCyan,
+		AsmArith:                 solViolet,
 		// Sticky symbol banner.
 		StickySymbolBannerFG: emph,
 		StickySymbolBannerBG: panelBG,

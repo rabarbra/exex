@@ -141,3 +141,18 @@ func TestClassifyBranches(t *testing.T) {
 		t.Errorf("Classify(callq)=%v, want ClassCall", c)
 	}
 }
+
+func TestClassifyLiteHighlightCategories(t *testing.T) {
+	move := []string{"mov %rsp,%rbp", "lea 0x20(%rip),%rax", "ldr x0, [sp]", "sd x1, 0(x2)"}
+	for _, s := range move {
+		if c := Classify(s); c != ClassMove {
+			t.Errorf("Classify(%q)=%v, want ClassMove", s, c)
+		}
+	}
+	arith := []string{"add $1,%eax", "cmp %rax,%rbx", "subs x0, x0, #1", "slli x1, x1, 2"}
+	for _, s := range arith {
+		if c := Classify(s); c != ClassArithmetic {
+			t.Errorf("Classify(%q)=%v, want ClassArithmetic", s, c)
+		}
+	}
+}

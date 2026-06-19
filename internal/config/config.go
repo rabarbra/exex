@@ -19,8 +19,8 @@ import (
 // Config is the on-disk schema.
 type Config struct {
 	// Theme selects a built-in colour preset applied before the `colors`
-	// overrides below: one of "dark" (default), "nord", "solarized-dark",
-	// "solarized-light". Empty keeps the built-in dark palette. Individual
+	// overrides below: one of "nord" (default), "dark", "solarized-dark",
+	// "solarized-light". Empty keeps the built-in Nord palette. Individual
 	// `colors` entries always win over the preset.
 	Theme    string   `yaml:"theme"`
 	Colors   Colors   `yaml:"colors"`
@@ -45,6 +45,12 @@ type Behavior struct {
 	// Number of parallel workers used by background disassembly search. Empty/
 	// zero keeps the adaptive default.
 	DisasmSearchWorkers int `yaml:"disasm_search_workers"`
+	// Background tints the view/pane area with the theme's background colour.
+	// Off by default (the UI uses the terminal background).
+	Background bool `yaml:"background"`
+	// DefaultWrap starts long-line wrapping enabled. The `w` key still toggles it
+	// for the current session.
+	DefaultWrap bool `yaml:"default_wrap"`
 }
 
 // Colors lists every visual element the user can re-skin. Empty strings mean
@@ -157,6 +163,10 @@ type Colors struct {
 	// built-in palette.
 	ColumnPalette []string `yaml:"column_palette"`
 
+	// ---- View body: background for all view/pane content ------------------
+	// The area between the tab strip and footer, including split panes.
+	ViewBG string `yaml:"view_bg"`
+
 	// ---- Window chrome: title, tab strip, footer ------------------------
 	TitleFG     string `yaml:"title_fg"`
 	TitleBG     string `yaml:"title_bg"`
@@ -264,6 +274,8 @@ type Keys struct {
 	SearchDirection StringOrSlice `yaml:"search_direction"`
 	// Toggle search popup origin. (default: ctrl+o)
 	SearchOrigin StringOrSlice `yaml:"search_origin"`
+	// Open the settings popup. (default: ,)
+	Settings StringOrSlice `yaml:"settings"`
 }
 
 // StringOrSlice accepts either a YAML scalar ("q") or a sequence (["q",
@@ -306,6 +318,101 @@ func Path() string {
 		return ""
 	}
 	return filepath.Join(home, ".config", "exex", "config.yaml")
+}
+
+// Save persists the live settings the in-app settings popup manages — theme,
+// the background toggle, default wrap and the default view — to the config file
+// at Path(), creating it (and its directory) if needed. It edits the YAML in place via
+// nodes, so any other keys and comments already in the file are preserved.
+// Returns the written path; a read-only location yields an error (the caller can
+// keep the values in memory for the session).
+func Save(theme string, background, defaultWrap bool, defaultView string) (string, error) {
+	p := Path()
+	if p == "" {
+		return "", errors.New("no config path available")
+	}
+	var doc yaml.Node
+	if data, err := os.ReadFile(p); err == nil {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return "", fmt.Errorf("parse %s: %w", p, err)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("read %s: %w", p, err)
+	}
+
+	root := yamlDocRoot(&doc)
+	yamlSetScalar(root, "theme", theme, "!!str")
+	beh := yamlChildMap(root, "behavior")
+	bg := "false"
+	if background {
+		bg = "true"
+	}
+	yamlSetScalar(beh, "background", bg, "!!bool")
+	wrap := "false"
+	if defaultWrap {
+		wrap = "true"
+	}
+	yamlSetScalar(beh, "default_wrap", wrap, "!!bool")
+	yamlSetScalar(beh, "default_view", defaultView, "!!str")
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(p, out, 0o644); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// yamlDocRoot returns the top-level mapping node, initialising an empty document.
+func yamlDocRoot(doc *yaml.Node) *yaml.Node {
+	if len(doc.Content) == 0 {
+		m := &yaml.Node{Kind: yaml.MappingNode}
+		doc.Kind = yaml.DocumentNode
+		doc.Content = []*yaml.Node{m}
+		return m
+	}
+	return doc.Content[0]
+}
+
+// yamlFindKey returns the index of key's value node within a mapping's Content.
+func yamlFindKey(m *yaml.Node, key string) (int, bool) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return i + 1, true
+		}
+	}
+	return 0, false
+}
+
+// yamlSetScalar sets or replaces key=val (with the given tag) in a mapping.
+func yamlSetScalar(m *yaml.Node, key, val, tag string) {
+	if vi, ok := yamlFindKey(m, key); ok {
+		v := m.Content[vi]
+		v.Kind, v.Tag, v.Value, v.Content = yaml.ScalarNode, tag, val, nil
+		return
+	}
+	m.Content = append(m.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: val})
+}
+
+// yamlChildMap returns key's mapping node within m, creating it if needed.
+func yamlChildMap(m *yaml.Node, key string) *yaml.Node {
+	if vi, ok := yamlFindKey(m, key); ok {
+		v := m.Content[vi]
+		if v.Kind != yaml.MappingNode {
+			v.Kind, v.Tag, v.Content = yaml.MappingNode, "!!map", nil
+		}
+		return v
+	}
+	child := &yaml.Node{Kind: yaml.MappingNode}
+	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, child)
+	return child
 }
 
 // Load reads and parses the config file. A missing file is not an error: it

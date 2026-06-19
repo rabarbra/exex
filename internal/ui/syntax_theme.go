@@ -4,18 +4,31 @@ import (
 	"strings"
 
 	"github.com/rabarbra/exex/internal/config"
+	"github.com/rabarbra/exex/internal/theme"
 )
 
-const defaultSyntaxTheme = "catppuccin-mocha"
+const darkSyntaxTheme = "catppuccin-mocha"
 
 func sourceSyntaxTheme(cfg config.Config) string {
 	if theme := strings.TrimSpace(cfg.Colors.SyntaxTheme); theme != "" {
 		return theme
 	}
-	theme := strings.ToLower(strings.TrimSpace(cfg.Theme))
-	switch theme {
-	case "nord", "solarized-dark", "solarized-light":
+	themeName := effectiveThemeName(cfg.Theme)
+	if themeName == "dark" {
+		return darkSyntaxTheme
+	}
+	if theme := presetColors(themeName).SyntaxTheme; theme != "" {
 		return theme
 	}
-	return defaultSyntaxTheme
+	return darkSyntaxTheme
+}
+
+func sourceSyntaxForeground(cfg config.Config) string {
+	if p, ok := theme.PaletteFor(sourceSyntaxTheme(cfg)); ok {
+		return p.Foreground
+	}
+	if p, ok := theme.PaletteFor(defaultThemeName); ok {
+		return p.Foreground
+	}
+	return ""
 }

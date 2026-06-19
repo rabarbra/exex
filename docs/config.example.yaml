@@ -13,10 +13,12 @@
 # "pgdown", letter and digit literals. Any binding can be a single value
 # (`quit: q`) or a list (`quit: [q, ctrl+c]`).
 
-# Built-in colour preset, applied before the `colors:` overrides below. One of:
-# dark (default), nord, solarized-dark, solarized-light. Any individual `colors:`
-# entry still wins over the preset, so you can start from a preset and tweak.
-theme: dark
+# Colour theme, applied before the `colors:` overrides below. Besides the
+# built-in nord (default), dark, solarized-dark and solarized-light, this accepts
+# ANY Chroma style name (dracula, monokai, github-dark, gruvbox, onedark, …) and
+# derives the whole UI palette from it. Individual `colors:` entries still win.
+# Tip: press `,` in-app to change the theme (and more) live.
+theme: nord
 
 colors:
   # ---- Disassembly: instruction-class mnemonic colour --------------------
@@ -68,7 +70,7 @@ colors:
   # ---- Source pane syntax-highlighting theme -----------------------------
   # Any chroma style name, e.g. monokai, github-dark, nord, dracula,
   # catppuccin-mocha, onedark, vulcan. Omit to follow the built-in theme.
-  syntax_theme: catppuccin-mocha
+  # syntax_theme: nord
 
   # ---- Source pane: cursor position + code-mapping highlight --------------
   source_current_line_fg: "231"   # the line the cursor is on
@@ -79,6 +81,11 @@ colors:
   # Per-column correlation highlight (carets, column numbers, mapped addresses).
   # Cycled across a source line's distinct columns. Omit to keep the default.
   # column_palette: ["203", "220", "84", "39", "213", "51", "215", "141"]
+
+  # ---- View body ----------------------------------------------------------
+  # Optional non-transparent background behind view/pane content. Omit to use
+  # the terminal background.
+  # view_bg: "236"
 
   # ---- Window chrome: title, tab strip, footer ---------------------------
   title_fg: "231"
@@ -169,11 +176,18 @@ keys:
   search_origin: ctrl+o
   next: "]"   # next symbol (disasm) / next non-zero byte (hex/raw)
   prev: "["   # previous symbol / previous non-zero byte
+  settings: ","   # open the settings popup
 
 behavior:
   # View to open on startup: info, sections, symbols, disasm, hex, libs, raw,
   # strings, sources. Defaults to info.
   default_view: info
+  # Tint the view/pane area with the theme background. Off by default (the UI
+  # uses the terminal's own background). Toggle live from the settings popup (,).
+  background: false
+  # Start with long-line wrapping enabled. The `w` key still toggles wrapping for
+  # the current session. Toggle/save live from the settings popup (,).
+  default_wrap: false
   # Where the disasm view lands by default (and redirects to when asked to show
   # a non-executable address): lowest, text, main, start, or entry. Defaults to
   # lowest (the lowest executable address). Unresolvable choices fall back.

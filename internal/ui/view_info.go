@@ -40,10 +40,13 @@ func (m *Model) renderInfo() string {
 
 	var b strings.Builder
 	first := true
+	bodyText := func(s string) string {
+		return renderStyle(s, 0, m.theme.tableRowStyle)
+	}
 	kv := func(k, v string) {
 		b.WriteString(m.theme.headerKey.Render(padKey(k, 16)))
 		b.WriteString(" ")
-		b.WriteString(v)
+		b.WriteString(bodyText(v))
 		b.WriteString("\n")
 	}
 	// head opens a labelled group with a titled separator filled to the panel
@@ -72,7 +75,7 @@ func (m *Model) renderInfo() string {
 		if idx := strings.IndexByte(l, ':'); idx >= 0 {
 			kv(l[:idx+1], strings.TrimSpace(l[idx+1:]))
 		} else {
-			b.WriteString(l)
+			b.WriteString(bodyText(l))
 			b.WriteString("\n")
 		}
 	}

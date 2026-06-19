@@ -215,7 +215,7 @@ func (m *Model) renderStickySymbol(w int) string {
 	} else {
 		text = fmt.Sprintf(" (no symbol)   @  0x%0*x", m.file.AddrHexWidth(), addr)
 	}
-	return m.theme.stickySymStyle.Render(padRight(text, w))
+	return m.theme.stickyTitleLine(text, w)
 }
 
 func (m *Model) renderDisasmScroll(w, h int) string {
@@ -499,7 +499,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 	src := m.file.SourceLines(file)
 	if src == nil {
 		suffix := fmt.Sprintf(":%d (source file not found)", line)
-		body := truncateMiddle(file, max(1, inner-lipgloss.Width(suffix))) + suffix + "\n"
+		body := m.theme.viewTitleLine(truncateMiddle(file, max(1, inner-lipgloss.Width(suffix)))+suffix, inner) + "\n"
 		return border.Render(padBody(body, inner, h))
 	}
 
@@ -512,7 +512,7 @@ func (m *Model) renderSourcePane(w, h int) string {
 	}
 	loc := truncateMiddle(file, max(1, inner-lipgloss.Width(suffix))) + suffix
 	var b strings.Builder
-	b.WriteString(m.theme.infoStyle.Render(loc))
+	b.WriteString(m.theme.viewTitleLine(loc, inner))
 	b.WriteString("\n")
 	half := (h - 1) / 2
 	base := line - half

@@ -391,7 +391,7 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 		m.renderedHexTop = top
 	}
 
-	rows := []string{m.theme.stickySymStyle.Render(padRight(banner, m.width))}
+	rows := []string{m.theme.stickyTitleLine(banner, m.width)}
 	for off := top; off < len(data) && len(rows) < bodyH; {
 		if sec := m.hexSectionStartName(md, off); sec != "" {
 			appendRenderedRows(

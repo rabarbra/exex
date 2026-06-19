@@ -26,6 +26,7 @@ const (
 	actionViewStrings
 	actionViewSources
 	actionToggleSource
+	actionSettings
 )
 
 // keyMap maps key strings (as returned by tea.KeyMsg.String()) to the
@@ -49,6 +50,7 @@ func defaultKeyMap() keyMap {
 		"8":      actionViewStrings,
 		"9":      actionViewSources,
 		"tab":    actionToggleSource,
+		",":      actionSettings,
 	}
 }
 
@@ -82,6 +84,7 @@ func (m keyMap) applyConfig(k config.Keys) {
 	bind(actionViewStrings, k.ViewStrings)
 	bind(actionViewSources, k.ViewSources)
 	bind(actionToggleSource, k.ToggleSource)
+	bind(actionSettings, k.Settings)
 	// Per-view actions are intentionally NOT in the top-level dispatch:
 	// they read the cursor context of the current view (disasm/hex/symbols/
 	// sections/libs), so the per-view handler owns them. We expose them in

@@ -70,6 +70,9 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 			searchForward:    true,
 			searchFromCursor: true,
 		},
+		interactionState: interactionState{
+			wrap: cfg.Behavior.DefaultWrap,
+		},
 		keyState: newKeyState(cfg.Keys),
 	}
 	m.recomputeSymbols()

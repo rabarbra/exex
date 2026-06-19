@@ -56,7 +56,7 @@ func (m *Model) renderInstTextStyled(text string, class disasm.InstClass, instAd
 			for j < n && (text[j] == ' ' || text[j] == '\t') {
 				j++
 			}
-			b.WriteString(text[i:j])
+			b.WriteString(m.theme.whiteStyle.Render(text[i:j]))
 			i = j
 		case c == '%': // AT&T register (%rax, %xmm0)
 			j := i + 1
@@ -86,13 +86,13 @@ func (m *Model) renderInstTextStyled(text string, class disasm.InstClass, instAd
 			}
 			tok := text[i:j]
 			if asmOperandKeywords[strings.ToLower(tok)] {
-				b.WriteString(tok)
+				b.WriteString(m.theme.whiteStyle.Render(tok))
 			} else {
 				b.WriteString(m.theme.asmRegisterStyle.Render(tok))
 			}
 			i = j
 		default: // punctuation: [], (), commas, +, -, *, : …
-			b.WriteByte(c)
+			b.WriteString(m.theme.whiteStyle.Render(text[i : i+1]))
 			i++
 		}
 	}

@@ -35,6 +35,8 @@ type Theme struct {
 	helpDescStyle lipgloss.Style
 	helpHeadStyle lipgloss.Style
 
+	viewStyle lipgloss.Style
+
 	errorStyle lipgloss.Style
 	infoStyle  lipgloss.Style
 	warnStyle  lipgloss.Style
@@ -93,12 +95,19 @@ type Theme struct {
 // preset). It also rebuilds the global hex byte ramp when a palette is supplied.
 func NewTheme(cfg config.Config) Theme {
 	t := DefaultTheme()
-	preset := presetColors(cfg.Theme)
+	preset := presetColors(effectiveThemeName(cfg.Theme))
+	user := cfg.Colors
+	// The theme-derived view/pane background is opt-in (behavior.background); when
+	// off, the UI uses the terminal's own background. An explicit colors.view_bg
+	// is always honoured (setting it is itself the opt-in).
+	if !cfg.Behavior.Background {
+		preset.ViewBG = ""
+	}
 	t.ApplyColors(preset)
-	t.ApplyColors(cfg.Colors)
+	t.ApplyColors(user)
 	// Hex ramp: preset first, then user override (each is a no-op when unset).
 	setBytePalette(preset.HexBytePalette)
-	setBytePalette(cfg.Colors.HexBytePalette)
+	setBytePalette(user.HexBytePalette)
 	return t
 }
 
@@ -188,8 +197,7 @@ func DefaultTheme() Theme {
 		stickySymStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("231")).
 			Background(lipgloss.Color("236")).
-			Bold(true).
-			Italic(true),
+			Bold(true),
 		linkAddrIntraStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("85")).
 			Underline(true).
@@ -327,6 +335,8 @@ func (t *Theme) ApplyColors(c config.Colors) {
 	setFg(&t.helpKeyStyle, c.HelpKeyFG)
 	setFg(&t.helpDescStyle, c.HelpDescFG)
 	setFg(&t.helpHeadStyle, c.HelpHeadFG)
+	// View body.
+	setBg(&t.viewStyle, c.ViewBG)
 	// Status footer.
 	setFg(&t.errorStyle, c.StatusErrorFG)
 	setFg(&t.infoStyle, c.StatusInfoFG)

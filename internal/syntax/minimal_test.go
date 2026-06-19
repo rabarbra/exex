@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -32,7 +33,7 @@ func TestMinimalHighlight(t *testing.T) {
 func TestMinimalHighlightBlockCommentSpansLines(t *testing.T) {
 	src := []string{"code /* start", "still comment", "end */ code"}
 	out := minimalHighlight("x.c", src, "")
-	// The middle line is entirely inside the block comment → fully styled.
+	// The middle line is entirely inside the block comment -> fully styled.
 	if !strings.Contains(out[1], "\x1b[") {
 		t.Errorf("in-block line not styled: %q", out[1])
 	}
@@ -80,5 +81,13 @@ func TestMinimalHighlightFollowsThemePalette(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("%s did not use solarized-light palette in %q", name, out)
 		}
+	}
+}
+
+func TestMinimalPlainTextUsesThemeForeground(t *testing.T) {
+	got := minimalHighlight("plain.txt", []string{"plain + text"}, "solarized-light")[0]
+	want := lipgloss.NewStyle().Foreground(lipgloss.Color("#586e75")).Render("plain")
+	if !strings.Contains(got, want) {
+		t.Fatalf("plain text was not styled with theme foreground: %q", got)
 	}
 }

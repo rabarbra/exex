@@ -157,6 +157,42 @@ func TestChromaThemeDerivesWholeUI(t *testing.T) {
 	}
 }
 
+// TestColorBindingKeysExist guards the single-source colour table: every binding
+// key must be a real config.Colors field (a typo'd key would silently drop the
+// role from both ApplyColors and deriveColors).
+func TestColorBindingKeysExist(t *testing.T) {
+	for _, b := range colorBindings {
+		if _, ok := colorFieldIndex[b.key]; !ok {
+			t.Errorf("binding key %q has no config.Colors field", b.key)
+		}
+	}
+	if len(colorBindings) < 55 {
+		t.Fatalf("colour binding table looks truncated: %d entries", len(colorBindings))
+	}
+}
+
+// TestDefaultThemeMatchesBindingDefaults guards the single-source defaults: every
+// binding's built-in `def` colour must match what DefaultTheme actually renders for
+// that role. This is what lets DefaultTheme paint colours from the table instead of
+// repeating them, and catches drift if a default is changed in only one place.
+func TestDefaultThemeMatchesBindingDefaults(t *testing.T) {
+	dt := DefaultTheme()
+	for _, b := range colorBindings {
+		if b.def == "" {
+			continue
+		}
+		rendered := b.target(&dt).Render("x")
+		prefix := "38;5;"
+		if b.bg {
+			prefix = "48;5;"
+		}
+		token := prefix + b.def
+		if !strings.Contains(rendered, token+"m") && !strings.Contains(rendered, token+";") {
+			t.Errorf("role %q: DefaultTheme render %q does not carry default colour %q", b.key, rendered, b.def)
+		}
+	}
+}
+
 func TestViewBackgroundIsOptIn(t *testing.T) {
 	if got := DefaultTheme().renderViewBackground("plain", 5); got != "plain" {
 		t.Fatalf("default view background should be off, got %q", got)

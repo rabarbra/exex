@@ -540,7 +540,7 @@ func TestTruncateMiddleKeepsEnds(t *testing.T) {
 
 func TestRenderLineRowsActuallyWraps(t *testing.T) {
 	line := "0123456789 abcdefghij klmnopqrst"
-	rows := renderLineRows(line, 12, true)
+	rows := renderLineRowsIndented(line, 12, true, 0)
 	if len(rows) < 3 {
 		t.Fatalf("wrapped rows = %d, want at least 3: %q", len(rows), rows)
 	}
@@ -549,7 +549,7 @@ func TestRenderLineRowsActuallyWraps(t *testing.T) {
 			t.Fatalf("row width = %d, want <= 12: %q", w, row)
 		}
 	}
-	if got := renderLineRows(line, 12, false); len(got) != 1 {
+	if got := renderLineRowsIndented(line, 12, false, 0); len(got) != 1 {
 		t.Fatalf("non-wrapped rows = %d, want 1", len(got))
 	}
 }

@@ -218,11 +218,6 @@ func (m *Model) tableHeader(s string) string {
 	return m.theme.viewTitleLine(truncateMiddle(s, m.width), m.width)
 }
 
-// renderLineRows renders one logical line into one or more fixed-width rows.
-func renderLineRows(line string, w int, wrap bool) []string {
-	return renderLineRowsIndented(line, w, wrap, 0)
-}
-
 // wrapRows splits s into width-limited rows using ansi.Wrap.
 func wrapRows(s string, w int, cutset string) []string {
 	wrapped := ansi.Wrap(s, w, cutset)

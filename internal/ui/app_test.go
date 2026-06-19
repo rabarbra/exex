@@ -547,23 +547,6 @@ func TestDisasmSearchShowsProgressAndCancels(t *testing.T) {
 	}
 }
 
-func TestDisasmSearchWorkersAndBatchSizing(t *testing.T) {
-	m := &Model{disasmState: disasmState{disasmSearchWorkers: 3, disasmMaxBytes: 256 << 10}}
-	if got := m.disasmSearchWorkersFor(10); got != 3 {
-		t.Fatalf("workers = %d, want 3", got)
-	}
-	if got := m.disasmSearchWorkersFor(2); got != 2 {
-		t.Fatalf("workers capped to chunks = %d, want 2", got)
-	}
-	if got := m.disasmSearchBatchChunks(); got < 2 {
-		t.Fatalf("batch chunks = %d, want >= 2", got)
-	}
-	m.disasmMaxBytes = 64 << 10
-	if got := m.disasmSearchBatchChunks(); got < 4 {
-		t.Fatalf("small-chunk batch = %d, want >= 4", got)
-	}
-}
-
 func keyPress(s string) tea.KeyPressMsg {
 	switch s {
 	case "down":

@@ -122,6 +122,16 @@ func (m *Model) clearAllViewCaches() {
 	m.clearStringCaches()
 }
 
+// clearColorCaches drops every cache whose entries bake in theme colours, so a
+// theme change is reflected on the next render. (Height/column caches depend only
+// on geometry, not colour, so they're left intact.)
+func (m *Model) clearColorCaches() {
+	m.clearAllViewCaches()
+	m.disasmAsmCache = nil
+	m.disasmTokenStyles = nil
+	m.sourceAsmRowCache = nil
+}
+
 // disasmState holds the currently loaded decode window only. The first window
 // is loaded lazily on first open; later jumps replace it with a bounded span
 // around the requested address so large binaries never expand into a whole-image

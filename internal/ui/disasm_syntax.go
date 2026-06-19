@@ -62,6 +62,32 @@ func (m *Model) renderInstTextStyled(text string, class disasm.InstClass, instAd
 	return b.String()
 }
 
+// renderInstTextFallback colours an instruction by its class and link addresses
+// only (no per-token highlighting) — the fallback when no asm lexer matches or
+// tokenising fails.
+func (m *Model) renderInstTextFallback(text string, class disasm.InstClass, instAddr uint64) string {
+	classSt := m.theme.styleForClass(class)
+	from := 0
+	var b strings.Builder
+	spans := m.disasmAddrSpans(text, instAddr)
+	si := 0
+	for from < len(text) {
+		if si < len(spans) && spans[si].start == from {
+			b.WriteString(spans[si].style.Render(text[from:spans[si].end]))
+			from = spans[si].end
+			si++
+			continue
+		}
+		next := len(text)
+		if si < len(spans) {
+			next = spans[si].start
+		}
+		b.WriteString(classSt.Render(text[from:next]))
+		from = next
+	}
+	return b.String()
+}
+
 func (m *Model) renderDisasmToken(tok chroma.Token, pos int, spans []disasmAddrSpan) string {
 	st := m.disasmTokenStyle(tok.Type)
 	from := 0

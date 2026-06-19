@@ -101,10 +101,7 @@ func cycleIndex(list []string, cur string, dir int) int {
 func (m *Model) applyThemeChange() {
 	m.theme = NewTheme(m.cfg)
 	m.srcHighlighter = syntax.NewHighlighter(sourceSyntaxTheme(m.cfg))
-	m.clearAllViewCaches()
-	m.disasmAsmCache = nil
-	m.disasmTokenStyles = nil
-	m.sourceAsmRowCache = nil
+	m.clearColorCaches()
 	m.viewDirty = true
 }
 

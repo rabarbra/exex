@@ -65,32 +65,6 @@ func (m *Model) disasmAddrSpans(text string, instAddr uint64) []disasmAddrSpan {
 	}
 }
 
-// renderInstTextFallback colours an instruction by its class and link addresses
-// only (no per-token highlighting). It is the shared fallback the Chroma path
-// uses when no asm lexer matches or tokenising fails.
-func (m *Model) renderInstTextFallback(text string, class disasm.InstClass, instAddr uint64) string {
-	classSt := m.theme.styleForClass(class)
-	from := 0
-	var b strings.Builder
-	spans := m.disasmAddrSpans(text, instAddr)
-	si := 0
-	for from < len(text) {
-		if si < len(spans) && spans[si].start == from {
-			b.WriteString(spans[si].style.Render(text[from:spans[si].end]))
-			from = spans[si].end
-			si++
-			continue
-		}
-		next := len(text)
-		if si < len(spans) {
-			next = spans[si].start
-		}
-		b.WriteString(classSt.Render(text[from:next]))
-		from = next
-	}
-	return b.String()
-}
-
 func (m *Model) instAnnotation(text string, class disasm.InstClass) string {
 	annotate := class == disasm.ClassCall || class == disasm.ClassJumpUnc ||
 		class == disasm.ClassJumpCond || isAddrLoadOp(firstToken(text))

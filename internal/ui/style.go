@@ -111,128 +111,45 @@ func NewTheme(cfg config.Config) Theme {
 	return t
 }
 
-// DefaultTheme returns the built-in visual palette.
+// DefaultTheme returns the built-in visual palette. It sets only the non-colour
+// attributes that each style needs (bold/underline/padding/border/alignment);
+// every foreground/background colour comes from the colorBindings table via
+// applyDefaults, so a default colour lives in exactly one place. Styles not
+// listed here are left zero and tinted purely by their binding.
 func DefaultTheme() Theme {
-	tabStyle := lipgloss.NewStyle().
-		Padding(0, 1).
-		Foreground(lipgloss.Color("245"))
-
-	return Theme{
-		titleStyle: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("66")).
-			Padding(0, 1),
-		tabStyle: tabStyle,
-		activeTabStyle: tabStyle.
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("63")).
-			Bold(true),
-		footerStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).
-			Padding(0, 1),
-		headerKey: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("75")).
-			Bold(true),
-		tableHeaderStyle: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("236")),
-		tableRowStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")),
-		tableSelStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("63")).
-			Bold(true),
-		addrStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")),
-		mnemonicStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("117")),
-		symbolNameStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true),
-		sectionStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			AlignHorizontal(lipgloss.Center).
-			Bold(true),
-		whiteStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")),
-		srcCurLineStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("63")).
-			Bold(true),
-		srcShadowStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")),
-		srcMappedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("153")),
-		// Background(lipgloss.Color("23")),
-		modalStyle: lipgloss.NewStyle().
+	border := func() lipgloss.Style {
+		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(1, 2),
-		panelStyle: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(0, 1),
-		switchStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("238")).
-			Bold(true),
-		helpKeyStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true),
-		helpDescStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
-		helpHeadStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true),
-		errorStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("203")),
-		infoStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("114")),
-		warnStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
-
-		// Instruction class palette — picked so calls/rets/syscalls pop out of a
-		// page of "Other" instructions.
-		classCallStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true),
-		classRetStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true),
-		classJumpUncStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("220")),
-		classJumpCndStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("213")),
-		classSyscallStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("84")).Bold(true),
-		classNopStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-
-		stickySymStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("231")).
-			Background(lipgloss.Color("236")).
-			Bold(true),
-		linkAddrIntraStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("85")).
-			Underline(true).
-			Bold(true),
-		linkAddrInterStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("51")).
-			Underline(true).
-			Bold(true),
-
-		asmRegisterStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("152")),
-		asmNumberStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("215")),
-		asmMoveStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("80")),
-		asmArithStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("176")),
-
-		symFuncStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("84")),
-		symObjectStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("75")),
-		symFileStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
-		symSectionStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("213")),
-		symTLSStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("177")),
-		symCommonStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("215")),
-		symOtherStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("250")),
-
-		secTextStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("84")),
-		secDataStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("75")),
-		secRodataStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("117")),
-		secTLSStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("177")),
-		secDebugStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-		secNoteStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
-		secSymtabStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("213")),
-		secDynamicStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("141")),
-		secRelocStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("173")),
+			BorderForeground(lipgloss.Color("63"))
+	}
+	t := Theme{
+		titleStyle:         lipgloss.NewStyle().Bold(true).Padding(0, 1),
+		tabStyle:           lipgloss.NewStyle().Padding(0, 1),
+		activeTabStyle:     lipgloss.NewStyle().Padding(0, 1).Bold(true),
+		footerStyle:        lipgloss.NewStyle().Padding(0, 1),
+		headerKey:          lipgloss.NewStyle().Bold(true),
+		tableHeaderStyle:   lipgloss.NewStyle().Bold(true),
+		tableSelStyle:      lipgloss.NewStyle().Bold(true),
+		symbolNameStyle:    lipgloss.NewStyle().Bold(true),
+		sectionStyle:       lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Bold(true),
+		srcCurLineStyle:    lipgloss.NewStyle().Bold(true),
+		modalStyle:         border().Padding(1, 2),
+		panelStyle:         border().Padding(0, 1),
+		switchStyle:        lipgloss.NewStyle().Bold(true),
+		helpKeyStyle:       lipgloss.NewStyle().Bold(true),
+		helpHeadStyle:      lipgloss.NewStyle().Bold(true),
+		classCallStyle:     lipgloss.NewStyle().Bold(true),
+		classRetStyle:      lipgloss.NewStyle().Bold(true),
+		classSyscallStyle:  lipgloss.NewStyle().Bold(true),
+		stickySymStyle:     lipgloss.NewStyle().Bold(true),
+		linkAddrIntraStyle: lipgloss.NewStyle().Underline(true).Bold(true),
+		linkAddrInterStyle: lipgloss.NewStyle().Underline(true).Bold(true),
 
 		pathPalette:   stylePalette("75", "114", "214", "141", "213"),
 		columnPalette: stylePalette("203", "220", "84", "39", "213", "51", "215", "141"),
 	}
+	t.applyDefaults()
+	return t
 }
 
 // stylePalette builds a slice of foreground-only styles from colour values.
@@ -244,104 +161,22 @@ func stylePalette(colors ...string) []lipgloss.Style {
 	return out
 }
 
-// ApplyColors overlays the user's config.Colors onto the built-in palette.
+// ApplyColors overlays the user's config.Colors onto the built-in palette. The
+// scalar fg/bg roles come from the single colorBindings table; the handful that
+// aren't a plain fg/bg on one style are applied below.
 func (t *Theme) ApplyColors(c config.Colors) {
-	setFg := func(s *lipgloss.Style, color string) {
-		if color != "" {
-			*s = s.Foreground(lipgloss.Color(color))
-		}
+	for _, b := range colorBindings {
+		b.apply(t, configColor(c, b.key))
 	}
-	setBg := func(s *lipgloss.Style, color string) {
-		if color != "" {
-			*s = s.Background(lipgloss.Color(color))
-		}
-	}
-	// Disasm: instruction-class mnemonic colours.
-	setFg(&t.classCallStyle, c.InstructionCall)
-	setFg(&t.classRetStyle, c.InstructionRet)
-	setFg(&t.classJumpUncStyle, c.InstructionJumpUnconditional)
-	setFg(&t.classJumpCndStyle, c.InstructionJumpConditional)
-	setFg(&t.classSyscallStyle, c.InstructionSyscall)
-	setFg(&t.classNopStyle, c.InstructionNop)
-	setFg(&t.mnemonicStyle, c.InstructionMnemonicDefault)
-	// Disasm: address + operand-link colours.
-	setFg(&t.addrStyle, c.AddressColumn)
-	setFg(&t.linkAddrIntraStyle, c.AddressLinkIntraFunction)
-	setFg(&t.linkAddrInterStyle, c.AddressLinkInterFunction)
-	// Disasm: built-in operand-token + mnemonic-category colours.
-	setFg(&t.asmRegisterStyle, c.AsmRegister)
-	setFg(&t.asmNumberStyle, c.AsmImmediate)
-	setFg(&t.asmMoveStyle, c.AsmMove)
-	setFg(&t.asmArithStyle, c.AsmArith)
-	// Disasm: sticky symbol banner (fg + bg).
-	if c.StickySymbolBannerFG != "" {
-		t.stickySymStyle = t.stickySymStyle.Foreground(lipgloss.Color(c.StickySymbolBannerFG))
-	}
-	if c.StickySymbolBannerBG != "" {
-		t.stickySymStyle = t.stickySymStyle.Background(lipgloss.Color(c.StickySymbolBannerBG))
-	}
-	// Symbol-table row colours.
-	setFg(&t.symFuncStyle, c.SymbolFunction)
-	setFg(&t.symObjectStyle, c.SymbolDataObject)
-	setFg(&t.symFileStyle, c.SymbolSourceFile)
-	setFg(&t.symSectionStyle, c.SymbolSection)
-	setFg(&t.symTLSStyle, c.SymbolTLS)
-	setFg(&t.symCommonStyle, c.SymbolCommon)
-	setFg(&t.symOtherStyle, c.SymbolOther)
-	// Section-table row colours.
-	setFg(&t.secTextStyle, c.SectionExecutableCode)
-	setFg(&t.secDataStyle, c.SectionWritableData)
-	setFg(&t.secRodataStyle, c.SectionReadonlyData)
-	setFg(&t.secTLSStyle, c.SectionTLS)
-	setFg(&t.secDebugStyle, c.SectionDebugInfo)
-	setFg(&t.secNoteStyle, c.SectionNote)
-	setFg(&t.secSymtabStyle, c.SectionSymbolTable)
-	setFg(&t.secDynamicStyle, c.SectionDynamicLinking)
-	setFg(&t.secRelocStyle, c.SectionRelocations)
-	// Source pane: position + mapping highlight.
-	setFg(&t.srcCurLineStyle, c.SourceCurrentLineFG)
-	setBg(&t.srcCurLineStyle, c.SourceCurrentLineBG)
-	setFg(&t.srcMappedStyle, c.SourceMappedFG)
-	setFg(&t.srcShadowStyle, c.SourceUnmappedFG)
-	setFg(&t.whiteStyle, c.SourceCodeLineFG)
-	if len(c.ColumnPalette) > 0 {
-		t.columnPalette = stylePalette(c.ColumnPalette...)
-	}
-	// Window chrome: title, tabs, footer, header keys.
-	setFg(&t.titleStyle, c.TitleFG)
-	setBg(&t.titleStyle, c.TitleBG)
-	setFg(&t.tabStyle, c.TabFG)
-	setFg(&t.activeTabStyle, c.TabActiveFG)
-	setBg(&t.activeTabStyle, c.TabActiveBG)
-	setFg(&t.footerStyle, c.FooterFG)
-	setFg(&t.headerKey, c.HeaderKeyFG)
-	// Tables.
-	setFg(&t.tableHeaderStyle, c.TableHeaderFG)
-	setBg(&t.tableHeaderStyle, c.TableHeaderBG)
-	setFg(&t.tableRowStyle, c.TableRowFG)
-	setFg(&t.tableSelStyle, c.TableSelectedFG)
-	setBg(&t.tableSelStyle, c.TableSelectedBG)
-	// Shared accents.
-	setFg(&t.symbolNameStyle, c.SymbolNameFG)
-	setFg(&t.sectionStyle, c.SectionBannerFG)
-	// Modal overlays + search switches.
+	// Modal/panel border (a border colour, not fg/bg).
 	if c.ModalBorderFG != "" {
 		t.modalStyle = t.modalStyle.BorderForeground(lipgloss.Color(c.ModalBorderFG))
 		t.panelStyle = t.panelStyle.BorderForeground(lipgloss.Color(c.ModalBorderFG))
 	}
-	setFg(&t.switchStyle, c.SearchSwitchFG)
-	setBg(&t.switchStyle, c.SearchSwitchBG)
-	// Help overlay.
-	setFg(&t.helpKeyStyle, c.HelpKeyFG)
-	setFg(&t.helpDescStyle, c.HelpDescFG)
-	setFg(&t.helpHeadStyle, c.HelpHeadFG)
-	// View body.
-	setBg(&t.viewStyle, c.ViewBG)
-	// Status footer.
-	setFg(&t.errorStyle, c.StatusErrorFG)
-	setFg(&t.infoStyle, c.StatusInfoFG)
-	setFg(&t.warnStyle, c.StatusWarnFG)
-	// Path-prefix palette (Libraries / Sources).
+	// Cycled palettes (Sources/Libraries paths; source↔disasm caret columns).
+	if len(c.ColumnPalette) > 0 {
+		t.columnPalette = stylePalette(c.ColumnPalette...)
+	}
 	if len(c.PathPalette) > 0 {
 		t.pathPalette = stylePalette(c.PathPalette...)
 	}

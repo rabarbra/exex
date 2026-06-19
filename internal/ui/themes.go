@@ -132,84 +132,21 @@ func paletteWithout(exclude string, vals ...string) []string {
 }
 
 // deriveColors maps a Chroma palette onto every UI colour role, so any Chroma
-// style themes the whole UI consistently. `colors:` entries still override these.
+// style themes the whole UI consistently. The scalar fg/bg roles come from the
+// single colorBindings table; the few non-fg/bg roles are set below. `colors:`
+// entries still override all of these.
 func deriveColors(name string, p theme.Palette) config.Colors {
-	accents := nonEmpty(p.Function, p.String, p.Number, p.Type, p.Keyword, p.Name)
-	header := firstNonEmpty(p.Keyword, p.Type, p.Foreground, p.Function)
-	titleBG := firstNonEmpty(p.Comment, p.Background, p.Number, p.Type, p.Keyword)
-	titleFG := firstNonEmpty(p.Foreground, p.Background, p.Name, p.Function)
-	return config.Colors{
-		// Disasm: instruction classes + operand tokens.
-		InstructionCall:              p.Function,
-		InstructionRet:               p.Error,
-		InstructionJumpUnconditional: p.Number,
-		InstructionJumpConditional:   p.Keyword,
-		InstructionSyscall:           p.String,
-		InstructionNop:               p.Comment,
-		InstructionMnemonicDefault:   p.Keyword,
-		AsmRegister:                  p.Name,
-		AsmImmediate:                 p.Number,
-		AsmMove:                      p.Type,
-		AsmArith:                     p.Operator,
-		AddressColumn:                p.Comment,
-		AddressLinkIntraFunction:     p.String,
-		AddressLinkInterFunction:     p.Type,
-		StickySymbolBannerFG:         titleFG,
-		StickySymbolBannerBG:         titleBG,
-		// Symbols / sections by category.
-		SymbolFunction:        p.Function,
-		SymbolDataObject:      p.Name,
-		SymbolSourceFile:      p.Comment,
-		SymbolSection:         p.Keyword,
-		SymbolTLS:             p.Type,
-		SymbolCommon:          p.Number,
-		SymbolOther:           p.Foreground,
-		SectionExecutableCode: p.Function,
-		SectionWritableData:   p.Name,
-		SectionReadonlyData:   p.String,
-		SectionTLS:            p.Type,
-		SectionDebugInfo:      p.Comment,
-		SectionNote:           p.Comment,
-		SectionSymbolTable:    p.Keyword,
-		SectionDynamicLinking: p.Type,
-		SectionRelocations:    p.Number,
-		// Source pane (the full build's Chroma source highlighter follows the same
-		// style name).
-		SyntaxTheme:         name,
-		SourceCurrentLineFG: p.Background,
-		SourceCurrentLineBG: p.Function,
-		SourceMappedFG:      p.String,
-		SourceCodeLineFG:    p.Foreground,
-		SourceUnmappedFG:    p.Comment,
-		ColumnPalette:       paletteWithout(header, p.Error, p.Number, p.String, p.Function, p.Type, p.Name, p.Operator),
-		// Chrome.
-		TitleFG:         p.Background,
-		TitleBG:         p.Function,
-		TabFG:           p.Comment,
-		TabActiveFG:     p.Background,
-		TabActiveBG:     p.Function,
-		FooterFG:        p.Comment,
-		HeaderKeyFG:     header,
-		TableHeaderFG:   titleFG,
-		TableHeaderBG:   titleBG,
-		TableRowFG:      p.Foreground,
-		TableSelectedFG: p.Background,
-		TableSelectedBG: p.Function,
-		SymbolNameFG:    p.Function,
-		SectionBannerFG: p.Function,
-		ModalBorderFG:   p.Function,
-		SearchSwitchFG:  p.Background,
-		SearchSwitchBG:  p.Function,
-		HelpKeyFG:       p.Function,
-		HelpDescFG:      p.Foreground,
-		HelpHeadFG:      header,
-		StatusErrorFG:   p.Error,
-		StatusInfoFG:    p.String,
-		StatusWarnFG:    p.Number,
-		PathPalette:     accents,
-		HexBytePalette:  deriveHexRamp(p),
-		ViewBG:          p.Background,
+	d := newDerived(p)
+	var c config.Colors
+	for _, b := range colorBindings {
+		setConfigColor(&c, b.key, b.derive(d))
 	}
+	c.SyntaxTheme = name // the Chroma source highlighter follows the same style
+	c.ModalBorderFG = d.primary
+	c.ColumnPalette = paletteWithout(d.header, p.Error, p.Number, p.String, p.Function, p.Type, p.Name, p.Operator)
+	c.PathPalette = nonEmpty(p.Function, p.String, p.Number, p.Type, p.Keyword, p.Name)
+	c.HexBytePalette = deriveHexRamp(p)
+	return c
 }
 
 // deriveHexRamp builds the 18-entry hex byte ramp from a palette: 0x00 dim,

@@ -45,14 +45,6 @@ func (m *Model) disasmSearchChunkBytes() int {
 	return m.disasmService().SearchChunkBytes()
 }
 
-func (m *Model) disasmSearchBatchChunks() int {
-	return m.disasmService().SearchBatchChunks()
-}
-
-func (m *Model) disasmSearchWorkersFor(chunks int) int {
-	return m.disasmService().SearchWorkersFor(chunks)
-}
-
 func (m *Model) prefetchDisasmAroundCmd(addr uint64) tea.Cmd {
 	if m.dis == nil {
 		return nil

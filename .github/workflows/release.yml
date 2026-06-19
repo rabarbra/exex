@@ -8,18 +8,9 @@ permissions:
   contents: write   # required to upload release assets
 
 jobs:
-  build:
-    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+  release:
+    name: build + publish
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { goos: linux,  goarch: amd64 }   # x86_64 Linux
-          - { goos: linux,  goarch: '386' }   # 32-bit x86 Linux
-          - { goos: linux,  goarch: arm64 }   # arm64 Linux
-          - { goos: darwin, goarch: amd64 }   # Intel macOS
-          - { goos: darwin, goarch: arm64 }   # Apple Silicon macOS
     steps:
       - uses: actions/checkout@v4
 
@@ -28,45 +19,13 @@ jobs:
           go-version: stable
           cache: true
 
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          out="exex"
-          mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "$out" .
-          tarball="dist/exex-${tag}-${GOOS}-${GOARCH}.tar.gz"
-          tar -czf "$tarball" "$out" README.md LICENSE 2>/dev/null || tar -czf "$tarball" "$out"
-          ( cd dist && sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256" )
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: exex-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
-          if-no-files-found: error
-
-  release:
-    name: publish GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: exex-*
-          path: dist
-          merge-multiple: true
-
-      - name: List artifacts
-        run: ls -lh dist
+      # Cross-compile full + lite archives for every platform via the Makefile.
+      - name: Build release archives
+        run: make release VERSION="${GITHUB_REF_NAME}"
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/*.tar.gz
-            dist/*.sha256
+          files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
+          body_path: .github/release.md

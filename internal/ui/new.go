@@ -54,7 +54,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 			disasmSearchWorkers: 0,
 			showSource:          true,
 			srcVP:               viewport.New(),
-			srcHighlighter:      syntax.NewHighlighter(cfg.Colors.SyntaxTheme),
+			srcHighlighter:      syntax.NewHighlighter(sourceSyntaxTheme(cfg)),
 		},
 		stringsState: stringsState{
 			stringsFilter: strFilter,

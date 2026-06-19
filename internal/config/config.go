@@ -73,6 +73,16 @@ type Colors struct {
 	// Default mnemonic colour for everything else.
 	InstructionMnemonicDefault string `yaml:"instruction_mnemonic_default"`
 
+	// ---- Disassembly: operand tokens (built-in highlighter) ---------------
+	// Registers (rax, x0, %rdi, sp, …) in instruction operands.
+	AsmRegister string `yaml:"asm_register"`
+	// Immediate/numeric literals in operands ($0x10, #4, 0x20).
+	AsmImmediate string `yaml:"asm_immediate"`
+	// Move/load/store-family mnemonics in the built-in highlighter.
+	AsmMove string `yaml:"asm_move"`
+	// Arithmetic/logic/compare-family mnemonics in the built-in highlighter.
+	AsmArith string `yaml:"asm_arith"`
+
 	// ---- Disassembly: address columns + operand links ---------------------
 	// The "0x401234" address column at the start of each disasm row.
 	AddressColumn string `yaml:"address_column"`
@@ -126,7 +136,8 @@ type Colors struct {
 	// ---- Source pane: syntax-highlighting theme -------------------------
 	// Name of a chroma style used to highlight the disasm view's source pane
 	// (e.g. "monokai", "github-dark", "nord", "dracula", "catppuccin-mocha").
-	// Unset keeps the built-in default. Unknown names fall back gracefully.
+	// Unset follows the selected built-in theme where possible, otherwise keeps
+	// the built-in default. Unknown names fall back gracefully.
 	SyntaxTheme string `yaml:"syntax_theme"`
 
 	// ---- Source pane: position + mapping highlight ----------------------

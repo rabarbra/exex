@@ -39,7 +39,32 @@ const (
 	ClassJumpUnc
 	ClassSyscall
 	ClassNop
+	ClassMove
+	ClassArithmetic
 )
+
+var movePrefixes = []string{
+	"mov", "cmov", "vmov", "ldr", "ldp", "ldur", "ldar", "str", "stp", "stur", "stlr", "swp", "push", "pop",
+}
+
+var moveMnemonics = map[string]bool{
+	"lea": true, "leaq": true, "leal": true, "leaw": true,
+	"adr": true, "adrp": true, "mv": true, "li": true, "la": true, "lui": true, "auipc": true,
+	"lb": true, "lh": true, "lw": true, "ld": true, "lbu": true, "lhu": true, "lwu": true,
+	"sb": true, "sh": true, "sw": true, "sd": true, "flw": true, "fld": true, "fsw": true, "fsd": true,
+	"xchg": true, "xadd": true,
+}
+
+var arithmeticPrefixes = []string{
+	"add", "sub", "mul", "imul", "div", "idiv", "cmp", "test", "and", "orr", "eor", "xor",
+	"shl", "shr", "sal", "sar", "rol", "ror", "sll", "srl", "sra", "slt", "rem", "fadd", "fsub", "fmul", "fdiv",
+}
+
+var arithmeticMnemonics = map[string]bool{
+	"inc": true, "dec": true, "neg": true, "not": true, "adc": true, "sbb": true,
+	"cmn": true, "tst": true, "madd": true, "msub": true, "udiv": true, "sdiv": true,
+	"andi": true, "ori": true, "xori": true,
+}
 
 // Inst is one decoded instruction.
 type Inst struct {
@@ -100,7 +125,22 @@ func Classify(text string) InstClass {
 			return ClassJumpCond
 		}
 	}
+	if moveMnemonics[op] || hasMnemonicPrefix(op, movePrefixes) {
+		return ClassMove
+	}
+	if arithmeticMnemonics[op] || hasMnemonicPrefix(op, arithmeticPrefixes) {
+		return ClassArithmetic
+	}
 	return ClassOther
+}
+
+func hasMnemonicPrefix(op string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(op, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Disassembler decodes a single instruction at code[0] for VM address addr.

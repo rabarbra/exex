@@ -50,6 +50,14 @@ type Theme struct {
 	linkAddrIntraStyle lipgloss.Style
 	linkAddrInterStyle lipgloss.Style
 
+	// Operand + mnemonic-category token colours for the built-in (non-Chroma)
+	// disasm highlighter. Jumps/calls/rets/syscalls/nops reuse the instruction
+	// class styles; these cover the remaining mnemonic categories and operands.
+	asmRegisterStyle lipgloss.Style
+	asmNumberStyle   lipgloss.Style
+	asmMoveStyle     lipgloss.Style // mov / load / store / push / pop / lea
+	asmArithStyle    lipgloss.Style // add / sub / mul / and / shifts / cmp / test
+
 	symFuncStyle    lipgloss.Style
 	symObjectStyle  lipgloss.Style
 	symFileStyle    lipgloss.Style
@@ -191,6 +199,11 @@ func DefaultTheme() Theme {
 			Underline(true).
 			Bold(true),
 
+		asmRegisterStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("152")),
+		asmNumberStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("215")),
+		asmMoveStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("80")),
+		asmArithStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("176")),
+
 		symFuncStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("84")),
 		symObjectStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("75")),
 		symFileStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
@@ -247,6 +260,11 @@ func (t *Theme) ApplyColors(c config.Colors) {
 	setFg(&t.addrStyle, c.AddressColumn)
 	setFg(&t.linkAddrIntraStyle, c.AddressLinkIntraFunction)
 	setFg(&t.linkAddrInterStyle, c.AddressLinkInterFunction)
+	// Disasm: built-in operand-token + mnemonic-category colours.
+	setFg(&t.asmRegisterStyle, c.AsmRegister)
+	setFg(&t.asmNumberStyle, c.AsmImmediate)
+	setFg(&t.asmMoveStyle, c.AsmMove)
+	setFg(&t.asmArithStyle, c.AsmArith)
 	// Disasm: sticky symbol banner (fg + bg).
 	if c.StickySymbolBannerFG != "" {
 		t.stickySymStyle = t.stickySymStyle.Foreground(lipgloss.Color(c.StickySymbolBannerFG))

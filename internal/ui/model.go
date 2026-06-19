@@ -337,6 +337,12 @@ type searchState struct {
 	searchFromCursor bool
 }
 
+// settingsState stores state for the on-the-fly settings popup.
+type settingsState struct {
+	settingsActive bool
+	settingsCur    int // selected field (theme, background, default wrap, default view)
+}
+
 // statusState stores the footer status message.
 type statusState struct {
 	status      string
@@ -374,6 +380,7 @@ type Model struct {
 	interactionState
 	gotoState
 	searchState
+	settingsState
 	statusState
 	keyState
 }

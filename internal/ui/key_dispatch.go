@@ -25,6 +25,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.settingsActive {
+		return m.updateSettings(key)
+	}
 	if m.gotoActive {
 		return m.updateGotoInput(msg, key)
 	}
@@ -308,6 +311,9 @@ func (m *Model) handleGlobalAction(key string) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case actionToggleSource:
 		m.toggleSourcePane()
+		return m, nil, true
+	case actionSettings:
+		m.openSettings()
 		return m, nil, true
 	}
 	return m, nil, false

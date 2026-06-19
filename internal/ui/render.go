@@ -171,9 +171,51 @@ func padBodyRows(lines []string, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (t Theme) renderViewBackground(s string, w int) string {
+	return renderBackground(s, w, t.viewStyle)
+}
+
+func renderBackground(s string, w int, st lipgloss.Style) string {
+	return renderStyle(s, w, st)
+}
+
+func renderStyle(s string, w int, st lipgloss.Style) string {
+	prefix := stylePrefix(st)
+	if prefix == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if w > 0 && lipgloss.Width(line) != w {
+			line = padRight(line, w)
+		}
+		line = strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+prefix)
+		line = strings.ReplaceAll(line, "\x1b[m", "\x1b[m"+prefix)
+		lines[i] = prefix + line + "\x1b[0m"
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (t Theme) viewTitleLine(s string, w int) string {
+	return renderBackground(padRight(fitANSIWidth(s, w), w), w, t.tableHeaderStyle)
+}
+
+func (t Theme) stickyTitleLine(s string, w int) string {
+	return renderBackground(padRight(fitANSIWidth(s, w), w), w, t.stickySymStyle)
+}
+
+func stylePrefix(st lipgloss.Style) string {
+	sample := st.Render("x")
+	i := strings.IndexByte(sample, 'x')
+	if i <= 0 {
+		return ""
+	}
+	return sample[:i]
+}
+
 // tableHeader renders a full-width table header line.
 func (m *Model) tableHeader(s string) string {
-	return m.theme.tableHeaderStyle.Render(padRight(truncateMiddle(s, m.width), m.width))
+	return m.theme.viewTitleLine(truncateMiddle(s, m.width), m.width)
 }
 
 // renderLineRows renders one logical line into one or more fixed-width rows.

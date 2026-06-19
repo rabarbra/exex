@@ -42,11 +42,14 @@ func (m *Model) View() tea.View {
 	case modeLibs:
 		body = m.renderLibs()
 	}
+	body = m.theme.renderViewBackground(body, m.width)
 	parts = append(parts, body, m.renderFooter())
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	switch {
 	case m.helpActive:
 		out = m.overlayCenter(out, m.renderHelpModal())
+	case m.settingsActive:
+		out = m.overlayCenter(out, m.renderSettingsModal())
 	case m.gotoActive:
 		out = m.overlayCenter(out, m.renderGotoModal())
 	case m.searchActive:
@@ -80,6 +83,7 @@ func (m *Model) renderHelpModal() string {
 		head("Global"),
 		row("1–9", "switch view"),
 		row("g", "go to address / symbol"),
+		row(",", "settings (theme, wrap, …)"),
 		row("?", "this help  ·  q / ^C quit"),
 		"",
 		head("Lists (all views)"),

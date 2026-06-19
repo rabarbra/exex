@@ -7,7 +7,7 @@ package syntax
 
 import "sync"
 
-const defaultTheme = "catppuccin-mocha"
+const defaultTheme = "nord"
 
 // Highlighter tokenises source files once and caches their per-line ANSI output.
 type Highlighter struct {

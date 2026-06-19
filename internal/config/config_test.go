@@ -55,6 +55,7 @@ keys:
   goto: g
 behavior:
   default_view: disasm
+  default_wrap: true
   disasm_max_bytes: 4096
 `)
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), data, 0o644); err != nil {
@@ -74,7 +75,7 @@ behavior:
 	if got := []string(cfg.Keys.Goto); len(got) != 1 || got[0] != "g" {
 		t.Fatalf("goto keys = %#v", got)
 	}
-	if cfg.Behavior.DefaultView != "disasm" || cfg.Behavior.DisasmMaxBytes != 4096 {
+	if cfg.Behavior.DefaultView != "disasm" || !cfg.Behavior.DefaultWrap || cfg.Behavior.DisasmMaxBytes != 4096 {
 		t.Fatalf("behavior = %#v", cfg.Behavior)
 	}
 }

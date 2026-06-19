@@ -91,20 +91,22 @@ func (m *Model) disasmTokenStyle(tt chroma.TokenType) lipgloss.Style {
 	if st, ok := m.disasmTokenStyles[int(tt)]; ok {
 		return st
 	}
-	theme := sourceSyntaxTheme(m.cfg)
-	chromaStyle := styles.Get(theme)
+	themeName := sourceSyntaxTheme(m.cfg)
+	chromaStyle := styles.Get(themeName)
 	if chromaStyle == nil {
 		chromaStyle = styles.Fallback
 	}
-	st := chromaStyleEntryToLipgloss(chromaStyle.Get(tt))
+	st := chromaStyleEntryToLipgloss(chromaStyle.Get(tt), sourceSyntaxForeground(m.cfg))
 	m.disasmTokenStyles[int(tt)] = st
 	return st
 }
 
-func chromaStyleEntryToLipgloss(e chroma.StyleEntry) lipgloss.Style {
+func chromaStyleEntryToLipgloss(e chroma.StyleEntry, fallbackFG string) lipgloss.Style {
 	st := lipgloss.NewStyle()
 	if e.Colour.IsSet() {
 		st = st.Foreground(lipgloss.Color(e.Colour.String()))
+	} else if fallbackFG != "" {
+		st = st.Foreground(lipgloss.Color(fallbackFG))
 	}
 	if e.Bold == chroma.Yes {
 		st = st.Bold(true)

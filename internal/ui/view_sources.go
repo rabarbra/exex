@@ -473,7 +473,7 @@ func (m *Model) renderSourceText(w, h int) string {
 
 	var b strings.Builder
 	suffix := fmt.Sprintf(":%d", m.srcCur)
-	b.WriteString(m.theme.infoStyle.Render(truncateMiddle(m.srcFile, max(1, w-lipgloss.Width(suffix))) + suffix))
+	b.WriteString(m.theme.viewTitleLine(truncateMiddle(m.srcFile, max(1, w-lipgloss.Width(suffix)))+suffix, w))
 	b.WriteString("\n")
 
 	rows := 0
@@ -632,15 +632,15 @@ func (m *Model) sourceAsmHeader(anchor int, cols []int, w int) string {
 		name = truncateMiddle(name, max(1, w-fixedW-sepW))
 		parts = append(parts, m.theme.symbolNameStyle.Render(name))
 	}
-	parts = append(parts, m.theme.infoStyle.Render(linePlain))
+	parts = append(parts, linePlain)
 	if colsPlain != "" {
 		if colsPlain == origColsPlain {
-			parts = append(parts, m.theme.infoStyle.Render("cols ")+m.theme.coloredCols(cols))
+			parts = append(parts, "cols "+m.theme.coloredCols(cols))
 		} else {
-			parts = append(parts, m.theme.infoStyle.Render(colsPlain))
+			parts = append(parts, colsPlain)
 		}
 	}
-	return fitANSIWidth(strings.Join(parts, m.theme.infoStyle.Render(sep)), w)
+	return m.theme.viewTitleLine(strings.Join(parts, sep), w)
 }
 
 func intsString(v []int) string {

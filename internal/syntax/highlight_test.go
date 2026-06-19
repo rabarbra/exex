@@ -5,6 +5,9 @@ package syntax
 import (
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
 )
 
 func TestHighlightLines(t *testing.T) {
@@ -63,6 +66,14 @@ func TestHighlighterCachesByFilename(t *testing.T) {
 	second := h.Highlight("main.go", []string{"package changed"})
 	if len(first) != len(second) || stripANSI(second[0]) != "package main" {
 		t.Fatalf("cached highlight = %q, want first source", second)
+	}
+}
+
+func TestChromaDefaultTokenUsesThemeForeground(t *testing.T) {
+	got := chromaToLipgloss(chroma.StyleEntry{}, "#586e75").Render("x")
+	want := lipgloss.NewStyle().Foreground(lipgloss.Color("#586e75")).Render("x")
+	if got != want {
+		t.Fatalf("default token style = %q, want %q", got, want)
 	}
 }
 

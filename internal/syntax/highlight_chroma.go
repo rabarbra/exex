@@ -9,11 +9,13 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+
+	"github.com/rabarbra/exex/internal/theme"
 )
 
 // HighlightLines returns ANSI-styled source lines without using a cache. It uses
 // the minimal highlighter when Chroma cannot identify or tokenise the file.
-func HighlightLines(filename string, src []string, theme string) []string {
+func HighlightLines(filename string, src []string, themeName string) []string {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
 		lexer = lexers.Analyse(strings.Join(src, "\n"))
@@ -21,18 +23,19 @@ func HighlightLines(filename string, src []string, theme string) []string {
 	if lexer == nil {
 		// Unknown file type: fall back to the tiny built-in highlighter rather
 		// than rendering plain text.
-		return minimalHighlight(filename, src, theme)
+		return minimalHighlight(filename, src, themeName)
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	st := styles.Get(theme)
+	st := styles.Get(themeName)
 	if st == nil {
 		st = styles.Fallback
 	}
+	fallbackFG := chromaFallbackForeground(themeName)
 
 	it, err := lexer.Tokenise(nil, strings.Join(src, "\n"))
 	if err != nil {
-		return minimalHighlight(filename, src, theme)
+		return minimalHighlight(filename, src, themeName)
 	}
 
 	// Memoise the lipgloss style per token type: a source file has thousands of
@@ -43,7 +46,7 @@ func HighlightLines(filename string, src []string, theme string) []string {
 	for _, tok := range it.Tokens() {
 		ls, ok := styleFor[tok.Type]
 		if !ok {
-			ls = chromaToLipgloss(st.Get(tok.Type))
+			ls = chromaToLipgloss(st.Get(tok.Type), fallbackFG)
 			styleFor[tok.Type] = ls
 		}
 		parts := strings.Split(tok.Value, "\n")
@@ -62,10 +65,12 @@ func HighlightLines(filename string, src []string, theme string) []string {
 }
 
 // chromaToLipgloss converts the subset of Chroma style attributes used here.
-func chromaToLipgloss(e chroma.StyleEntry) lipgloss.Style {
+func chromaToLipgloss(e chroma.StyleEntry, fallbackFG string) lipgloss.Style {
 	s := lipgloss.NewStyle()
 	if e.Colour.IsSet() {
 		s = s.Foreground(lipgloss.Color(e.Colour.String()))
+	} else if fallbackFG != "" {
+		s = s.Foreground(lipgloss.Color(fallbackFG))
 	}
 	if e.Bold == chroma.Yes {
 		s = s.Bold(true)
@@ -77,4 +82,14 @@ func chromaToLipgloss(e chroma.StyleEntry) lipgloss.Style {
 		s = s.Underline(true)
 	}
 	return s
+}
+
+func chromaFallbackForeground(name string) string {
+	if p, ok := theme.PaletteFor(strings.TrimSpace(name)); ok {
+		return p.Foreground
+	}
+	if p, ok := theme.PaletteFor(defaultTheme); ok {
+		return p.Foreground
+	}
+	return ""
 }

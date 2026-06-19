@@ -105,11 +105,11 @@ $HOME/.config/exex/config.yaml
 Every field is optional — unset entries keep their defaults, so you only specify
 what you want to change. You can:
 
-- pick a built-in **theme** preset: `theme: dark | nord | solarized-dark | solarized-light`,
+- pick a built-in **theme** preset: `theme: nord | dark | solarized-dark | solarized-light`,
 - override any individual colour under `colors:` (instruction classes, address
   links, tables, source/asm highlight, the hex byte ramp, path colours, …),
 - rebind top-level **keys**,
-- set **behaviour** (default view, disasm landing target, decode window size).
+- set **behaviour** (default view, default wrap, disasm landing target, decode window size).
 
 See [`docs/config.example.yaml`](docs/config.example.yaml) for the full annotated
 schema. Colour values are a `#RRGGBB` hex string or an ANSI-256 index (e.g.

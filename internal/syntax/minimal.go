@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/rabarbra/exex/internal/theme"
 )
 
 var (
@@ -26,6 +28,7 @@ var (
 )
 
 type minimalPalette struct {
+	text         lipgloss.Style
 	comment      lipgloss.Style
 	stringLit    lipgloss.Style
 	number       lipgloss.Style
@@ -38,6 +41,7 @@ type minimalPalette struct {
 }
 
 var defaultMinimalPalette = minimalPalette{
+	text:         lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
 	comment:      mhComment,
 	stringLit:    mhString,
 	number:       mhNumber,
@@ -51,6 +55,7 @@ var defaultMinimalPalette = minimalPalette{
 
 var (
 	nordMinimalPalette = minimalPalette{
+		text:         lipgloss.NewStyle().Foreground(lipgloss.Color("#d8dee9")),
 		comment:      lipgloss.NewStyle().Foreground(lipgloss.Color("#4c566a")),
 		stringLit:    lipgloss.NewStyle().Foreground(lipgloss.Color("#a3be8c")),
 		number:       lipgloss.NewStyle().Foreground(lipgloss.Color("#d08770")),
@@ -61,12 +66,14 @@ var (
 		typ:          lipgloss.NewStyle().Foreground(lipgloss.Color("#ebcb8b")),
 		literal:      lipgloss.NewStyle().Foreground(lipgloss.Color("#d08770")),
 	}
-	solarizedDarkMinimalPalette  = solarizedMinimalPalette("#586e75")
-	solarizedLightMinimalPalette = solarizedMinimalPalette("#93a1a1")
+	solarizedDarkMinimalPalette  = solarizedMinimalPalette("#93a1a1", "#586e75")
+	solarizedLightMinimalPalette = solarizedMinimalPalette("#586e75", "#93a1a1")
 )
 
-func minimalPaletteForTheme(theme string) minimalPalette {
-	switch strings.ToLower(strings.TrimSpace(theme)) {
+func minimalPaletteForTheme(name string) minimalPalette {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "dark":
+		return defaultMinimalPalette
 	case "nord":
 		return nordMinimalPalette
 	case "solarized-dark":
@@ -74,11 +81,35 @@ func minimalPaletteForTheme(theme string) minimalPalette {
 	case "solarized-light":
 		return solarizedLightMinimalPalette
 	}
+	// Any other name: derive from the matching Chroma palette so lite source
+	// highlighting follows the chosen theme too.
+	if p, ok := theme.PaletteFor(strings.TrimSpace(name)); ok {
+		return minimalPaletteFromChroma(p)
+	}
 	return defaultMinimalPalette
 }
 
-func solarizedMinimalPalette(comment string) minimalPalette {
+// minimalPaletteFromChroma maps a Chroma palette onto the highlighter's category
+// styles.
+func minimalPaletteFromChroma(p theme.Palette) minimalPalette {
+	fg := func(hex string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)) }
 	return minimalPalette{
+		text:         fg(p.Foreground),
+		comment:      fg(p.Comment),
+		stringLit:    fg(p.String),
+		number:       fg(p.Number),
+		control:      fg(p.Keyword).Bold(true),
+		declaration:  fg(p.Keyword),
+		function:     fg(p.Function).Bold(true),
+		functionName: fg(p.Function),
+		typ:          fg(p.Type),
+		literal:      fg(p.Number),
+	}
+}
+
+func solarizedMinimalPalette(text, comment string) minimalPalette {
+	return minimalPalette{
+		text:         lipgloss.NewStyle().Foreground(lipgloss.Color(text)),
 		comment:      lipgloss.NewStyle().Foreground(lipgloss.Color(comment)),
 		stringLit:    lipgloss.NewStyle().Foreground(lipgloss.Color("#859900")),
 		number:       lipgloss.NewStyle().Foreground(lipgloss.Color("#cb4b16")),
@@ -225,12 +256,12 @@ func mhLine(line string, cs commentSyntax, inBlock bool, pal minimalPalette) (st
 				b.WriteString(pal.functionName.Render(word))
 				wantFuncName = false
 			} else {
-				b.WriteString(word)
+				b.WriteString(pal.text.Render(word))
 				wantFuncName = false
 			}
 			i = j
 		default:
-			b.WriteByte(c)
+			b.WriteString(pal.text.Render(line[i : i+1]))
 			i++
 		}
 	}

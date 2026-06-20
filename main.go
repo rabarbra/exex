@@ -7,6 +7,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -57,6 +58,13 @@ func main() {
 	}
 	f, err := binfile.Open(path, openOpts...)
 	if err != nil {
+		// Not a recognised binary: if it's a readable text file (a shell/python/…
+		// script — still "executable"), open it in the text viewer instead, unless
+		// a non-interactive -o dump was requested.
+		if !outputMode && ui.LooksLikeText(readPrefix(path, 8192)) {
+			runTextViewer(path)
+			return
+		}
 		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
 		os.Exit(1)
 	}
@@ -188,4 +196,35 @@ func resolveTarget(arg string) string {
 		return p
 	}
 	return arg
+}
+
+// readPrefix returns up to n bytes from the start of path (nil on error). Used
+// to sniff whether an unrecognised file is text.
+func readPrefix(path string, n int) []byte {
+	fp, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer fp.Close()
+	buf := make([]byte, n)
+	r, _ := io.ReadFull(fp, buf)
+	return buf[:r]
+}
+
+// runTextViewer loads path into the text-script viewer and runs it.
+func runTextViewer(path string) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
+		os.Exit(1)
+	}
+	tm, err := ui.NewText(path, *cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := tea.NewProgram(tm).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
+		os.Exit(1)
+	}
 }

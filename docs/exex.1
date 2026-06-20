@@ -35,6 +35,14 @@ flag,
 runs non-interactively: it prints a view (or a function's disassembly) to
 standard output and exits, making it scriptable like the classic binary
 inspection tools.
+.PP
+If
+.I binary
+is not a recognised binary but a readable text file (a shell, Python or other
+script \(em still "executable"),
+.B exex
+opens it in a read-only text viewer; see
+.BR "TEXT SCRIPTS" .
 .SH OPTIONS
 Flags may appear in any position on the command line.
 .TP
@@ -148,6 +156,31 @@ Quit.
 .PP
 The mouse wheel scrolls, a click selects, and a double-click follows in the
 disassembly view.
+.SH TEXT SCRIPTS
+When
+.I binary
+is a readable text file rather than a compiled binary (a shell, Python or other
+script),
+.B exex
+shows it in a read-only text viewer. Two kinds of token are highlighted and can
+be opened from a picker menu
+.RB ( Enter
+or
+.BR o ):
+filesystem paths that resolve to a real file (absolute,
+.IR ~ -relative,
+or relative to the script's own directory), and bare command names found on
+.B $PATH
+(the interpreters and tools the script invokes, such as
+.BR bash ,
+.B python3
+or
+.BR grep ).
+Opening a referenced binary switches to the full explorer; opening another text
+file shows it in the viewer, with
+.B Esc
+to go back. This mode is interactive only and is not combined with
+.BR \-o .
 .SH CONFIGURATION
 Configuration is optional YAML loaded from
 .B $XDG_CONFIG_HOME/exex/config.yaml

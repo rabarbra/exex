@@ -132,6 +132,21 @@ Output streams, so `| head` returns immediately even on large binaries.
 
 The mouse wheel scrolls, click selects, and double-click follows in the disasm view.
 
+### Text scripts
+
+If `<binary>` is not an ELF/Mach-O/PE file but a readable text file — a shell,
+Python, or other script (still "executable") — exex opens it in a simple
+read-only text viewer instead of erroring. It highlights, and lets you open from
+a menu (`Enter` / `o`):
+
+- **filesystem paths** that resolve to a real file — absolute, `~`-relative, or
+  relative to the script's own directory, and
+- **commands found on `$PATH`** that the script invokes (its interpreters and
+  tools, e.g. `bash`, `python3`, `grep`).
+
+Opening a referenced binary switches to the full explorer; opening another text
+file shows it in the viewer, with `Esc` to go back.
+
 ## Configuration
 
 Config is optional YAML at:

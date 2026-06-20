@@ -90,7 +90,7 @@ func (m *Model) renderHelpModal() string {
 		"",
 		head("Lists (all views)"),
 		row("↑/↓  j/k", "move line"),
-		row("PgUp/PgDn", "page  (⌘↑/⌘↓ on macOS)"),
+		row("PgUp/PgDn  [ ]", "page  (⌘↑/⌘↓ on macOS)"),
 		row("Home/End", "begin/end  (^A / ^E)"),
 		row("/", "filter / search"),
 		row("Enter", "open / jump"),

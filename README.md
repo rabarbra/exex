@@ -122,7 +122,7 @@ Output streams, so `| head` returns immediately even on large binaries.
 | `/` | filter / search the current view |
 | `Enter` | open / follow / jump |
 | `g` | go to address or symbol |
-| `[` / `]` | previous / next (section in Hex/Raw, symbol in Disasm) |
+| `[` / `]` | page up / down in list views; previous / next section (Hex/Raw) or symbol (Disasm) |
 | `⇧[` / `⇧]` | previous / next non-zero byte (Hex/Raw) |
 | `d` | disassemble selected address (when executable) |
 | `a` / `s` | copy address / name |

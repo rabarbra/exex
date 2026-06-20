@@ -12,16 +12,18 @@ import (
 // navKey applies a standard list-navigation key (up/down/k/j, pgup/pgdown,
 // home/end/G) to a cursor over n items, paging by page rows. It returns true
 // when it consumed the key (so the caller can stop), and always leaves the
-// cursor in [0, n-1] — or 0 for an empty list.
+// cursor in [0, n-1] — or 0 for an empty list. `[`/`]` page up/down here too:
+// only the list views route through navKey (disasm/hex/source-open handle those
+// keys themselves), so paging with them is free in exactly the list views.
 func navKey(cur *int, n, page int, key string) bool {
 	switch key {
 	case "up", "k":
 		*cur--
 	case "down", "j":
 		*cur++
-	case "pgup":
+	case "pgup", "[":
 		*cur -= page
-	case "pgdown":
+	case "pgdown", "]":
 		*cur += page
 	case "home":
 		*cur = 0

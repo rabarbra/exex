@@ -13,6 +13,7 @@ import (
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
+	"github.com/rabarbra/exex/internal/dump"
 	"github.com/rabarbra/exex/internal/ui"
 )
 
@@ -22,15 +23,20 @@ func main() {
 	flag.StringVar(&debugPath, "d", "", "shorthand for -debug")
 	flag.StringVar(&searchString, "s", "", "search printable strings: open the match in Hex, or the Strings view filtered when several match")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [-debug PATH] [-s STRING] <binary> [goto]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-debug PATH] [-s STRING] [-o [VIEW]] <binary> [goto]\n", os.Args[0])
 		fmt.Fprintln(os.Stderr, "  <binary>  path to an ELF/Mach-O/PE file, or a command name on $PATH")
-		fmt.Fprintln(os.Stderr, "  goto      optional address (0x…) or symbol name to jump to on open")
+		fmt.Fprintln(os.Stderr, "  goto      address (0x…) or symbol name: jump to it on open, or with bare -o disassemble it")
+		fmt.Fprintf(os.Stderr, "  -o VIEW   print a view to stdout and exit: %s\n", strings.Join(dump.ViewNames, ", "))
+		fmt.Fprintln(os.Stderr, "  -o        bare: print the goto symbol/address's function disassembly to stdout and exit")
 		flag.PrintDefaults()
 	}
+	// `-o` takes an optional view value, which Go's flag package can't express, so
+	// pull it (and any view keyword that follows) out of the args by hand first.
+	rawArgs, outputMode, outputView := extractOutput(os.Args[1:])
 	// The stdlib flag package stops at the first non-flag argument, so a flag
 	// after the binary path (e.g. `exex <binary> -s foo`) would be misread as a
 	// positional. Reorder so flags can appear in any position.
-	flag.CommandLine.Parse(reorderArgs(os.Args[1:]))
+	flag.CommandLine.Parse(reorderArgs(rawArgs))
 
 	args := flag.Args()
 	if len(args) < 1 || len(args) > 2 {
@@ -51,6 +57,41 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exex: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Non-interactive output mode: dump a view (`-o VIEW`) or the positional
+	// symbol/address's disassembly (bare `-o`) to stdout and exit, no TUI.
+	if outputMode {
+		// The whole-binary disasm streams (and demangles labels lazily), so it
+		// must NOT pay the upfront whole-table demangle that the other views want.
+		if d, all := dump.IsDisasm(outputView); d {
+			if err := dump.DisasmTo(os.Stdout, f, all); err != nil {
+				fmt.Fprintf(os.Stderr, "exex: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		f.ApplyDemangled(f.ComputeDemangled()) // readable + matchable names
+		var (
+			out string
+			err error
+		)
+		switch {
+		case outputView != "":
+			out, err = dump.View(f, outputView)
+		case gotoTarget != "":
+			out, err = dump.Function(f, gotoTarget)
+		default:
+			fmt.Fprintf(os.Stderr, "exex: -o needs a view (%s) or a symbol/address argument (e.g. exex -o <binary> main)\n",
+				strings.Join(dump.ViewNames, ", "))
+			os.Exit(2)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "exex: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(out)
+		return
 	}
 
 	cfg, err := config.Load()
@@ -78,6 +119,32 @@ var valueFlags = map[string]bool{
 	"-s": true, "--s": true,
 	"-d": true, "--d": true,
 	"-debug": true, "--debug": true,
+}
+
+// extractOutput pulls an optional -o / --o flag (with its optional view value)
+// out of args, returning the remaining args, whether output mode is on, and the
+// requested view ("" for a bare -o). A bare -o consumes the following token only
+// when it's a known view keyword, so `-o sections <bin>` selects the view while
+// `-o <bin> main` leaves <bin>/main as positionals (the symbol to disassemble).
+func extractOutput(args []string) (rest []string, on bool, view string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-o" || a == "--o":
+			on = true
+			if i+1 < len(args) && dump.IsView(args[i+1]) {
+				view = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "-o="):
+			on, view = true, a[len("-o="):]
+		case strings.HasPrefix(a, "--o="):
+			on, view = true, a[len("--o="):]
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return rest, on, view
 }
 
 // reorderArgs moves all flags (and their values) ahead of positional arguments

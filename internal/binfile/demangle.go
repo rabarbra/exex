@@ -7,6 +7,13 @@ import (
 	"github.com/ianlancetaylor/demangle"
 )
 
+// DemangleName returns the human-readable form of a single mangled C++/Rust
+// symbol (Itanium/Rust only — no Swift, which needs the batch tool), or "" when
+// name isn't a recognised mangling. It lets callers demangle on demand (e.g. the
+// streaming disassembly dump labels functions one at a time) without running the
+// whole-table ComputeDemangled pass.
+func DemangleName(name string) string { return demangleName(name) }
+
 // demangleName returns a human-readable form of a mangled C++/Rust symbol, or
 // "" when name isn't a recognised mangling. Mach-O prefixes the platform's C
 // symbols with an extra underscore, so an Itanium/Rust symbol shows up as

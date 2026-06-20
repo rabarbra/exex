@@ -74,6 +74,7 @@ const (
 type Section struct {
 	Name     string
 	Addr     uint64
+	PhysAddr uint64 // load/physical address (LMA); 0 when same as Addr or unknown
 	Size     uint64 // in-memory size
 	Offset   uint64 // file offset of the bytes
 	FileSize uint64 // bytes actually present in the file
@@ -92,6 +93,7 @@ type Section struct {
 type Segment struct {
 	Name     string // type label: "LOAD", "DYNAMIC", "__TEXT", …
 	Addr     uint64 // virtual address (0 when not mapped)
+	PhysAddr uint64 // physical/load address (ELF p_paddr); 0 when same as Addr or unknown
 	Size     uint64 // in-memory size
 	Offset   uint64 // file offset of the bytes
 	FileSize uint64 // bytes present in the file

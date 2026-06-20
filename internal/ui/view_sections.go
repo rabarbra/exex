@@ -168,13 +168,22 @@ func (m *Model) renderSections() string {
 
 	addrW := m.file.AddrHexWidth()
 	addrCol := 2 + addrW
-	var hdr string
+	phys := m.sectionsHavePhys()
 	if m.showSegments {
-		// columns: idx, type, perms, vaddr, mem size, file size, align
+		phys = m.segmentsHavePhys()
+	}
+	var hdr string
+	switch {
+	case m.showSegments && phys:
+		hdr = fmt.Sprintf(" %3s  %-16s %-5s %-*s %-*s %-12s %-12s  %s",
+			"#", "Type", "Perms", addrCol, "Addr", addrCol, "PAddr", "MemSize", "FileSize", "Align")
+	case m.showSegments:
 		hdr = fmt.Sprintf(" %3s  %-16s %-5s %-*s %-12s %-12s  %s",
 			"#", "Type", "Perms", addrCol, "Addr", "MemSize", "FileSize", "Align")
-	} else {
-		// columns: idx, name, type, addr, size, flags
+	case phys:
+		hdr = fmt.Sprintf(" %3s  %-22s %-14s %-*s %-*s %-12s  %s",
+			"#", "Name", "Type", addrCol, "Addr", addrCol, "LMA", "Size", "Flags")
+	default:
 		hdr = fmt.Sprintf(" %3s  %-22s %-14s %-*s %-12s  %s",
 			"#", "Name", "Type", addrCol, "Addr", "Size", "Flags")
 	}
@@ -246,6 +255,34 @@ func (m *Model) sectionRow(i, addrW int) string {
 	return line
 }
 
+// sectionsHavePhys / segmentsHavePhys report whether any row carries a distinct
+// load/physical address, so the views add an LMA / PAddr column only then.
+func (m *Model) sectionsHavePhys() bool {
+	for i := range m.sections {
+		if m.sections[i].PhysAddr != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) segmentsHavePhys() bool {
+	for i := range m.segments {
+		if m.segments[i].PhysAddr != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// physCell renders a load/physical address column, or a dim "-" when unset.
+func (m *Model) physCell(phys uint64, addrW int) string {
+	if phys == 0 {
+		return m.theme.srcShadowStyle.Render(padVisual("-", 2+addrW))
+	}
+	return m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, phys))
+}
+
 func (m *Model) sectionRowText(i, addrW int) string {
 	idx := m.sectionsFiltered[i]
 	s := m.sections[idx]
@@ -256,11 +293,16 @@ func (m *Model) sectionRowText(i, addrW int) string {
 		typeName = truncateMiddle(typeName, 14)
 	}
 	rowStyle := m.theme.styleForSection(&s)
-	return fmt.Sprintf(" %s  %s %s %s %s  %s",
+	lma := ""
+	if m.sectionsHavePhys() {
+		lma = " " + m.physCell(s.PhysAddr, addrW)
+	}
+	return fmt.Sprintf(" %s  %s %s %s%s %s  %s",
 		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)),
 		rowStyle.Render(padVisual(name, 22)),
 		rowStyle.Render(padVisual(typeName, 14)),
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)),
+		lma,
 		rowStyle.Render(fmt.Sprintf("%-12d", s.Size)),
 		rowStyle.Render(s.Flags))
 }
@@ -286,11 +328,16 @@ func (m *Model) segmentRow(i, addrW int) string {
 	if s.Align > 0 {
 		align = fmt.Sprintf("0x%x", s.Align)
 	}
-	return fmt.Sprintf(" %s  %s %s %s %s %s  %s",
+	paddr := ""
+	if m.segmentsHavePhys() {
+		paddr = " " + m.physCell(s.PhysAddr, addrW)
+	}
+	return fmt.Sprintf(" %s  %s %s %s%s %s %s  %s",
 		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)),
 		rowStyle.Render(padVisual(name, 16)),
 		rowStyle.Render(padVisual(s.Perms(), 5)),
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)),
+		paddr,
 		rowStyle.Render(fmt.Sprintf("%-12d", s.Size)),
 		rowStyle.Render(fmt.Sprintf("%-12d", s.FileSize)),
 		rowStyle.Render(align))

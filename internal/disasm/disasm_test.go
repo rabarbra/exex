@@ -38,6 +38,35 @@ func TestAMD64DecodesCommonPrologue(t *testing.T) {
 	}
 }
 
+// TestRangeFuncStreamsAndStops checks the streaming primitive: it yields the
+// same instructions as Range, and stops early when the callback returns false
+// (the property the disassembly dump relies on for `| head`).
+func TestRangeFuncStreamsAndStops(t *testing.T) {
+	d, err := For(ArchAMD64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := []byte{0x55, 0x48, 0x89, 0xe5, 0x31, 0xc0, 0x5d, 0xc3}
+
+	var streamed []Inst
+	RangeFunc(d, code, 0x1000, func(in Inst) bool {
+		streamed = append(streamed, in)
+		return true
+	})
+	if want := Range(d, code, 0x1000, 0); len(streamed) != len(want) {
+		t.Fatalf("RangeFunc yielded %d, Range yielded %d", len(streamed), len(want))
+	}
+
+	n := 0
+	RangeFunc(d, code, 0x1000, func(Inst) bool {
+		n++
+		return n < 2 // stop after the second instruction
+	})
+	if n != 2 {
+		t.Fatalf("RangeFunc kept going after stop: %d", n)
+	}
+}
+
 func TestUnsupportedArch(t *testing.T) {
 	if _, err := For(ArchUnknown); err == nil {
 		t.Fatal("expected error for unknown arch")

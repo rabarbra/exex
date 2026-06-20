@@ -310,28 +310,40 @@ func isHexDigit(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
-// Range walks the buffer and decodes instructions until it's exhausted. On a
-// decode error, it emits a "(bad)" placeholder of Step() bytes and continues.
-func Range(d Disassembler, code []byte, addr uint64, maxInst int) []Inst {
-	out := make([]Inst, 0, 256)
+// RangeFunc walks the buffer and decodes instructions, calling fn for each (a
+// "(bad)" placeholder of Step() bytes on a decode error). It stops early when fn
+// returns false, so callers can stream output without buffering every decoded
+// instruction (used by the whole-binary disassembly dump).
+func RangeFunc(d Disassembler, code []byte, addr uint64, fn func(Inst) bool) {
 	p := 0
-	for p < len(code) && (maxInst <= 0 || len(out) < maxInst) {
+	for p < len(code) {
 		inst, err := d.Decode(code[p:], addr+uint64(p))
 		if err != nil || len(inst.Bytes) == 0 {
 			step := d.Step()
 			if p+step > len(code) {
-				break
+				return
 			}
-			out = append(out, Inst{
-				Addr:  addr + uint64(p),
-				Bytes: code[p : p+step],
-				Text:  "(bad)",
-			})
+			if !fn(Inst{Addr: addr + uint64(p), Bytes: code[p : p+step], Text: "(bad)"}) {
+				return
+			}
 			p += step
 			continue
 		}
-		out = append(out, inst)
+		if !fn(inst) {
+			return
+		}
 		p += len(inst.Bytes)
 	}
+}
+
+// Range walks the buffer and decodes instructions until it's exhausted (or
+// maxInst is reached, when > 0). On a decode error, it emits a "(bad)"
+// placeholder of Step() bytes and continues.
+func Range(d Disassembler, code []byte, addr uint64, maxInst int) []Inst {
+	out := make([]Inst, 0, 256)
+	RangeFunc(d, code, addr, func(in Inst) bool {
+		out = append(out, in)
+		return maxInst <= 0 || len(out) < maxInst
+	})
 	return out
 }

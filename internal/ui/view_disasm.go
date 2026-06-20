@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/rabarbra/exex/internal/dump"
 )
 
 func (m *Model) updateDisasm(key string) (tea.Model, tea.Cmd) {
@@ -129,7 +131,7 @@ func (m *Model) copyFunctionDisasm() {
 		m.setStatus("no instructions to copy for this function", true)
 		return
 	}
-	text := functionDisasmText(sym, insts, m.file.AddrHexWidth())
+	text := dump.FunctionText(sym, insts, m.file.AddrHexWidth())
 	m.copyBlob(text, fmt.Sprintf("copied %d instructions of %s", len(insts), sym.Display()))
 }
 

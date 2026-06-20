@@ -17,10 +17,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const (
-	xrefVisible = 12  // rows shown in the modal at once
-	xrefMaxHits = 500 // cap on collected references
-)
+// xrefMaxHits caps how many references are collected (the modal scrolls).
+const xrefMaxHits = 500
 
 // xrefHit is one referencing instruction.
 type xrefHit struct {
@@ -177,12 +175,31 @@ func (m *Model) updateXrefModal(key string) (tea.Model, tea.Cmd) {
 
 func (m *Model) renderXrefModal() string {
 	var sb strings.Builder
-	sb.WriteString(m.theme.titleStyle.Render(" References to "+m.xrefLabel+" ") + "\n\n")
-
 	addrW := m.file.AddrHexWidth()
-	rowW := min(max(72, m.width-14), 120)
-	top := visualTop(m.xrefSel, m.xrefTop, len(m.xrefResults), xrefVisible, func(int) int { return 1 })
-	end := min(top+xrefVisible, len(m.xrefResults))
+	// Never exceed the view: bound the content width to the screen minus the
+	// modal's border + padding (6 cols), so the modal always fits.
+	rowW := clamp(m.width-8, 24, 160)
+	// As many rows as the screen allows, after the modal's chrome (title, target
+	// line(s), two blanks, footer, border + padding).
+	visible := clamp(m.height-8, 3, 40)
+
+	// Column budget: " 0x<addr>  <sym>  <text>". The instruction text in an xref
+	// is short (call/lea/branch), so cap it and give the rest to the symbol.
+	avail := rowW - len(" ") - (2 + addrW) - len("  ") - len("  ")
+	textW := clamp(avail/3, 12, 40)
+	symW := max(8, avail-textW)
+
+	// Title is short and fixed; the target name (a possibly long demangled symbol)
+	// goes on its own line(s), wrapped to the modal width so it never widens the
+	// modal past the view.
+	sb.WriteString(m.theme.titleStyle.Render(" Cross-references ") + "\n")
+	for _, r := range renderLineRowsIndented(m.theme.symbolNameStyle.Render(m.xrefLabel), rowW, true, 0) {
+		sb.WriteString(r + "\n")
+	}
+	sb.WriteString("\n")
+	top := visualTop(m.xrefSel, m.xrefTop, len(m.xrefResults), visible, func(int) int { return 1 })
+	m.xrefTop = top
+	end := min(top+visible, len(m.xrefResults))
 	for i := top; i < end; i++ {
 		h := m.xrefResults[i]
 		loc := h.sym
@@ -190,7 +207,9 @@ func (m *Model) renderXrefModal() string {
 			loc = "—"
 		}
 		line := fmt.Sprintf(" 0x%0*x  %s  %s",
-			addrW, h.addr, padVisual(truncateMiddle(loc, 22), 22), h.text)
+			addrW, h.addr,
+			padVisual(truncateMiddle(loc, symW), symW),
+			truncateMiddle(h.text, textW))
 		line = padRight(line, rowW)
 		if i == m.xrefSel {
 			line = m.theme.tableSelStyle.Render(line)

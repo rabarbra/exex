@@ -2,7 +2,8 @@ package ui
 
 // This file owns the sections view: a filterable table of the binary's
 // sections. Enter routes a section to the most useful view (disasm for code,
-// hex for other mapped sections, raw for unmapped ones).
+// hex for other mapped sections, raw for unmapped ones). The `t` key toggles to
+// the coarser segment (memory-region) table, which sections live inside.
 
 import (
 	"fmt"
@@ -15,13 +16,25 @@ import (
 )
 
 // recomputeSections rebuilds sectionsFiltered from the current filter text,
-// matching on section name.
+// matching on the name of the active table (sections or segments).
 func (m *Model) recomputeSections() {
 	m.clearSectionCaches()
 	needle := strings.ToLower(m.sectionsFilter.Value())
 	m.sectionsFiltered = m.sectionsFiltered[:0]
-	for i, s := range m.sections {
-		if needle == "" || containsFold(s.Name, needle) {
+	names := func() int {
+		if m.showSegments {
+			return len(m.segments)
+		}
+		return len(m.sections)
+	}()
+	for i := 0; i < names; i++ {
+		var name string
+		if m.showSegments {
+			name = m.segments[i].Name
+		} else {
+			name = m.sections[i].Name
+		}
+		if needle == "" || containsFold(name, needle) {
 			m.sectionsFiltered = append(m.sectionsFiltered, i)
 		}
 	}
@@ -39,7 +52,33 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 	case "/":
 		m.sectionsFilter.Focus()
 		return m, nil
+	case "t":
+		// Toggle sections ⇄ segments. No segments (e.g. PE) → stay on sections.
+		if !m.showSegments && len(m.segments) == 0 {
+			m.setStatus("no segments in this binary", false)
+			return m, nil
+		}
+		m.showSegments = !m.showSegments
+		m.sectionsCur, m.sectionsTop = 0, 0
+		m.sectionsFilter.SetValue("")
+		m.recomputeSections()
+		if m.showSegments {
+			m.setStatus("showing segments (t for sections)", false)
+		} else {
+			m.setStatus("showing sections (t for segments)", false)
+		}
+		return m, nil
 	case "enter":
+		if m.showSegments {
+			if seg, ok := m.currentSegment(); ok {
+				if seg.Addr != 0 {
+					m.openHexAt(seg.Addr)
+				} else {
+					m.openRawAt(seg.Offset)
+				}
+			}
+			return m, nil
+		}
 		sec, ok := m.currentSection()
 		if !ok {
 			return m, nil
@@ -50,6 +89,14 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 			m.openRawAt(sec.Offset)
 		}
 	case "d":
+		if m.showSegments {
+			if seg, ok := m.currentSegment(); ok && seg.X && seg.Addr != 0 && m.dis != nil {
+				m.loadDisasmAt(seg.Addr)
+			} else {
+				m.setStatus("segment is not executable", true)
+			}
+			return m, nil
+		}
 		sec, ok := m.currentSection()
 		if !ok {
 			return m, nil
@@ -62,10 +109,22 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 	case "w":
 		m.toggleWrap()
 	case "a":
+		if m.showSegments {
+			if seg, ok := m.currentSegment(); ok {
+				m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), seg.Addr), "address")
+			}
+			return m, nil
+		}
 		if sec, ok := m.currentSection(); ok {
 			m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), sec.Addr), "address")
 		}
 	case "s":
+		if m.showSegments {
+			if seg, ok := m.currentSegment(); ok {
+				m.copyToClipboard(seg.Name, "segment name")
+			}
+			return m, nil
+		}
 		if sec, ok := m.currentSection(); ok {
 			m.copyToClipboard(sec.Name, "section name")
 		}
@@ -75,10 +134,18 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 
 // currentSection returns the selected section through the active filter.
 func (m *Model) currentSection() (binfile.Section, bool) {
-	if m.sectionsCur < 0 || m.sectionsCur >= len(m.sectionsFiltered) {
+	if m.showSegments || m.sectionsCur < 0 || m.sectionsCur >= len(m.sectionsFiltered) {
 		return binfile.Section{}, false
 	}
 	return m.sections[m.sectionsFiltered[m.sectionsCur]], true
+}
+
+// currentSegment returns the selected segment through the active filter.
+func (m *Model) currentSegment() (binfile.Segment, bool) {
+	if !m.showSegments || m.sectionsCur < 0 || m.sectionsCur >= len(m.sectionsFiltered) {
+		return binfile.Segment{}, false
+	}
+	return m.segments[m.sectionsFiltered[m.sectionsCur]], true
 }
 
 func (m *Model) renderSections() string {
@@ -87,17 +154,30 @@ func (m *Model) renderSections() string {
 		bodyH = 3
 	}
 
+	total := len(m.sections)
+	kind := "sections"
+	if m.showSegments {
+		total = len(m.segments)
+		kind = "segments"
+	}
 	filterRow := m.sectionsFilter.View()
 	if !m.sectionsFilter.Focused() {
-		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   (%d / %d)",
-			m.sectionsFilter.Value(), len(m.sectionsFiltered), len(m.sections)))
+		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   %s (%d / %d)   t: toggle",
+			m.sectionsFilter.Value(), kind, len(m.sectionsFiltered), total))
 	}
 
-	// columns: idx, name, type, addr, size, flags
 	addrW := m.file.AddrHexWidth()
 	addrCol := 2 + addrW
-	hdr := fmt.Sprintf(" %3s  %-22s %-14s %-*s %-12s  %s",
-		"#", "Name", "Type", addrCol, "Addr", "Size", "Flags")
+	var hdr string
+	if m.showSegments {
+		// columns: idx, type, perms, vaddr, mem size, file size, align
+		hdr = fmt.Sprintf(" %3s  %-16s %-5s %-*s %-12s %-12s  %s",
+			"#", "Type", "Perms", addrCol, "Addr", "MemSize", "FileSize", "Align")
+	} else {
+		// columns: idx, name, type, addr, size, flags
+		hdr = fmt.Sprintf(" %3s  %-22s %-14s %-*s %-12s  %s",
+			"#", "Name", "Type", addrCol, "Addr", "Size", "Flags")
+	}
 	header := m.tableHeader(hdr)
 
 	visible := bodyH - 2 // filter row + header
@@ -152,6 +232,21 @@ func (m *Model) sectionRow(i, addrW int) string {
 		}
 	}
 
+	var line string
+	if m.showSegments {
+		line = m.segmentRow(i, addrW)
+	} else {
+		line = m.sectionRowText(i, addrW)
+	}
+
+	if m.sectionRowCache == nil {
+		m.sectionRowCache = make(map[rowCacheKey]string)
+	}
+	m.sectionRowCache[key] = line
+	return line
+}
+
+func (m *Model) sectionRowText(i, addrW int) string {
 	idx := m.sectionsFiltered[i]
 	s := m.sections[idx]
 	name := s.Name
@@ -161,17 +256,42 @@ func (m *Model) sectionRow(i, addrW int) string {
 		typeName = truncateMiddle(typeName, 14)
 	}
 	rowStyle := m.theme.styleForSection(&s)
-	line := fmt.Sprintf(" %s  %s %s %s %s  %s",
+	return fmt.Sprintf(" %s  %s %s %s %s  %s",
 		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)),
 		rowStyle.Render(padVisual(name, 22)),
 		rowStyle.Render(padVisual(typeName, 14)),
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)),
 		rowStyle.Render(fmt.Sprintf("%-12d", s.Size)),
 		rowStyle.Render(s.Flags))
+}
 
-	if m.sectionRowCache == nil {
-		m.sectionRowCache = make(map[rowCacheKey]string)
+// segmentRow renders one segment row. Executable segments reuse the .text row
+// colour, writable ones the data colour, the rest read-only data — so segment
+// colours read like the section table.
+func (m *Model) segmentRow(i, addrW int) string {
+	idx := m.sectionsFiltered[i]
+	s := m.segments[idx]
+	name := s.Name
+	if !m.wrap {
+		name = truncateMiddle(name, 16)
 	}
-	m.sectionRowCache[key] = line
-	return line
+	rowStyle := m.theme.secRodataStyle
+	switch {
+	case s.X:
+		rowStyle = m.theme.secTextStyle
+	case s.W:
+		rowStyle = m.theme.secDataStyle
+	}
+	align := "-"
+	if s.Align > 0 {
+		align = fmt.Sprintf("0x%x", s.Align)
+	}
+	return fmt.Sprintf(" %s  %s %s %s %s %s  %s",
+		m.theme.addrStyle.Render(fmt.Sprintf("%3d", idx)),
+		rowStyle.Render(padVisual(name, 16)),
+		rowStyle.Render(padVisual(s.Perms(), 5)),
+		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)),
+		rowStyle.Render(fmt.Sprintf("%-12d", s.Size)),
+		rowStyle.Render(fmt.Sprintf("%-12d", s.FileSize)),
+		rowStyle.Render(align))
 }

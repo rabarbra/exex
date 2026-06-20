@@ -63,11 +63,14 @@ type layoutState struct {
 	headerVP      viewport.Model
 }
 
-// sectionsState stores list/filter state for the Sections view.
+// sectionsState stores list/filter state for the Sections view, which toggles
+// between the section table and the coarser segment (memory-region) table.
 type sectionsState struct {
 	sections           []binfile.Section
+	segments           []binfile.Segment
+	showSegments       bool // the `t` toggle: list segments instead of sections
 	sectionsFilter     textinput.Model
-	sectionsFiltered   []int // indices into sections
+	sectionsFiltered   []int // indices into the active slice (sections or segments)
 	sectionsCur        int
 	sectionsTop        int
 	sectionRowCache    map[rowCacheKey]string

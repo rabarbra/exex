@@ -85,6 +85,35 @@ type Section struct {
 	Write    bool // writable
 }
 
+// Segment is a loadable region of the program's memory image — an ELF program
+// header (PT_LOAD, …) or a Mach-O segment (__TEXT, …). Sections live inside
+// segments; this is the coarser memory-map level. Not all formats have segments
+// (PE has none), so Segments may be empty.
+type Segment struct {
+	Name     string // type label: "LOAD", "DYNAMIC", "__TEXT", …
+	Addr     uint64 // virtual address (0 when not mapped)
+	Size     uint64 // in-memory size
+	Offset   uint64 // file offset of the bytes
+	FileSize uint64 // bytes present in the file
+	Align    uint64 // alignment (0 when unknown)
+	R, W, X  bool   // permissions
+}
+
+// Perms renders the segment's permission bits as an "rwx" string.
+func (s Segment) Perms() string {
+	b := []byte("---")
+	if s.R {
+		b[0] = 'r'
+	}
+	if s.W {
+		b[1] = 'w'
+	}
+	if s.X {
+		b[2] = 'x'
+	}
+	return string(b)
+}
+
 // Symbol is a format-neutral symbol. Name is the raw (possibly mangled) name
 // as stored in the file; Demangled holds the human-readable form when the name
 // was a recognised C++/Rust mangling, else "".
@@ -112,7 +141,8 @@ type File struct {
 	Path     string
 	Format   Format
 	Sections []Section
-	Symbols  []Symbol // sorted by Name
+	Segments []Segment // loadable memory regions (ELF program headers / Mach-O segments); empty for PE
+	Symbols  []Symbol  // sorted by Name
 	Info     *Info
 
 	debugPath string       // explicit external debug-symbols path (--debug), or ""

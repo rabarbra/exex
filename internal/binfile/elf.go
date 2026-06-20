@@ -146,6 +146,20 @@ func (f *File) loadELF() error {
 	}
 	f.appendELFImportSymbols(ef)
 
+	for _, p := range ef.Progs {
+		f.Segments = append(f.Segments, Segment{
+			Name:     strings.TrimPrefix(p.Type.String(), "PT_"),
+			Addr:     p.Vaddr,
+			Size:     p.Memsz,
+			Offset:   p.Off,
+			FileSize: p.Filesz,
+			Align:    p.Align,
+			R:        p.Flags&elf.PF_R != 0,
+			W:        p.Flags&elf.PF_W != 0,
+			X:        p.Flags&elf.PF_X != 0,
+		})
+	}
+
 	if d := f.elfDWARF(ef); d != nil {
 		f.dwarf = d // line table decoded lazily on first source lookup
 	}

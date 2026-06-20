@@ -50,7 +50,7 @@ DWARF tier is the most code but reuses the existing `*dwarf.Data`.
 
 ---
 
-## 2. Cross-references (xrefs)
+## 2. Cross-references (xrefs) ✅ done
 
 Accumulate branch/call targets during `ensureDisasm` (we already extract them in
 `extractTargetAt`) into an `addr → []callerAddr` index. Show "referenced by" for

@@ -44,6 +44,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 		},
 		sectionsState: sectionsState{
 			sections:       f.Sections,
+			segments:       f.Segments,
 			sectionsFilter: secFilter,
 		},
 		symbolsState: symbolsState{

@@ -100,6 +100,7 @@ func (m *Model) renderHelpModal() string {
 		head("Sections"),
 		row("Enter", "open in Hex"),
 		row("d", "disassemble (if exec)"),
+		row("t", "toggle sections / segments"),
 		"",
 		head("Symbols"),
 		row("t / b", "filter by type / bind"),
@@ -340,7 +341,7 @@ func (m *Model) renderFooter() string {
 	case modeStrings:
 		help = "Enter jump · / filter · g goto · ? help · q quit"
 	case modeSections:
-		help = "Enter open · / filter · g goto · ? help · q quit"
+		help = "Enter open · t sections/segments · / filter · g goto · ? help · q quit"
 	case modeSymbols:
 		help = "Enter jump · / filter · g goto · ? help · q quit"
 	case modeDisasm:

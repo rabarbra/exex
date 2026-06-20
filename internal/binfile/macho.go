@@ -101,6 +101,16 @@ func (f *File) loadMachO() error {
 			if seg.Name == "__TEXT" {
 				textSeg = seg
 			}
+			f.Segments = append(f.Segments, Segment{
+				Name:     seg.Name,
+				Addr:     seg.Addr,
+				Size:     seg.Memsz,
+				Offset:   base + seg.Offset,
+				FileSize: seg.Filesz,
+				R:        seg.Prot&vmProtRead != 0,
+				W:        seg.Prot&vmProtWrite != 0,
+				X:        seg.Prot&vmProtExecute != 0,
+			})
 		}
 	}
 

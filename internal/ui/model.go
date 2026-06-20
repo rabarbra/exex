@@ -92,7 +92,8 @@ type symbolsState struct {
 	symbolsTop        int
 	symbolsKind       binfile.SymKind
 	symbolsKindOn     bool
-	symbolsLib        string // when set, show only imports bound to this library
+	symbolsScope      symbolScope // all / internal (defined here) / imported (from libs)
+	symbolsLib        string      // when set, show only imports bound to this library
 	symbolRowCache    map[rowCacheKey][]string
 	symbolHeightCache map[rowCacheKey]int
 }

@@ -14,6 +14,39 @@ import (
 	"github.com/rabarbra/exex/internal/binfile"
 )
 
+// symbolScope filters the symbol table by where a symbol comes from.
+type symbolScope uint8
+
+const (
+	scopeAll      symbolScope = iota // every symbol
+	scopeInternal                    // defined in this binary (own functions/data)
+	scopeImported                    // bound to a shared library (PLT/GOT/stubs)
+)
+
+// String returns the scope's filter-status label.
+func (sc symbolScope) String() string {
+	switch sc {
+	case scopeInternal:
+		return "internal"
+	case scopeImported:
+		return "imported"
+	}
+	return "all"
+}
+
+// includes reports whether s passes the scope filter. Internal means defined
+// here (a real address, not bound to a library); imported means bound to a
+// shared library (the synthesised PLT/GOT/stub symbols).
+func (sc symbolScope) includes(s binfile.Symbol) bool {
+	switch sc {
+	case scopeInternal:
+		return s.Library == "" && s.Addr != 0
+	case scopeImported:
+		return s.Library != ""
+	}
+	return true
+}
+
 // recomputeSymbols rebuilds symbolsFiltered from the current filter text.
 func (m *Model) recomputeSymbols() {
 	m.clearSymbolCaches()
@@ -22,6 +55,9 @@ func (m *Model) recomputeSymbols() {
 	m.symbolsFiltered = m.symbolsFiltered[:0]
 	for i, s := range m.file.Symbols {
 		if m.symbolsKindOn && s.Kind != m.symbolsKind {
+			continue
+		}
+		if !m.symbolsScope.includes(s) {
 			continue
 		}
 		if m.symbolsLib != "" && s.Library != m.symbolsLib {
@@ -57,6 +93,12 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 	case "t":
 		m.cycleSymbolKindFilter()
 		m.recomputeSymbols()
+		return m, nil
+	case "i":
+		m.symbolsScope = (m.symbolsScope + 1) % 3
+		m.symbolsCur, m.symbolsTop = 0, 0
+		m.recomputeSymbols()
+		m.setStatus("symbol scope: "+m.symbolsScope.String(), false)
 		return m, nil
 	case "w":
 		m.toggleWrap()
@@ -148,7 +190,7 @@ func (m *Model) renderSymbols() string {
 		if m.symbolsLib != "" {
 			libPart = "   lib:" + m.symbolsLib + " (Esc clears)"
 		}
-		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   type:%s%s   (%d / %d)", m.symbolsFilter.Value(), kind, libPart, len(m.symbolsFiltered), len(m.file.Symbols)))
+		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   type:%s   scope:%s%s   (%d / %d)", m.symbolsFilter.Value(), kind, m.symbolsScope.String(), libPart, len(m.symbolsFiltered), len(m.file.Symbols)))
 	}
 
 	addrW := m.file.AddrHexWidth()

@@ -101,6 +101,7 @@ func (m *Model) renderHelpModal() string {
 		"",
 		head("Symbols"),
 		row("t", "cycle type filter"),
+		row("i", "scope: all/internal/imported"),
 		row("Esc", "clear library filter"),
 	}
 	right := []string{

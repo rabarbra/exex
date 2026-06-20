@@ -50,3 +50,17 @@ func TestOpenSystemMachO(t *testing.T) {
 		f.Format, f.Arch(), f.Entry(), len(f.Sections), len(f.Symbols),
 		len(f.Raw()), f.VAImage().Len(), f.ExecImage().Len())
 }
+
+// TestFatMagicVsJavaClass guards the 0xCAFEBABE ambiguity: a fat Mach-O has a
+// small architecture count, while a Java .class has minor/major version (major
+// >= 45) where the count would be, so it must not be detected as Mach-O.
+func TestFatMagicVsJavaClass(t *testing.T) {
+	fat := []byte{0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2}      // 2 architectures
+	class := []byte{0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 0x34} // Java 8 (major 52)
+	if !isFatMachO(fat) || !isMachO(fat) {
+		t.Fatal("a sane fat header must be detected as fat Mach-O")
+	}
+	if isFatMachO(class) || isMachO(class) {
+		t.Fatal("a Java .class must not be detected as (fat) Mach-O")
+	}
+}

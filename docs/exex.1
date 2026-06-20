@@ -57,6 +57,15 @@ bundle or file. Tried before the conventional auto-discovered locations.
 Search the printable strings on startup. A single match opens the Hex view at
 it; several matches open the Strings view filtered by it.
 .TP
+.BI \-arch " NAME"
+For a universal (fat) Mach-O, which architecture slice to open (e.g.
+.BR x86_64 ,
+.BR arm64 ).
+Defaults to the host architecture, else the first slice. The Info view lists all
+slices; press
+.B a
+there to switch between them. Ignored for thin Mach-O and other formats.
+.TP
 .BI \-o " VIEW"
 Print
 .I VIEW
@@ -127,6 +136,10 @@ Open, follow, or jump.
 .TP
 .B g
 Go to an address or symbol.
+.TP
+.B a
+In the Info view of a universal (fat) Mach-O, switch to the next architecture
+slice.
 .TP
 .B ,
 Open the settings popup (theme, background, default wrap, default view); changes

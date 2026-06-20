@@ -12,6 +12,7 @@ _exex() {
 	_arguments -s \
 		'(-d -debug)'{-d,-debug}'[external debug-symbols file or directory]:debug path:_files' \
 		'-s[search printable strings on startup]:string:' \
+		'-arch[universal Mach-O slice to open]:arch:(x86_64 arm64 i386 arm)' \
 		'-o[print a view or disassembly to stdout and exit]::view:->oview' \
 		'-h[show usage and exit]' \
 		'1:binary:->binary' \

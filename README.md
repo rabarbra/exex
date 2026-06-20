@@ -105,6 +105,7 @@ Flags (accepted in any position):
 |------|-------------|
 | `-s STRING` | search printable strings; opens the match in Hex, or the Strings view filtered when several match |
 | `-debug PATH` / `-d PATH` | external debug-symbols file or directory (ELF `.debug` companion, or a Mach-O `.dSYM` bundle/file) |
+| `-arch NAME` | for a universal (fat) Mach-O, which architecture slice to open (e.g. `x86_64`, `arm64`); defaults to the host arch. The Info view lists all slices; press `a` there to switch |
 | `-o VIEW` | print a view to stdout and exit (non-interactive): `info`, `sections`, `segments`, `symbols`, `strings`, `libs`, `sources`, `disasm`, `disasm-all` |
 | `-o` (bare) | print the `goto` symbol/address's function disassembly to stdout and exit |
 

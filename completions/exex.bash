@@ -9,7 +9,7 @@ _exex() {
 	cur="${COMP_WORDS[COMP_CWORD]}"
 	prev="${COMP_WORDS[COMP_CWORD-1]}"
 	views="info sections segments symbols strings libs sources disasm disasm-all"
-	flags="-s -o -d -debug -h"
+	flags="-s -o -d -debug -arch -h"
 
 	# Value completion for the flag immediately before the cursor.
 	case "$prev" in
@@ -18,6 +18,9 @@ _exex() {
 		return ;;
 	-d|--d|-debug|--debug)
 		COMPREPLY=( $(compgen -f -- "$cur") )
+		return ;;
+	-arch|--arch)
+		COMPREPLY=( $(compgen -W "x86_64 arm64 i386 arm" -- "$cur") )
 		return ;;
 	-s|--s)
 		return ;; # free-form string
@@ -33,7 +36,7 @@ _exex() {
 	pos=0
 	for (( i=1; i < COMP_CWORD; i++ )); do
 		case "${COMP_WORDS[i]}" in
-		-d|--d|-debug|--debug|-s|--s) (( i++ )) ;;
+		-d|--d|-debug|--debug|-s|--s|-arch|--arch) (( i++ )) ;;
 		-o|--o)
 			case "${COMP_WORDS[i+1]}" in
 			info|sections|segments|symbols|strings|libs|sources|disasm|disasm-all) (( i++ )) ;;

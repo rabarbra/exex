@@ -399,7 +399,11 @@ var globalHints = []footerHint{
 func (m *Model) viewHints() []footerHint {
 	switch m.mode {
 	case modeInfo:
-		return []footerHint{{"↵", "disasm entry"}}
+		hints := []footerHint{{"↵", "disasm entry"}}
+		if len(m.file.FatArches) > 1 {
+			hints = append(hints, footerHint{"a", "switch arch"})
+		}
+		return hints
 	case modeSections:
 		return []footerHint{{"↵", "open"}, {"d", "disasm"}, {"t", "sec/seg"}, {"/", "filter"}}
 	case modeSymbols:

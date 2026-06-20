@@ -21,16 +21,18 @@ import (
 )
 
 func main() {
-	var debugPath, searchString string
+	var debugPath, searchString, archName string
 	flag.StringVar(&debugPath, "debug", "", "path to an external debug-symbols file or directory (ELF .debug / Mach-O .dSYM)")
 	flag.StringVar(&debugPath, "d", "", "shorthand for -debug")
 	flag.StringVar(&searchString, "s", "", "search printable strings: open the match in Hex, or the Strings view filtered when several match")
+	flag.StringVar(&archName, "arch", "", "for a universal (fat) Mach-O, which architecture slice to open (e.g. x86_64, arm64)")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [-debug PATH] [-s STRING] [-o [VIEW]] <binary> [goto]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-debug PATH] [-s STRING] [-arch NAME] [-o [VIEW]] <binary> [goto]\n", os.Args[0])
 		fmt.Fprintln(os.Stderr, "  <binary>  path to an ELF/Mach-O/PE file, or a command name on $PATH")
 		fmt.Fprintln(os.Stderr, "  goto      address (0x…) or symbol name: jump to it on open, or with bare -o disassemble it")
 		fmt.Fprintf(os.Stderr, "  -o VIEW   print a view to stdout and exit: %s\n", strings.Join(dump.ViewNames, ", "))
 		fmt.Fprintln(os.Stderr, "  -o        bare: print the goto symbol/address's function disassembly to stdout and exit")
+		fmt.Fprintln(os.Stderr, "  -arch     for a universal Mach-O, the slice to open (e.g. x86_64, arm64)")
 		flag.PrintDefaults()
 	}
 	// `-o` takes an optional view value, which Go's flag package can't express, so
@@ -55,6 +57,9 @@ func main() {
 	var openOpts []binfile.Option
 	if debugPath != "" {
 		openOpts = append(openOpts, binfile.WithDebugPath(debugPath))
+	}
+	if archName != "" {
+		openOpts = append(openOpts, binfile.WithArch(archName))
 	}
 	f, err := binfile.Open(path, openOpts...)
 	if err != nil {
@@ -128,6 +133,7 @@ func main() {
 var valueFlags = map[string]bool{
 	"-s": true, "--s": true,
 	"-d": true, "--d": true,
+	"-arch": true, "--arch": true,
 	"-debug": true, "--debug": true,
 }
 

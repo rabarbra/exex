@@ -58,31 +58,62 @@ func isMachO(raw []byte) bool {
 	if len(raw) < 4 {
 		return false
 	}
-	m := binary.BigEndian.Uint32(raw)
-	switch m {
-	case machoMagic32, machoMagic64, machoCigam32, machoCigam64,
-		machoFatMagic, machoFatMagic2:
+	switch binary.BigEndian.Uint32(raw) {
+	case machoMagic32, machoMagic64, machoCigam32, machoCigam64:
 		return true
+	case machoFatMagic, machoFatMagic2:
+		return isFatMachO(raw)
 	}
 	return false
 }
 
 func isFatMachO(raw []byte) bool {
-	if len(raw) < 4 {
+	if len(raw) < 8 {
 		return false
 	}
-	m := binary.BigEndian.Uint32(raw)
-	return m == machoFatMagic || m == machoFatMagic2
+	switch binary.BigEndian.Uint32(raw) {
+	case machoFatMagic:
+		// 0xCAFEBABE is also the Java .class magic. A fat Mach-O follows the magic
+		// with nfat_arch (a small architecture count); a Java class follows it with
+		// minor/major version, where major is always >= 45. So a sane, small count
+		// means fat Mach-O; anything larger is a .class (or not fat at all).
+		n := binary.BigEndian.Uint32(raw[4:8])
+		return n >= 1 && n <= 0x14
+	case machoFatMagic2:
+		// Byte-swapped fat magic (FAT_CIGAM) — not a Java class.
+		return true
+	}
+	return false
+}
+
+// machoCPUName is the conventional short name for a Mach-O CPU type (matching
+// `lipo`/`file`), used to list and select fat-binary slices.
+func machoCPUName(c macho.Cpu) string {
+	switch c {
+	case macho.CpuAmd64:
+		return "x86_64"
+	case macho.Cpu386:
+		return "i386"
+	case macho.CpuArm64:
+		return "arm64"
+	case macho.CpuArm:
+		return "arm"
+	}
+	return fmt.Sprintf("cpu(0x%x)", uint32(c))
 }
 
 // loadMachO parses f.raw as a Mach-O object and populates the neutral model.
-// For universal ("fat") binaries it selects the host architecture's slice when
-// present, otherwise the first slice.
+// For universal ("fat") binaries it selects the slice named by f.reqArch, else
+// the host architecture's slice, else the first.
 func (f *File) loadMachO() error {
-	mf, base, err := parseMachO(f.raw)
+	mf, base, arches, chosen, err := parseMachO(f.raw, f.reqArch)
 	if err != nil {
 		return err
 	}
+	if len(arches) > 1 {
+		f.FatArches = arches
+	}
+	f.FatArch = chosen
 
 	f.Format = FormatMachO
 	f.arch = machoArch(mf.Cpu)
@@ -195,26 +226,32 @@ func (f *File) loadMachO() error {
 	return nil
 }
 
-// parseMachO opens raw as a thin or fat Mach-O, returning the chosen slice's
-// *macho.File and the file offset that slice starts at (0 for thin files).
-func parseMachO(raw []byte) (*macho.File, uint64, error) {
+// parseMachO opens raw as a thin or fat Mach-O. It returns the chosen slice's
+// *macho.File, the file offset that slice starts at (0 for thin files), the names
+// of all architectures (nil/one entry for thin), and the chosen slice's name.
+// want selects a fat slice by name (e.g. "x86_64"); "" picks the host arch, else
+// the first slice.
+func parseMachO(raw []byte, want string) (mf *macho.File, base uint64, arches []string, chosen string, err error) {
 	ra := bytes.NewReader(raw)
 	if isFatMachO(raw) {
-		ff, err := macho.NewFatFile(ra)
-		if err != nil {
-			return nil, 0, err
+		ff, ferr := macho.NewFatFile(ra)
+		if ferr != nil {
+			return nil, 0, nil, "", ferr
 		}
 		if len(ff.Arches) == 0 {
-			return nil, 0, fmt.Errorf("fat Mach-O has no architectures")
+			return nil, 0, nil, "", fmt.Errorf("fat Mach-O has no architectures")
 		}
-		fa := pickFatArch(ff)
-		return fa.File, uint64(fa.Offset), nil
+		for _, fa := range ff.Arches {
+			arches = append(arches, machoCPUName(fa.Cpu))
+		}
+		fa := pickFatArch(ff, want)
+		return fa.File, uint64(fa.Offset), arches, machoCPUName(fa.Cpu), nil
 	}
-	mf, err := macho.NewFile(ra)
+	mf, err = macho.NewFile(ra)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, "", err
 	}
-	return mf, 0, nil
+	return mf, 0, nil, machoCPUName(mf.Cpu), nil
 }
 
 // machoDWARF returns DWARF for the binary: embedded if present, otherwise from
@@ -247,7 +284,7 @@ func (f *File) machoDWARF(mf *macho.File) *dwarf.Data {
 		if err != nil {
 			continue
 		}
-		dm, _, err := parseMachO(raw)
+		dm, _, _, _, err := parseMachO(raw, f.FatArch)
 		if err != nil {
 			continue
 		}
@@ -305,10 +342,17 @@ func (f *File) dsymDebugCandidates(base string) []string {
 	}
 }
 
-func pickFatArch(ff *macho.FatFile) macho.FatArch {
-	want := hostCPU()
+func pickFatArch(ff *macho.FatFile, want string) macho.FatArch {
+	if want != "" {
+		for _, fa := range ff.Arches {
+			if machoCPUName(fa.Cpu) == want {
+				return fa
+			}
+		}
+	}
+	host := hostCPU()
 	for _, fa := range ff.Arches {
-		if fa.Cpu == want {
+		if fa.Cpu == host {
 			return fa
 		}
 	}

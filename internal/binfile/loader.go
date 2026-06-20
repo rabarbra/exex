@@ -7,6 +7,7 @@ type Option func(*openOptions)
 
 type openOptions struct {
 	debugPath string
+	arch      string
 }
 
 // WithDebugPath points the loader at an explicit external debug-symbols file or
@@ -14,6 +15,13 @@ type openOptions struct {
 // Mach-O), tried before the conventional auto-discovered locations.
 func WithDebugPath(p string) Option {
 	return func(o *openOptions) { o.debugPath = p }
+}
+
+// WithArch selects which slice of a universal (fat) Mach-O to load, by name
+// (e.g. "x86_64", "arm64"). Empty (the default) picks the host architecture, or
+// the first slice. Ignored for thin Mach-O and other formats.
+func WithArch(name string) Option {
+	return func(o *openOptions) { o.arch = name }
 }
 
 // Open reads path, detects its container format, and builds the neutral model.
@@ -32,6 +40,7 @@ func Open(path string, opts ...Option) (*File, error) {
 	f := &File{
 		Path:      path,
 		debugPath: o.debugPath,
+		reqArch:   o.arch,
 		raw:       raw,
 		unmap:     closer,
 		sources:   map[string][]string{},

@@ -147,7 +147,13 @@ type File struct {
 	Symbols  []Symbol  // sorted by Name
 	Info     *Info
 
+	// Fat (universal) Mach-O: the names of every architecture slice, and the one
+	// currently loaded. FatArches is empty for thin binaries and non-Mach-O.
+	FatArches []string
+	FatArch   string
+
 	debugPath string       // explicit external debug-symbols path (--debug), or ""
+	reqArch   string       // requested fat-Mach-O slice (--arch), or ""
 	raw       []byte       // entire file contents (mmap'd or read; raw view + section data)
 	unmap     func() error // releases the mapping backing raw (nil-safe via Close)
 	arch      arch.Arch
@@ -645,6 +651,9 @@ func (f *File) Arch() arch.Arch { return f.arch }
 
 // Raw returns the entire file contents (source for the raw hex view).
 func (f *File) Raw() []byte { return f.raw }
+
+// DebugPath returns the explicit external debug-symbols path (--debug), or "".
+func (f *File) DebugPath() string { return f.debugPath }
 
 // AddrHexWidth is the number of hex digits an address should be printed with.
 func (f *File) AddrHexWidth() int {

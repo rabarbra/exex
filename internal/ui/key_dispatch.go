@@ -24,7 +24,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelSearch("search cancelled")
 		return m, nil
 	}
+	if m.xrefRunning && key == "esc" {
+		m.cancelXref()
+		return m, nil
+	}
 
+	if m.xrefActive {
+		return m.updateXrefModal(key)
+	}
 	if m.settingsActive {
 		return m.updateSettings(key)
 	}

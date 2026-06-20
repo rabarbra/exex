@@ -55,6 +55,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case disasmSearchProgressMsg:
 		return m.handleDisasmSearchProgress(msg)
 
+	case xrefDoneMsg:
+		return m.handleXrefDone(msg)
+
 	case disasmPrefetchMsg:
 		return m, nil
 
@@ -66,8 +69,56 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recomputeSymbols()
 		return m, nil
 
+	default:
+		// Anything else (clipboard paste — both the bracketed-paste tea.PasteMsg
+		// and the unexported pasteMsg the textinput's ctrl+v command returns —
+		// plus cursor/blink messages) is forwarded to whichever input is active so
+		// paste works in the goto/search modals and the list filters.
+		return m.forwardToFocusedInput(msg)
 	}
-	return m, nil
+}
+
+// forwardToFocusedInput delivers a message to the currently-active text input
+// (a modal or a focused list filter) and recomputes that view's results only
+// when the input's text actually changed (so a stray non-text message can't
+// trigger a needless full re-filter).
+func (m *Model) forwardToFocusedInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch {
+	case m.gotoActive:
+		before := m.gotoInput.Value()
+		m.gotoInput, cmd = m.gotoInput.Update(msg)
+		if m.gotoInput.Value() != before {
+			m.recomputeGoto()
+		}
+	case m.searchActive:
+		m.searchInput, cmd = m.searchInput.Update(msg)
+	case m.symbolsFilter.Focused():
+		before := m.symbolsFilter.Value()
+		m.symbolsFilter, cmd = m.symbolsFilter.Update(msg)
+		if m.symbolsFilter.Value() != before {
+			m.recomputeSymbols()
+		}
+	case m.sectionsFilter.Focused():
+		before := m.sectionsFilter.Value()
+		m.sectionsFilter, cmd = m.sectionsFilter.Update(msg)
+		if m.sectionsFilter.Value() != before {
+			m.recomputeSections()
+		}
+	case m.stringsFilter.Focused():
+		before := m.stringsFilter.Value()
+		m.stringsFilter, cmd = m.stringsFilter.Update(msg)
+		if m.stringsFilter.Value() != before {
+			m.recomputeStrings()
+		}
+	case m.sourcesFilter.Focused():
+		before := m.sourcesFilter.Value()
+		m.sourcesFilter, cmd = m.sourcesFilter.Update(msg)
+		if m.sourcesFilter.Value() != before {
+			m.recomputeSourceFiles()
+		}
+	}
+	return m, cmd
 }
 
 func (m *Model) resize(width, height int) {

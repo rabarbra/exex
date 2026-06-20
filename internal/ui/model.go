@@ -273,6 +273,11 @@ type interactionState struct {
 	// preserve table geometry; turning wrap on lets them show full rows.
 	wrap bool
 
+	// hexWords toggles the hex/raw views' trailing column from ASCII to a
+	// pointer-sized word decode that resolves each word to the symbol/section it
+	// points at (the `p` key) — useful for reading GOT/data pointer tables.
+	hexWords bool
+
 	// Mouse double-click tracking (for follow-on-double-click in disasm).
 	lastClickY  int
 	lastClickAt time.Time
@@ -402,6 +407,7 @@ type Model struct {
 	gotoState
 	searchState
 	settingsState
+	xrefState
 	statusState
 	keyState
 }

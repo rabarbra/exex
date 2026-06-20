@@ -108,6 +108,29 @@ func (m *Model) openRawAt(off uint64) {
 	m.status = ""
 }
 
+// toggleHexWords flips the hex/raw trailing column between ASCII and the
+// pointer-word decode, reporting the new mode in the footer.
+func (m *Model) toggleHexWords() {
+	m.hexWords = !m.hexWords
+	col := "ascii"
+	if m.hexWords {
+		col = "pointers"
+	}
+	m.setStatus("hex column: "+col, false)
+}
+
+// copyPointerAt copies the pointer-sized word at byte position pos to the
+// clipboard as 0x… (the value the pointer-decode column shows), mirroring the
+// address/symbol copy keys.
+func (m *Model) copyPointerAt(data []byte, pos int) {
+	v, ok := m.readPointer(data, pos)
+	if !ok {
+		m.setStatus("not enough bytes for a pointer here", true)
+		return
+	}
+	m.copyToClipboard(fmt.Sprintf("0x%x", v), "pointer")
+}
+
 // moveByteCursor applies a navigation key to a byte cursor over n bytes.
 func (m *Model) moveByteCursor(key string, cur, n int) int {
 	row := bytesPerHexRow
@@ -156,6 +179,10 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 		}
 	case "w":
 		m.toggleWrap()
+	case "p":
+		m.toggleHexWords()
+	case "v":
+		m.copyPointerAt(data, m.hexCur)
 	case "a":
 		addr := m.hexImg.AddrAt(m.hexCur)
 		m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), addr), "address")
@@ -268,6 +295,10 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "w":
 		m.toggleWrap()
+	case "p":
+		m.toggleHexWords()
+	case "v":
+		m.copyPointerAt(m.rawData, m.rawCur)
 	case "a":
 		m.copyToClipboard(fmt.Sprintf("0x%x", m.rawCur), "offset")
 	case "s":
@@ -623,6 +654,64 @@ func (m *Model) nextHexSectionStart(md mode, off int) (int, bool) {
 	return best, found
 }
 
+// hexWordDecode renders a row's pointer-sized little-/big-endian words (per the
+// binary's word size and byte order), resolving each word that points into a
+// mapped region to the symbol or section it targets. Only whole words present in
+// the row are shown; partial words at a section edge are skipped.
+// pointerSize is the binary's pointer width in bytes (8 for 64-bit, 4 for 32).
+func (m *Model) pointerSize() int {
+	if size := m.file.AddrHexWidth() / 2; size >= 4 {
+		return size
+	}
+	return 4
+}
+
+// readPointer reads a pointer-sized word at data[pos:] in the binary's byte
+// order, reporting false when the word doesn't fully fit.
+func (m *Model) readPointer(data []byte, pos int) (uint64, bool) {
+	size := m.pointerSize()
+	if pos < 0 || pos+size > len(data) {
+		return 0, false
+	}
+	var v uint64
+	if m.file.Info != nil && m.file.Info.ByteOrder == "big-endian" {
+		for k := 0; k < size; k++ {
+			v = v<<8 | uint64(data[pos+k])
+		}
+	} else {
+		for k := size - 1; k >= 0; k-- {
+			v = v<<8 | uint64(data[pos+k])
+		}
+	}
+	return v, true
+}
+
+func (m *Model) hexWordDecode(data []byte, span hexRowSpan) string {
+	size := m.pointerSize()
+	var words, notes []string
+	for slot := 0; slot+size <= bytesPerHexRow; slot += size {
+		i := span.start + slot - span.lead
+		if slot < span.lead || i < span.start || i+size > span.end {
+			continue
+		}
+		v, ok := m.readPointer(data, i)
+		if !ok {
+			continue
+		}
+		words = append(words, m.theme.asmNumberStyle.Render(fmt.Sprintf("0x%0*x", size*2, v)))
+		if v != 0 && m.file.IsMapped(v) {
+			if name := m.targetAnnotation(v); name != "" {
+				notes = append(notes, name)
+			}
+		}
+	}
+	out := strings.Join(words, " ")
+	if len(notes) > 0 {
+		out += "  " + m.theme.addrStyle.Render("→ "+strings.Join(notes, ", "))
+	}
+	return out
+}
+
 func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, addrW int, addrAt func(pos int) uint64) string {
 	var hexCol, asciiCol strings.Builder
 	for slot := 0; slot < bytesPerHexRow; slot++ {
@@ -652,11 +741,15 @@ func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, add
 		}
 	}
 	var line strings.Builder
-	fmt.Fprintf(&line, " %s  %s  |%s|",
+	fmt.Fprintf(&line, " %s  %s  ",
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, span.lineAddr)),
 		hexCol.String(),
-		asciiCol.String(),
 	)
+	if m.hexWords {
+		line.WriteString(m.hexWordDecode(data, span))
+	} else {
+		line.WriteString("|" + asciiCol.String() + "|")
+	}
 	if md == modeHex {
 		addr := addrAt(span.start)
 		endAddr := addr + uint64(span.end-span.start)

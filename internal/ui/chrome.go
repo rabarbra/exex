@@ -54,6 +54,8 @@ func (m *Model) View() tea.View {
 		out = m.overlayCenter(out, m.renderGotoModal())
 	case m.searchActive:
 		out = m.overlayCenter(out, m.renderSearchModal())
+	case m.xrefActive:
+		out = m.overlayCenter(out, m.renderXrefModal())
 	}
 	m.viewCache = out
 	m.viewDirty = false
@@ -110,6 +112,7 @@ func (m *Model) renderHelpModal() string {
 		row("←/→", "history back / forward"),
 		row("[ / ]", "previous / next symbol"),
 		row("Enter / dbl-clk", "follow address"),
+		row("x", "find references (xrefs)"),
 		row("/  n/N", "search · next/prev"),
 		row("Tab", "show / hide right pane"),
 		row("⇧Tab", "swap source / disasm"),
@@ -120,6 +123,8 @@ func (m *Model) renderHelpModal() string {
 		row("d", "disassemble (if exec)"),
 		row("[ / ]", "prev / next section"),
 		row("⇧[ / ⇧]", "prev / next nonzero"),
+		row("p", "decode pointers / ascii"),
+		row("a / s / v", "copy address / symbol / pointer"),
 		row("/  n/N", "search bytes/\"text\"/0x…"),
 		"",
 		head("Sources"),
@@ -336,7 +341,7 @@ func (m *Model) renderFooter() string {
 	case modeSymbols:
 		help = "Enter jump · / filter · g goto · ? help · q quit"
 	case modeDisasm:
-		help = "Enter follow · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
+		help = "Enter follow · [ ] sym · x xrefs · ←/→ history · / search · g goto · ? help · q quit"
 		if (m.showSource || m.sourceFirst) && m.file.HasDWARF() {
 			help = "Tab toggle right pane · ⇧Tab swap panes · ⇧↑/⇧↓ scroll pane · [ ] sym · ←/→ history · / search · ? help · q quit"
 		}
@@ -344,9 +349,9 @@ func (m *Model) renderFooter() string {
 			help = "Esc cancel search · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
 		}
 	case modeHex:
-		help = "[ ] section · ⇧[ / ⇧] non-zero · / search · a/s copy · g goto · ? help · q quit"
+		help = "[ ] section · p pointers · a/s/v copy · / search · g goto · ? help · q quit"
 	case modeRaw:
-		help = "[ ] section · ⇧[ / ⇧] non-zero · / search · a/s copy · g goto · ? help · q quit"
+		help = "[ ] section · p pointers · a/s/v copy · / search · g goto · ? help · q quit"
 	case modeSources:
 		help = "Enter open in disasm · / filter · ^F grep all · c copy · g goto · ? help · q quit"
 	case modeLibs:

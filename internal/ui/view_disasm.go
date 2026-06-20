@@ -56,6 +56,8 @@ func (m *Model) updateDisasm(key string) (tea.Model, tea.Cmd) {
 	case "/":
 		m.openSearch()
 		return m, nil
+	case "x":
+		return m, m.startXrefScan()
 	case "w":
 		m.toggleWrap()
 		return m, nil

@@ -60,7 +60,7 @@ func (m *Model) recomputeSourceFiles() {
 	needle := strings.ToLower(m.sourcesFilter.Value())
 	m.sourcesFiltered = m.sourcesFiltered[:0]
 	for i, f := range m.sourcesFiles {
-		if needle == "" || strings.Contains(strings.ToLower(f), needle) {
+		if needle == "" || containsFold(f, needle) {
 			m.sourcesFiltered = append(m.sourcesFiltered, i)
 		}
 	}
@@ -392,12 +392,8 @@ func (m *Model) renderSources() string {
 }
 
 // leftBorderPane draws a thin divider on the left edge of a pane.
-func leftBorderPane(content string) string {
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderLeft(true).
-		BorderForeground(lipgloss.Color("240")).
-		Render(content)
+func (t Theme) leftBorderPane(content string) string {
+	return t.paneBorderStyle.Render(content)
 }
 
 func (m *Model) renderSourceList(bodyH int) string {
@@ -459,15 +455,7 @@ func (m *Model) renderSourceText(w, h int) string {
 		contentH = 1
 	}
 	top := max(0, m.srcTop-1)
-	rowHeight := func(i int) int {
-		ln := i + 1
-		h := m.sourceLineHeight(ln, w)
-		if ln == m.srcCur && len(m.sourceLineColumns(m.srcFile, ln)) > 0 {
-			h++
-		}
-		return h
-	}
-	top = m.visualTopForView(m.srcCur-1, top, len(src), contentH, rowHeight)
+	top = m.visualTopForView(m.srcCur-1, top, len(src), contentH, m.sourceRowHeight(w))
 	m.srcTop = top + 1
 	m.renderedSrcTop = top
 
@@ -513,9 +501,11 @@ func (m *Model) renderSourceText(w, h int) string {
 	return padBody(b.String(), w, h)
 }
 
-func (m *Model) sourceTextTop(w, contentH int) int {
-	src := m.file.SourceLines(m.srcFile)
-	rowHeight := func(i int) int {
+// sourceRowHeight returns the per-line rendered-height function for the source
+// pane at width w (the cursor line is one taller when it carries a caret row).
+// Shared by every place that runs the source-pane scroll math.
+func (m *Model) sourceRowHeight(w int) func(int) int {
+	return func(i int) int {
 		ln := i + 1
 		h := m.sourceLineHeight(ln, w)
 		if ln == m.srcCur && len(m.sourceLineColumns(m.srcFile, ln)) > 0 {
@@ -523,20 +513,32 @@ func (m *Model) sourceTextTop(w, contentH int) int {
 		}
 		return h
 	}
-	return m.visualTopForView(m.srcCur-1, max(0, m.srcTop-1), len(src), contentH, rowHeight)
+}
+
+func (m *Model) sourceTextTop(w, contentH int) int {
+	src := m.file.SourceLines(m.srcFile)
+	return m.visualTopForView(m.srcCur-1, max(0, m.srcTop-1), len(src), contentH, m.sourceRowHeight(w))
 }
 
 func (m *Model) sourceLineHeight(line, w int) int {
+	if !m.wrap {
+		return 1
+	}
 	src := m.file.SourceLines(m.srcFile)
 	if line < 1 || line > len(src) {
 		return 1
 	}
-	plainPrefix := fmt.Sprintf("%5d   ", line)
-	content := src[line-1]
-	if !m.wrap {
-		return 1
+	key := sourceLineHeightKey{file: m.srcFile, line: line, w: w}
+	if h, ok := m.srcLineHeightCache[key]; ok {
+		return h
 	}
-	return len(renderLineRowsIndented(plainPrefix+content, w, true, gutterWidth))
+	plainPrefix := fmt.Sprintf("%5d   ", line)
+	h := len(renderLineRowsIndented(plainPrefix+src[line-1], w, true, gutterWidth))
+	if m.srcLineHeightCache == nil {
+		m.srcLineHeightCache = make(map[sourceLineHeightKey]int)
+	}
+	m.srcLineHeightCache[key] = h
+	return h
 }
 
 // coloredCaretRow renders a '^' under each mapped column, each in that column's

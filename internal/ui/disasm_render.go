@@ -151,7 +151,7 @@ func (m *Model) renderDisasm() string {
 		leftW := m.width / 2
 		rightW := m.width - leftW
 		left := m.renderSourceText(leftW, bodyH)
-		right := leftBorderPane(m.renderSourceAsm(rightW-1, bodyH))
+		right := m.theme.leftBorderPane(m.renderSourceAsm(rightW-1, bodyH))
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 	leftW := m.width
@@ -192,11 +192,18 @@ func (m *Model) renderStickySymbol(w int) string {
 	return m.theme.stickyTitleLine(text, w)
 }
 
+// disasmRowHeight returns the per-instruction rendered-height function for the
+// disasm scroller at render width w (a symbol-start instruction is taller by its
+// "<name>:" label rows). Shared by every place that runs the scroll math.
+func (m *Model) disasmRowHeight(w int) func(int) int {
+	return func(i int) int { return m.disasmInstVisualHeight(i, w) }
+}
+
 func (m *Model) renderDisasmScroll(w, h int) string {
 	if h < 1 {
 		h = 1
 	}
-	rowHeight := func(i int) int { return m.disasmInstVisualHeight(i, w) }
+	rowHeight := m.disasmRowHeight(w)
 	top := m.visualTopForView(m.disasmCur, m.disasmTop, len(m.disasmInst), h, rowHeight)
 	m.disasmTop = top
 	m.renderedDisasmTop = top
@@ -262,7 +269,6 @@ func (m *Model) disasmInstVisualHeight(i, w int) int {
 	inst := m.disasmInst[i]
 	h := len(m.disasmInstRows(inst, w, false, nil))
 	if m.disasmIsSymbolStart(i) {
-		inst := m.disasmInst[i]
 		if sym, ok := m.file.SymbolAt(inst.Addr); ok && sym.Addr == inst.Addr {
 			h += len(m.disasmLabelRows(sym.Display(), w))
 		} else {
@@ -455,7 +461,7 @@ func (m *Model) disasmIsSymbolStart(i int) bool {
 }
 
 func (m *Model) renderSourcePane(w, h int) string {
-	border := lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).BorderForeground(lipgloss.Color("240"))
+	border := m.theme.paneBorderStyle
 	inner := w - 1
 	if inner < 8 {
 		inner = w

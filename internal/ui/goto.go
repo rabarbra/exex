@@ -41,16 +41,18 @@ func (m *Model) recomputeGoto() {
 	}
 
 	needle := strings.ToLower(val)
+	lowerName, lowerDem := m.file.LowerNames()
 	type ranked struct {
 		t    gotoTarget
 		rank int
 	}
 	var matches []ranked
-	for _, s := range m.file.Symbols {
+	for i := range m.file.Symbols {
+		s := m.file.Symbols[i]
 		if s.Addr == 0 {
 			continue
 		}
-		name, dem := strings.ToLower(s.Name), strings.ToLower(s.Demangled)
+		name, dem := lowerName[i], lowerDem[i]
 		hit := strings.Contains(name, needle) || (dem != "" && strings.Contains(dem, needle))
 		if !hit {
 			continue
@@ -181,12 +183,14 @@ func (m *Model) gotoTargetString(s string) {
 // of matches, and the unique exact match when there is exactly one.
 func (m *Model) resolveSymbolGoto(s string) (best binfile.Symbol, count int, exact binfile.Symbol, exactN int) {
 	needle := strings.ToLower(s)
+	lowerName, lowerDem := m.file.LowerNames()
 	bestRank := 99
-	for _, sym := range m.file.Symbols {
+	for i := range m.file.Symbols {
+		sym := m.file.Symbols[i]
 		if sym.Addr == 0 {
 			continue
 		}
-		name, dem := strings.ToLower(sym.Name), strings.ToLower(sym.Demangled)
+		name, dem := lowerName[i], lowerDem[i]
 		isExact := name == needle || dem == needle
 		if !isExact && !strings.Contains(name, needle) && (dem == "" || !strings.Contains(dem, needle)) {
 			continue

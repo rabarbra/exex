@@ -252,9 +252,12 @@ func (s *DisasmService) cachePut(key disasmCacheKey, insts []disasm.Inst) {
 		s.order = append(s.order, key)
 	}
 	s.cache[key] = insts
-	for len(s.order) > disasmCacheCap {
-		old := s.order[0]
-		s.order = s.order[1:]
-		delete(s.cache, old)
+	// Evict oldest over capacity, compacting in place so the backing array's head
+	// isn't leaked by repeated reslicing.
+	if n := len(s.order) - disasmCacheCap; n > 0 {
+		for _, old := range s.order[:n] {
+			delete(s.cache, old)
+		}
+		s.order = append(s.order[:0], s.order[n:]...)
 	}
 }

@@ -36,6 +36,22 @@ func TestHighlightLines(t *testing.T) {
 	}
 }
 
+// TestAssemblySourceUsesGAS guards the .s/.S lexer choice: ArmAsm, GAS and R all
+// register that extension at the same priority, so a plain lexers.Match can pick
+// R and highlight assembly as the R language. lexerFor must force GAS.
+func TestAssemblySourceUsesGAS(t *testing.T) {
+	src := []string{"	.globl main", "main:", "	ret"}
+	for _, name := range []string{"foo.s", "foo.S", "crt0.S"} {
+		l := lexerFor(name, src)
+		if l == nil {
+			t.Fatalf("%s: no lexer", name)
+		}
+		if got := l.Config().Name; got != "GAS" {
+			t.Fatalf("%s: lexer = %q, want GAS", name, got)
+		}
+	}
+}
+
 func TestHighlightUnknownExtension(t *testing.T) {
 	hl := HighlightLines("data.unknownext", []string{"\x00\x01\x02"}, defaultTheme)
 	for _, line := range hl {

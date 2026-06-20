@@ -120,6 +120,7 @@ func (m *Model) clearAllViewCaches() {
 	m.clearSymbolCaches()
 	m.clearSectionCaches()
 	m.clearStringCaches()
+	m.srcLineHeightCache = nil
 }
 
 // clearColorCaches drops every cache whose entries bake in theme colours, so a
@@ -234,26 +235,35 @@ type stringsState struct {
 
 // sourcesState stores file-list and open-file state for the Sources view.
 type sourcesState struct {
-	sourcesFiles     []string
-	sourcesFilter    textinput.Model
-	sourcesFiltered  []int
-	sourcesCur       int
-	sourcesTop       int
-	srcFile          string // open source file ("" = showing the file list)
-	srcCur           int    // 1-based current line in the open file
-	srcTop           int
-	srcCodeLines     map[int]bool // lines in srcFile that have machine code
-	srcCodeLineCache map[string]map[int]bool
-	srcColumnCache   map[sourceLineCacheKey][]int
-	srcMatches       []srcMatch // last cross-source grep
-	srcMatchIdx      int
-	srcSearchAll     bool // scope of the next search in this view
+	sourcesFiles       []string
+	sourcesFilter      textinput.Model
+	sourcesFiltered    []int
+	sourcesCur         int
+	sourcesTop         int
+	srcFile            string // open source file ("" = showing the file list)
+	srcCur             int    // 1-based current line in the open file
+	srcTop             int
+	srcCodeLines       map[int]bool // lines in srcFile that have machine code
+	srcCodeLineCache   map[string]map[int]bool
+	srcColumnCache     map[sourceLineCacheKey][]int
+	srcLineHeightCache map[sourceLineHeightKey]int
+	srcMatches         []srcMatch // last cross-source grep
+	srcMatchIdx        int
+	srcSearchAll       bool // scope of the next search in this view
 }
 
 // sourceLineCacheKey identifies cached line-column metadata.
 type sourceLineCacheKey struct {
 	file string
 	line int
+}
+
+// sourceLineHeightKey identifies a cached wrapped source-line height. Source
+// content is immutable once loaded, so width is the only layout input.
+type sourceLineHeightKey struct {
+	file string
+	line int
+	w    int
 }
 
 // interactionState stores cross-view input and viewport state.

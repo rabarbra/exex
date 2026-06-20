@@ -27,9 +27,10 @@ type Theme struct {
 	srcShadowStyle  lipgloss.Style
 	srcMappedStyle  lipgloss.Style
 
-	modalStyle  lipgloss.Style
-	panelStyle  lipgloss.Style
-	switchStyle lipgloss.Style
+	modalStyle      lipgloss.Style
+	panelStyle      lipgloss.Style
+	paneBorderStyle lipgloss.Style // thin left divider between side-by-side panes
+	switchStyle     lipgloss.Style
 
 	helpKeyStyle  lipgloss.Style
 	helpDescStyle lipgloss.Style
@@ -135,6 +136,7 @@ func DefaultTheme() Theme {
 		srcCurLineStyle:    lipgloss.NewStyle().Bold(true),
 		modalStyle:         border().Padding(1, 2),
 		panelStyle:         border().Padding(0, 1),
+		paneBorderStyle:    lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).BorderForeground(lipgloss.Color("240")),
 		switchStyle:        lipgloss.NewStyle().Bold(true),
 		helpKeyStyle:       lipgloss.NewStyle().Bold(true),
 		helpHeadStyle:      lipgloss.NewStyle().Bold(true),

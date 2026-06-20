@@ -21,7 +21,7 @@ func (m *Model) recomputeSections() {
 	needle := strings.ToLower(m.sectionsFilter.Value())
 	m.sectionsFiltered = m.sectionsFiltered[:0]
 	for i, s := range m.sections {
-		if needle == "" || strings.Contains(strings.ToLower(s.Name), needle) {
+		if needle == "" || containsFold(s.Name, needle) {
 			m.sectionsFiltered = append(m.sectionsFiltered, i)
 		}
 	}

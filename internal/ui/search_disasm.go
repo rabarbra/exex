@@ -260,7 +260,7 @@ func (m *Model) startDisasmSearch(forward, inclusive, fromCursor bool) tea.Cmd {
 }
 
 func (m *Model) searchDisasmSymbolFastPath(forward, inclusive, fromCursor bool) (disasmSearchHit, bool) {
-	q := strings.ToLower(strings.TrimSpace(m.searchQuery))
+	q := strings.TrimSpace(m.searchQuery)
 	if q == "" || len(m.disasmInst) == 0 {
 		return disasmSearchHit{}, false
 	}
@@ -272,19 +272,19 @@ func (m *Model) searchDisasmSymbolFastPath(forward, inclusive, fromCursor bool) 
 			cur = ^uint64(0)
 		}
 	}
+	img := m.file.ExecImage()
 	best := uint64(0)
 	found := false
 	for _, sym := range m.file.Symbols {
 		if sym.Addr == 0 {
 			continue
 		}
-		if _, ok := m.file.ExecImage().PosForAddr(sym.Addr); !ok {
+		// Cheap, allocation-free name match first (Display is Demangled-or-Name,
+		// so checking both covers it); only then the binary-search membership test.
+		if !strings.EqualFold(q, sym.Name) && !(sym.Demangled != "" && strings.EqualFold(q, sym.Demangled)) {
 			continue
 		}
-		name := strings.ToLower(sym.Name)
-		dem := strings.ToLower(sym.Demangled)
-		disp := strings.ToLower(sym.Display())
-		if q != name && q != dem && q != disp {
+		if _, ok := img.PosForAddr(sym.Addr); !ok {
 			continue
 		}
 		if forward {

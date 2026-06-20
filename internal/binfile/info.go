@@ -1,6 +1,7 @@
 package binfile
 
 import (
+	"bytes"
 	"strings"
 )
 
@@ -153,7 +154,8 @@ func extractMuslVersion(data []byte) string {
 	return ""
 }
 
-// indexBytes returns the byte index of an ASCII string inside haystack.
+// indexBytes returns the byte index of an ASCII string inside haystack, without
+// copying the whole slice to a string (haystack may be an entire .rodata section).
 func indexBytes(haystack []byte, needle string) int {
-	return strings.Index(string(haystack), needle)
+	return bytes.Index(haystack, []byte(needle))
 }

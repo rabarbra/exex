@@ -39,6 +39,39 @@ func navKey(cur *int, n, page int, key string) bool {
 	return true
 }
 
+// containsFold reports whether s contains substr, ASCII case-insensitively,
+// without the allocation that strings.Contains(strings.ToLower(s), substr) costs
+// per call. The list filters run this over every row on every keystroke, so the
+// allocation matters on large tables (the Strings/Symbols views). substr is
+// expected already-lowercased by the caller; non-ASCII bytes compare exactly,
+// which is fine for the identifier/path/section text these filters match.
+func containsFold(s, substr string) bool {
+	if substr == "" {
+		return true
+	}
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if hasFoldPrefixLower(s[i:], substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasFoldPrefixLower reports whether s starts with prefix, where prefix is
+// already lowercased and s is folded to lower as it is compared.
+func hasFoldPrefixLower(s, prefix string) bool {
+	for i := 0; i < len(prefix); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != prefix[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // toggleWrap flips the global long-line wrap and reports it in the footer.
 func (m *Model) toggleWrap() {
 	m.wrap = !m.wrap
@@ -56,7 +89,14 @@ func filterCapture(in *textinput.Model, key string, msg tea.KeyMsg, recompute fu
 		return nil, false
 	}
 	switch key {
-	case "esc", "enter":
+	case "esc":
+		// Esc clears the filter (and unfocuses), so the list returns to showing
+		// everything; Enter just confirms the current filter and unfocuses.
+		in.SetValue("")
+		in.Blur()
+		recompute()
+		return nil, true
+	case "enter":
 		in.Blur()
 		return nil, true
 	case "up", "down", "pgup", "pgdown", "home", "end":

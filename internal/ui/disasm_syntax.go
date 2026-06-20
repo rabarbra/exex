@@ -18,7 +18,22 @@ import (
 	"github.com/rabarbra/exex/internal/disasm"
 )
 
-var disasmAsmLexer chroma.Lexer = nil
+// disasmAsmLexers caches the Chroma asm lexer per architecture. Keying by arch
+// (rather than a single global) means opening a different-arch binary in the same
+// process — e.g. a library via the Libs view's "open as primary" — gets the right
+// lexer instead of reusing the first file's.
+var disasmAsmLexers = map[arch.Arch]chroma.Lexer{}
+
+// disasmAsmLexerFor returns the asm lexer for a, building and caching it (even
+// when nil) on first use.
+func disasmAsmLexerFor(a arch.Arch) chroma.Lexer {
+	if l, ok := disasmAsmLexers[a]; ok {
+		return l
+	}
+	l := newDisasmAsmLexer(a)
+	disasmAsmLexers[a] = l
+	return l
+}
 
 func newDisasmAsmLexer(arch arch.Arch) chroma.Lexer {
 	lexer_names := []string{"ArmAsm", "GAS", "asm", "NASM"}
@@ -39,13 +54,11 @@ func newDisasmAsmLexer(arch arch.Arch) chroma.Lexer {
 // renderInstTextStyled uses Chroma for assembly syntax, overlaying semantic link
 // styles on followable address literals.
 func (m *Model) renderInstTextStyled(text string, class disasm.InstClass, instAddr uint64) string {
-	if disasmAsmLexer == nil {
-		disasmAsmLexer = newDisasmAsmLexer(m.file.Arch())
-	}
-	if disasmAsmLexer == nil {
+	lexer := disasmAsmLexerFor(m.file.Arch())
+	if lexer == nil {
 		return m.renderInstTextFallback(text, class, instAddr)
 	}
-	tokens, err := chroma.Tokenise(disasmAsmLexer, nil, text)
+	tokens, err := chroma.Tokenise(lexer, nil, text)
 	if err != nil {
 		return m.renderInstTextFallback(text, class, instAddr)
 	}

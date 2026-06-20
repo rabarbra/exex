@@ -16,10 +16,7 @@ import (
 // HighlightLines returns ANSI-styled source lines without using a cache. It uses
 // the minimal highlighter when Chroma cannot identify or tokenise the file.
 func HighlightLines(filename string, src []string, themeName string) []string {
-	lexer := lexers.Match(filename)
-	if lexer == nil {
-		lexer = lexers.Analyse(strings.Join(src, "\n"))
-	}
+	lexer := lexerFor(filename, src)
 	if lexer == nil {
 		// Unknown file type: fall back to the tiny built-in highlighter rather
 		// than rendering plain text.
@@ -62,6 +59,23 @@ func HighlightLines(filename string, src []string, themeName string) []string {
 	}
 	lines = append(lines, cur.String())
 	return lines
+}
+
+// lexerFor picks the Chroma lexer for a file. Assembly sources (.s/.S) are
+// special-cased to GAS: three lexers (ArmAsm, GAS, R) all register that
+// extension at the same priority, so lexers.Match can pick R and highlight
+// assembly as the R language. GAS (GNU assembler) is what these files actually
+// are. Everything else uses the normal filename match, then content analysis.
+func lexerFor(filename string, src []string) chroma.Lexer {
+	if lowerExt(filename) == ".s" {
+		if l := lexers.Get("gas"); l != nil {
+			return l
+		}
+	}
+	if l := lexers.Match(filename); l != nil {
+		return l
+	}
+	return lexers.Analyse(strings.Join(src, "\n"))
 }
 
 // chromaToLipgloss converts the subset of Chroma style attributes used here.

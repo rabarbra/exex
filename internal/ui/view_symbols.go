@@ -18,6 +18,7 @@ import (
 func (m *Model) recomputeSymbols() {
 	m.clearSymbolCaches()
 	needle := strings.ToLower(m.symbolsFilter.Value())
+	lowerName, lowerDem := m.file.LowerNames()
 	m.symbolsFiltered = m.symbolsFiltered[:0]
 	for i, s := range m.file.Symbols {
 		if m.symbolsKindOn && s.Kind != m.symbolsKind {
@@ -27,8 +28,8 @@ func (m *Model) recomputeSymbols() {
 			continue
 		}
 		if needle == "" ||
-			strings.Contains(strings.ToLower(s.Name), needle) ||
-			(s.Demangled != "" && strings.Contains(strings.ToLower(s.Demangled), needle)) {
+			strings.Contains(lowerName[i], needle) ||
+			(lowerDem[i] != "" && strings.Contains(lowerDem[i], needle)) {
 			m.symbolsFiltered = append(m.symbolsFiltered, i)
 		}
 	}

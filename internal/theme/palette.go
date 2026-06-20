@@ -66,8 +66,9 @@ func (p Palette) resolved() Palette {
 	}
 }
 
-// PaletteFor returns the fully-resolved palette for a Chroma style name (case-
-// insensitively), reporting whether the name is known.
+// PaletteFor returns the fully-resolved palette for a Chroma style name,
+// reporting whether the name is known. The lookup is case-sensitive; Chroma
+// style names are lowercase (e.g. "dracula", "github-dark").
 func PaletteFor(name string) (Palette, bool) {
 	if p, ok := palettes[name]; ok {
 		return p.resolved(), true

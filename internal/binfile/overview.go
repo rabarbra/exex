@@ -81,6 +81,9 @@ func (f *File) sourceLanguage() string {
 	if f.Info != nil && f.Info.GoVersion != "" {
 		return "Go"
 	}
+	// Match on the raw mangled-name prefixes: computeOverview runs at Open time,
+	// before the background demangle pass, so s.Demangled isn't populated yet.
+	// Itanium C++ is "_Z" ("__Z" on Mach-O's extra-underscore convention).
 	var cxx, rust, swift bool
 	for _, s := range f.Symbols {
 		switch {
@@ -88,7 +91,7 @@ func (f *File) sourceLanguage() string {
 			swift = true
 		case strings.HasPrefix(s.Name, "__R") || strings.HasPrefix(s.Name, "_R"):
 			rust = true
-		case s.Demangled != "":
+		case strings.HasPrefix(s.Name, "_Z") || strings.HasPrefix(s.Name, "__Z"):
 			cxx = true
 		}
 	}

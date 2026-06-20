@@ -111,12 +111,16 @@ func (f *File) loadELF() error {
 
 	staticSyms, _ := ef.Symbols()
 	dynSyms, _ := ef.DynamicSymbols()
-	seen := map[string]bool{}
+	type symKey struct {
+		name string
+		addr uint64
+	}
+	seen := map[symKey]bool{}
 	add := func(s elf.Symbol) {
 		if s.Name == "" || isELFMappingSymbol(s.Name) {
 			return
 		}
-		key := fmt.Sprintf("%s@%x", s.Name, s.Value)
+		key := symKey{s.Name, s.Value}
 		if seen[key] {
 			return
 		}

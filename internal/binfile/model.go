@@ -123,13 +123,18 @@ type File struct {
 	addrWidth int // hex digits in a printed address (8 or 16)
 	header    []string
 
-	symByAddr []Symbol // sorted by Addr
+	symByAddr      []Symbol // sorted by Addr
+	lowerName      []string // lazily-built lowercased Symbols[i].Name (for filtering)
+	lowerDemangled []string // lazily-built lowercased Symbols[i].Demangled
+
 	dwarf     *dwarf.Data
 	lines     []lineEntry       // sorted by Addr (loaded lazily from dwarf)
 	linesOnce sync.Once         // guards the lazy line-table decode
 	indexOnce sync.Once         // builds line lookup indexes from lines
 	lineCols  map[lineKey][]int // distinct DWARF columns by source file:line
 	lineMap   map[string]map[int]bool
+	lineAddr  map[lineKey]uint64  // lowest mapped address per source file:line
+	fileLines map[string][]int    // sorted distinct mapped line numbers per file
 	sources   map[string][]string // resolved file -> lines
 
 	vaImage   *Image        // all mapped sections, in VA order (lazy)
@@ -219,10 +224,7 @@ func (f *File) inferSymbolSizes(addrIdx []int) {
 // demangle.Filter is pure, so the C++/Rust pass is fanned out across cores.
 func (f *File) ComputeDemangled() []string {
 	out := make([]string, len(f.Symbols))
-	n := runtime.NumCPU()
-	if n < 1 {
-		n = 1
-	}
+	n := max(runtime.NumCPU(), 1)
 	itanium := func(lo, hi int) {
 		for i := lo; i < hi; i++ {
 			out[i] = demangleName(f.Symbols[i].Name)
@@ -262,6 +264,28 @@ func (f *File) ApplyDemangled(d []string) {
 			f.symByAddr[i].Demangled = dm
 		}
 	}
+	// Demangled names just changed; drop the lowercased filter index so it is
+	// rebuilt (with the demangled forms) on the next filter.
+	f.lowerName, f.lowerDemangled = nil, nil
+}
+
+// LowerNames returns per-symbol lowercased Name and Demangled slices, indexed
+// like f.Symbols (an entry is "" when the symbol has no demangled form). It is
+// built once and reused so case-insensitive filtering doesn't re-lowercase the
+// whole table on every keystroke. Call on the File's owning goroutine;
+// ApplyDemangled invalidates the cache.
+func (f *File) LowerNames() (names, demangled []string) {
+	if f.lowerName == nil {
+		f.lowerName = make([]string, len(f.Symbols))
+		f.lowerDemangled = make([]string, len(f.Symbols))
+		for i := range f.Symbols {
+			f.lowerName[i] = strings.ToLower(f.Symbols[i].Name)
+			if f.Symbols[i].Demangled != "" {
+				f.lowerDemangled[i] = strings.ToLower(f.Symbols[i].Demangled)
+			}
+		}
+	}
+	return f.lowerName, f.lowerDemangled
 }
 
 // lineEntries returns the address→source line table, decoding it from DWARF on
@@ -282,6 +306,7 @@ func (f *File) ensureLineIndexes() {
 	f.indexOnce.Do(func() {
 		colsSeen := map[lineKey]map[int]bool{}
 		lineMap := map[string]map[int]bool{}
+		lineAddr := map[lineKey]uint64{}
 		for _, le := range f.lineEntries() {
 			if le.File == "" || le.Line == 0 {
 				continue
@@ -290,8 +315,11 @@ func (f *File) ensureLineIndexes() {
 				lineMap[le.File] = map[int]bool{}
 			}
 			lineMap[le.File][le.Line] = true
+			key := lineKey{File: le.File, Line: le.Line}
+			if a, ok := lineAddr[key]; !ok || le.Addr < a {
+				lineAddr[key] = le.Addr
+			}
 			if le.Col > 0 {
-				key := lineKey{File: le.File, Line: le.Line}
 				if colsSeen[key] == nil {
 					colsSeen[key] = map[int]bool{}
 				}
@@ -307,8 +335,19 @@ func (f *File) ensureLineIndexes() {
 			sort.Ints(cols)
 			lineCols[key] = cols
 		}
+		fileLines := make(map[string][]int, len(lineMap))
+		for file, lines := range lineMap {
+			ls := make([]int, 0, len(lines))
+			for ln := range lines {
+				ls = append(ls, ln)
+			}
+			sort.Ints(ls)
+			fileLines[file] = ls
+		}
 		f.lineMap = lineMap
 		f.lineCols = lineCols
+		f.lineAddr = lineAddr
+		f.fileLines = fileLines
 	})
 }
 
@@ -373,33 +412,21 @@ func (f *File) SourceFiles() []string {
 	return out
 }
 
-// LineToAddr returns an address that maps to file:line — exact when possible,
-// otherwise the nearest line at or after it in the same file.
+// LineToAddr returns an address that maps to file:line — the lowest address at
+// the exact line when possible, otherwise the lowest address of the nearest
+// mapped line at or after it in the same file.
 func (f *File) LineToAddr(file string, line int) (uint64, bool) {
-	var (
-		best     uint64
-		bestLine int
-		found    bool
-	)
-	for _, le := range f.lineEntries() {
-		if le.File != file {
-			continue
-		}
-		if le.Line == line {
-			if !found || le.Addr < best {
-				best, bestLine, found = le.Addr, le.Line, true
-			}
-			if bestLine == line {
-				// keep scanning for the lowest address at the exact line
-				continue
-			}
-		}
-		// Track the nearest line >= the target as a fallback.
-		if le.Line >= line && (!found || (bestLine != line && le.Line < bestLine)) {
-			best, bestLine, found = le.Addr, le.Line, true
-		}
+	f.ensureLineIndexes()
+	if a, ok := f.lineAddr[lineKey{File: file, Line: line}]; ok {
+		return a, true
 	}
-	return best, found
+	lines := f.fileLines[file]
+	i := sort.Search(len(lines), func(i int) bool { return lines[i] >= line })
+	if i >= len(lines) {
+		return 0, false
+	}
+	a, ok := f.lineAddr[lineKey{File: file, Line: lines[i]}]
+	return a, ok
 }
 
 // LookupAddr returns the source file:line covering addr, or "", 0.
@@ -503,13 +530,12 @@ func (f *File) SymbolsInRange(from uint64, to uint64) []Symbol {
 }
 
 // NextSymbol returns the first symbol (by address) strictly after addr that
-// satisfies pred (a nil pred accepts any symbol).
+// satisfies pred (a nil pred accepts any symbol). symByAddr is sorted by Addr,
+// so it binary-searches to the first candidate and scans only from there.
 func (f *File) NextSymbol(addr uint64, pred func(Symbol) bool) (Symbol, bool) {
-	for _, s := range f.symByAddr {
-		if s.Addr <= addr {
-			continue
-		}
-		if pred == nil || pred(s) {
+	i := sort.Search(len(f.symByAddr), func(i int) bool { return f.symByAddr[i].Addr > addr })
+	for ; i < len(f.symByAddr); i++ {
+		if s := f.symByAddr[i]; pred == nil || pred(s) {
 			return s, true
 		}
 	}
@@ -517,14 +543,12 @@ func (f *File) NextSymbol(addr uint64, pred func(Symbol) bool) (Symbol, bool) {
 }
 
 // PrevSymbol returns the last symbol (by address) strictly before addr that
-// satisfies pred (a nil pred accepts any symbol).
+// satisfies pred (a nil pred accepts any symbol). symByAddr is sorted by Addr,
+// so it binary-searches to the last candidate and scans only from there.
 func (f *File) PrevSymbol(addr uint64, pred func(Symbol) bool) (Symbol, bool) {
-	for i := len(f.symByAddr) - 1; i >= 0; i-- {
-		s := f.symByAddr[i]
-		if s.Addr >= addr {
-			continue
-		}
-		if pred == nil || pred(s) {
+	i := sort.Search(len(f.symByAddr), func(i int) bool { return f.symByAddr[i].Addr >= addr })
+	for i--; i >= 0; i-- {
+		if s := f.symByAddr[i]; pred == nil || pred(s) {
 			return s, true
 		}
 	}

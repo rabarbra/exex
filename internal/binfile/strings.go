@@ -1,5 +1,7 @@
 package binfile
 
+import "sort"
+
 // Printable-string extraction over the raw file, à la strings(1), annotated
 // with the mapped virtual address and section when the bytes live in one.
 
@@ -30,6 +32,9 @@ func (f *File) Strings() []StringEntry {
 func (f *File) extractStrings() []StringEntry {
 	var out []StringEntry
 	data := f.raw
+	// Sort the file-backed sections once so each found string is mapped to its
+	// section with a binary search instead of an O(sections) scan.
+	secs := f.fileSectionsByOffset()
 	start := -1
 	flush := func(end int) {
 		if start < 0 || end-start < minString {
@@ -37,7 +42,7 @@ func (f *File) extractStrings() []StringEntry {
 			return
 		}
 		e := StringEntry{Offset: uint64(start), Text: string(data[start:end])}
-		if sec := f.sectionAtFileOffset(uint64(start)); sec != nil {
+		if sec := sectionAtSortedOffset(secs, uint64(start)); sec != nil {
 			e.Section = sec.Name
 			if sec.Alloc {
 				e.Addr = sec.Addr + (uint64(start) - sec.Offset)
@@ -60,16 +65,29 @@ func (f *File) extractStrings() []StringEntry {
 	return out
 }
 
-// sectionAtFileOffset returns the section whose file bytes cover off.
-func (f *File) sectionAtFileOffset(off uint64) *Section {
+// fileSectionsByOffset returns the sections that occupy file bytes, sorted by
+// file offset, for binary-searched offset→section lookups.
+func (f *File) fileSectionsByOffset() []*Section {
+	var secs []*Section
 	for i := range f.Sections {
-		s := &f.Sections[i]
-		if s.FileSize == 0 {
-			continue
+		if f.Sections[i].FileSize > 0 {
+			secs = append(secs, &f.Sections[i])
 		}
-		if off >= s.Offset && off < s.Offset+s.FileSize {
-			return s
-		}
+	}
+	sort.Slice(secs, func(i, j int) bool { return secs[i].Offset < secs[j].Offset })
+	return secs
+}
+
+// sectionAtSortedOffset returns the section whose file bytes cover off, from a
+// slice sorted by file offset (well-formed section file ranges don't overlap).
+func sectionAtSortedOffset(secs []*Section, off uint64) *Section {
+	i := sort.Search(len(secs), func(i int) bool { return secs[i].Offset > off })
+	if i == 0 {
+		return nil
+	}
+	s := secs[i-1]
+	if off < s.Offset+s.FileSize {
+		return s
 	}
 	return nil
 }

@@ -32,9 +32,7 @@ func (m *Model) recomputeStrings() {
 	needle := strings.ToLower(m.stringsFilter.Value())
 	m.stringsFiltered = m.stringsFiltered[:0]
 	for i, s := range m.stringsList {
-		if needle == "" ||
-			strings.Contains(strings.ToLower(s.Text), needle) ||
-			strings.Contains(strings.ToLower(s.Section), needle) {
+		if needle == "" || containsFold(s.Text, needle) || containsFold(s.Section, needle) {
 			m.stringsFiltered = append(m.stringsFiltered, i)
 		}
 	}

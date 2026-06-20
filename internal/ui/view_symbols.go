@@ -6,6 +6,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,6 +14,26 @@ import (
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
+
+// symbolSort is the display order of the (filtered) symbol table.
+type symbolSort uint8
+
+const (
+	sortByName symbolSort = iota // f.Symbols' own order (already name-sorted)
+	sortByAddr
+	sortBySize
+)
+
+// String returns the sort's filter-status label.
+func (s symbolSort) String() string {
+	switch s {
+	case sortByAddr:
+		return "address"
+	case sortBySize:
+		return "size"
+	}
+	return "name"
+}
 
 // symbolScope filters the symbol table by where a symbol comes from.
 type symbolScope uint8
@@ -57,6 +78,9 @@ func (m *Model) recomputeSymbols() {
 		if m.symbolsKindOn && s.Kind != m.symbolsKind {
 			continue
 		}
+		if m.symbolsBindOn && s.Bind != m.symbolsBind {
+			continue
+		}
 		if !m.symbolsScope.includes(s) {
 			continue
 		}
@@ -69,8 +93,25 @@ func (m *Model) recomputeSymbols() {
 			m.symbolsFiltered = append(m.symbolsFiltered, i)
 		}
 	}
+	m.applySymbolSort()
 	if m.symbolsCur >= len(m.symbolsFiltered) {
 		m.symbolsCur = max(0, len(m.symbolsFiltered)-1)
+	}
+}
+
+// applySymbolSort orders symbolsFiltered by the active sort. Name order is the
+// natural order (f.Symbols is name-sorted and indices were appended ascending),
+// so only address/size need an explicit sort.
+func (m *Model) applySymbolSort() {
+	switch m.symbolsSort {
+	case sortByAddr:
+		sort.SliceStable(m.symbolsFiltered, func(i, j int) bool {
+			return m.file.Symbols[m.symbolsFiltered[i]].Addr < m.file.Symbols[m.symbolsFiltered[j]].Addr
+		})
+	case sortBySize:
+		sort.SliceStable(m.symbolsFiltered, func(i, j int) bool {
+			return m.file.Symbols[m.symbolsFiltered[i]].Size > m.file.Symbols[m.symbolsFiltered[j]].Size
+		})
 	}
 }
 
@@ -99,6 +140,17 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 		m.symbolsCur, m.symbolsTop = 0, 0
 		m.recomputeSymbols()
 		m.setStatus("symbol scope: "+m.symbolsScope.String(), false)
+		return m, nil
+	case "b":
+		m.cycleSymbolBindFilter()
+		m.symbolsCur, m.symbolsTop = 0, 0
+		m.recomputeSymbols()
+		return m, nil
+	case "o":
+		m.symbolsSort = (m.symbolsSort + 1) % 3
+		m.symbolsCur, m.symbolsTop = 0, 0
+		m.recomputeSymbols()
+		m.setStatus("sort: "+m.symbolsSort.String(), false)
 		return m, nil
 	case "w":
 		m.toggleWrap()
@@ -152,6 +204,31 @@ func (m *Model) cycleSymbolKindFilter() {
 	m.symbolsKindOn = false
 }
 
+// cycleSymbolBindFilter steps the bind filter off → global → weak → local → off
+// (global is the usual "exported symbols" lens when combined with scope:internal).
+func (m *Model) cycleSymbolBindFilter() {
+	order := []binfile.SymBind{binfile.BindGlobal, binfile.BindWeak, binfile.BindLocal}
+	if !m.symbolsBindOn {
+		m.symbolsBindOn = true
+		m.symbolsBind = order[0]
+		m.setStatus("symbol bind filter: "+bindString(m.symbolsBind), false)
+		return
+	}
+	for i, b := range order {
+		if b == m.symbolsBind {
+			if i == len(order)-1 {
+				m.symbolsBindOn = false
+				m.setStatus("symbol bind filter: all", false)
+				return
+			}
+			m.symbolsBind = order[i+1]
+			m.setStatus("symbol bind filter: "+bindString(m.symbolsBind), false)
+			return
+		}
+	}
+	m.symbolsBindOn = false
+}
+
 // openSymbol opens a symbol in the most appropriate view. The hex and disasm
 // views span the whole binary now, so this only chooses which view to land in
 // and seeks the cursor onto the symbol's address:
@@ -186,11 +263,18 @@ func (m *Model) renderSymbols() string {
 		if m.symbolsKindOn {
 			kind = kindString(m.symbolsKind)
 		}
-		libPart := ""
-		if m.symbolsLib != "" {
-			libPart = "   lib:" + m.symbolsLib + " (Esc clears)"
+		facets := []string{"type:" + kind, "scope:" + m.symbolsScope.String()}
+		if m.symbolsBindOn {
+			facets = append(facets, "bind:"+bindString(m.symbolsBind))
 		}
-		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   type:%s   scope:%s%s   (%d / %d)", m.symbolsFilter.Value(), kind, m.symbolsScope.String(), libPart, len(m.symbolsFiltered), len(m.file.Symbols)))
+		if m.symbolsSort != sortByName {
+			facets = append(facets, "sort:"+m.symbolsSort.String())
+		}
+		if m.symbolsLib != "" {
+			facets = append(facets, "lib:"+m.symbolsLib+" (Esc clears)")
+		}
+		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   %s   (%d / %d)",
+			m.symbolsFilter.Value(), strings.Join(facets, "  "), len(m.symbolsFiltered), len(m.file.Symbols)))
 	}
 
 	addrW := m.file.AddrHexWidth()

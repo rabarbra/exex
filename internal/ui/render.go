@@ -287,10 +287,65 @@ func renderLineRowsIndented(line string, w int, wrap bool, indent int) []string 
 		rows = indentContinuationRows(rows, w, indent)
 	}
 
+	carryWrapStyle(rows)
+
 	for i := range rows {
 		rows[i] = padRight(rows[i], w)
 	}
 	return rows
+}
+
+// carryWrapStyle makes each wrapped row self-contained. A styled span (e.g. a
+// coloured symbol or pointer annotation) split across a line break otherwise
+// loses its colour: the cell renderer resets the pen at every line, so a
+// continuation row that begins mid-span renders with the default colour. This
+// re-emits the SGR active at each break — after any leading indent, so the
+// hanging indent stays unstyled — and closes every row that ends mid-span.
+func carryWrapStyle(rows []string) {
+	open := ""
+	for i, row := range rows {
+		if open != "" {
+			j := 0
+			for j < len(row) && row[j] == ' ' {
+				j++
+			}
+			row = row[:j] + open + row[j:]
+		}
+		open = lastOpenSGR(open, row)
+		if open != "" {
+			row += "\x1b[0m"
+		}
+		rows[i] = row
+	}
+}
+
+// lastOpenSGR returns the SGR sequence still in effect at the end of row, given
+// the sequence already open when the row began. A reset ("\x1b[0m" / "\x1b[m")
+// clears it; any other SGR replaces it. Styles in this UI are emitted as one
+// complete SGR per span (lipgloss does this), so tracking the last sequence is
+// sufficient.
+func lastOpenSGR(open, row string) string {
+	for i := 0; i+1 < len(row); i++ {
+		if row[i] != 0x1b || row[i+1] != '[' {
+			continue
+		}
+		j := i + 2
+		for j < len(row) && (row[j] < 0x40 || row[j] > 0x7e) {
+			j++
+		}
+		if j >= len(row) {
+			break
+		}
+		if row[j] == 'm' {
+			if seq := row[i : j+1]; seq == "\x1b[0m" || seq == "\x1b[m" {
+				open = ""
+			} else {
+				open = seq
+			}
+		}
+		i = j
+	}
+	return open
 }
 
 // appendRenderedRows appends rendered rows until limit is reached.

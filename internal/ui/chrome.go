@@ -102,8 +102,9 @@ func (m *Model) renderHelpModal() string {
 		row("d", "disassemble (if exec)"),
 		"",
 		head("Symbols"),
-		row("t", "cycle type filter"),
+		row("t / b", "filter by type / bind"),
 		row("i", "scope: all/internal/imported"),
+		row("o", "sort: name/address/size"),
 		row("Esc", "clear library filter"),
 	}
 	right := []string{
@@ -123,8 +124,10 @@ func (m *Model) renderHelpModal() string {
 		row("d", "disassemble (if exec)"),
 		row("[ / ]", "prev / next section"),
 		row("⇧[ / ⇧]", "prev / next nonzero"),
-		row("p", "decode pointers / ascii"),
+		row("p / i", "pointer decode / data inspector"),
+		row("Enter", "follow pointer at cursor"),
 		row("a / s / v", "copy address / symbol / pointer"),
+		row("w", "wrap long rows"),
 		row("/  n/N", "search bytes/\"text\"/0x…"),
 		"",
 		head("Sources"),
@@ -349,9 +352,9 @@ func (m *Model) renderFooter() string {
 			help = "Esc cancel search · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
 		}
 	case modeHex:
-		help = "[ ] section · p pointers · a/s/v copy · / search · g goto · ? help · q quit"
+		help = "[ ] section · p ptrs · i inspect · ↵ follow · a/s/v copy · / search · ? help"
 	case modeRaw:
-		help = "[ ] section · p pointers · a/s/v copy · / search · g goto · ? help · q quit"
+		help = "[ ] section · p ptrs · i inspect · ↵ follow · a/s/v copy · / search · ? help"
 	case modeSources:
 		help = "Enter open in disasm · / filter · ^F grep all · c copy · g goto · ? help · q quit"
 	case modeLibs:

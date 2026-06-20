@@ -225,3 +225,42 @@ including hex coloring, highlight of source position etc.
 ## 22. Hex colouring modes.
 
 Different modes how to color hex
+
+## 23. Segments / load-commands view  (new)
+
+**Goal.** A view listing the program's memory map at the segment level — ELF
+program headers (`PT_LOAD`, `PT_DYNAMIC`, `PT_GNU_STACK`, …) and Mach-O load
+commands / segments — with permissions (r/w/x), virtual address range, file
+offset + size, and alignment. The Info view only *counts* these today
+(`info.Segments`); this would show them, explaining the layout the Hex view
+stitches together from sections.
+
+**Work.** Retain segment data in the neutral model (currently `ef.Progs` /
+`mf.Loads` are read once and discarded). Add a `[]Segment` to `binfile.File`
+populated by each loader, a `modeSegments` view + tab, and a table renderer
+reusing the existing list/scroll/colour machinery.
+
+## 24. Copy / export a whole function's disassembly  (new)
+
+**Goal.** The disasm view can copy a single address/symbol; add copying (or
+writing to a file) the *entire* current function — the natural unit for bug
+reports, diffs, and pasting into an LLM. The range is already known from the
+symbol's `Addr`/`Size`.
+
+**Work.** A key in the disasm view that gathers the instructions within the
+current symbol's extent (decoding the window if needed), renders them as plain
+`addr: bytes  text` lines (ANSI-stripped), and either puts them on the clipboard
+or writes `=<symbol>.asm`. Consider a second key for "copy as the rendered,
+coloured view".
+
+## 25. PE import symbols (IAT)  (new)
+
+**Goal.** Bring PE up to ELF/Mach-O parity. ELF and Mach-O synthesise named
+symbols for imports (PLT/GOT / stubs) so call targets resolve and the Symbols
+view's scope/library filters work; PE does not, so `call [IAT]` stays a bare
+address and the `scope:imported` filter is empty on PE.
+
+**Work.** Parse the PE import directory (and delay-import directory): for each
+imported function, synthesise a `Symbol` at its IAT slot address with
+`Library` set to the owning DLL and `Kind = SymObject` (or `SymFunc` for the
+thunk), mirroring `appendELFImportSymbols` / `machoImportSymbols`.

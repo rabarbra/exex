@@ -12,6 +12,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,6 +37,23 @@ func identityAddr(pos int) uint64 { return uint64(pos) }
 
 // hexBodyStart is the screen column of the first hex digit.
 func hexBodyStart(addrW int) int { return 1 + 2 + addrW + 2 }
+
+// hexGridWidth is the on-screen width of the hex-byte column: bytesPerHexRow
+// pairs (2 each), a single space between them, and one extra space at the
+// midpoint.
+const hexGridWidth = bytesPerHexRow*2 + (bytesPerHexRow - 1) + 1
+
+// hexWrapIndent is the hanging-indent column for wrapped hex/raw rows, aligned
+// with where the trailing content begins so a wrapped annotation lines up under
+// it: the decoded-word column in pointer mode, or past the |ascii| column (where
+// the symbol annotations sit) in ascii mode.
+func (m *Model) hexWrapIndent(addrW int) int {
+	col := hexBodyStart(addrW) + hexGridWidth + 2 // start of the ascii / word column
+	if !m.hexWords {
+		col += bytesPerHexRow + 2 // skip the |ascii| column to the symbol annotations
+	}
+	return col
+}
 
 // hexColumnToByte maps a screen column x to a byte index [0, bytesPerHexRow).
 func hexColumnToByte(addrW, x int) int {
@@ -108,6 +126,61 @@ func (m *Model) openRawAt(off uint64) {
 	m.status = ""
 }
 
+// inspectorBanner decodes the bytes at pos as integers of every width (signed
+// and unsigned), floats, a char, and a pointer (resolved to its symbol/section),
+// for the data-inspector banner. prefix is the cursor's location label.
+func (m *Model) inspectorBanner(data []byte, pos int, prefix string) string {
+	if pos < 0 || pos >= len(data) {
+		return prefix + "  inspect: (no byte under cursor)"
+	}
+	be := m.file.Info != nil && m.file.Info.ByteOrder == "big-endian"
+	readU := func(n int) (uint64, bool) {
+		if pos+n > len(data) {
+			return 0, false
+		}
+		var v uint64
+		if be {
+			for k := 0; k < n; k++ {
+				v = v<<8 | uint64(data[pos+k])
+			}
+		} else {
+			for k := n - 1; k >= 0; k-- {
+				v = v<<8 | uint64(data[pos+k])
+			}
+		}
+		return v, true
+	}
+
+	u8, _ := readU(1)
+	parts := []string{fmt.Sprintf("u8 0x%02x (%d)", u8, u8)}
+	if v, ok := readU(2); ok {
+		parts = append(parts, fmt.Sprintf("u16 0x%04x", v))
+	}
+	if v, ok := readU(4); ok {
+		parts = append(parts,
+			fmt.Sprintf("u32 0x%08x", v),
+			fmt.Sprintf("i32 %d", int32(v)),
+			fmt.Sprintf("f32 %g", math.Float32frombits(uint32(v))))
+	}
+	if v, ok := readU(8); ok {
+		parts = append(parts,
+			fmt.Sprintf("u64 0x%016x", v),
+			fmt.Sprintf("i64 %d", int64(v)),
+			fmt.Sprintf("f64 %g", math.Float64frombits(v)))
+	}
+	ch := "·"
+	if u8 >= 0x20 && u8 < 0x7f {
+		ch = string(rune(u8))
+	}
+	parts = append(parts, "char '"+ch+"'")
+	if pv, ok := m.readPointer(data, pos); ok && pv != 0 && m.file.IsMapped(pv) {
+		if name := m.targetAnnotation(pv); name != "" {
+			parts = append(parts, "ptr→ "+name)
+		}
+	}
+	return prefix + "  " + strings.Join(parts, "  ")
+}
+
 // toggleHexWords flips the hex/raw trailing column between ASCII and the
 // pointer-word decode, reporting the new mode in the footer.
 func (m *Model) toggleHexWords() {
@@ -117,6 +190,16 @@ func (m *Model) toggleHexWords() {
 		col = "pointers"
 	}
 	m.setStatus("hex column: "+col, false)
+}
+
+// toggleHexInspect flips the data-inspector banner on/off.
+func (m *Model) toggleHexInspect() {
+	m.hexInspect = !m.hexInspect
+	state := "off"
+	if m.hexInspect {
+		state = "on"
+	}
+	m.setStatus("data inspector: "+state, false)
 }
 
 // copyPointerAt copies the pointer-sized word at byte position pos to the
@@ -129,6 +212,22 @@ func (m *Model) copyPointerAt(data []byte, pos int) {
 		return
 	}
 	m.copyToClipboard(fmt.Sprintf("0x%x", v), "pointer")
+}
+
+// followPointerAt reads the pointer-sized word at pos and navigates to the
+// address it points to (disasm when executable, else the hex view), so GOT/data
+// pointer tables can be walked. Reports when the word isn't a mapped pointer.
+func (m *Model) followPointerAt(data []byte, pos int) {
+	v, ok := m.readPointer(data, pos)
+	if !ok {
+		m.setStatus("not enough bytes for a pointer here", true)
+		return
+	}
+	if v == 0 || !m.file.IsMapped(v) {
+		m.setStatus(fmt.Sprintf("0x%x is not a mapped address", v), true)
+		return
+	}
+	m.gotoAddr(v)
 }
 
 // moveByteCursor applies a navigation key to a byte cursor over n bytes.
@@ -181,8 +280,12 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 		m.toggleWrap()
 	case "p":
 		m.toggleHexWords()
+	case "i":
+		m.toggleHexInspect()
 	case "v":
-		m.copyPointerAt(data, m.hexCur)
+		m.copyPointerAt(data, m.pointerWordStart(m.hexImg.AddrAt(m.hexCur), m.hexCur))
+	case "enter":
+		m.followPointerAt(data, m.pointerWordStart(m.hexImg.AddrAt(m.hexCur), m.hexCur))
 	case "a":
 		addr := m.hexImg.AddrAt(m.hexCur)
 		m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), addr), "address")
@@ -297,8 +400,12 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 		m.toggleWrap()
 	case "p":
 		m.toggleHexWords()
+	case "i":
+		m.toggleHexInspect()
 	case "v":
-		m.copyPointerAt(m.rawData, m.rawCur)
+		m.copyPointerAt(m.rawData, m.pointerWordStart(uint64(m.rawCur), m.rawCur))
+	case "enter":
+		m.followPointerAt(m.rawData, m.pointerWordStart(uint64(m.rawCur), m.rawCur))
 	case "a":
 		m.copyToClipboard(fmt.Sprintf("0x%x", m.rawCur), "offset")
 	case "s":
@@ -383,6 +490,10 @@ func (m *Model) renderHex() string {
 		banner = fmt.Sprintf(" %s   @ 0x%0*x   ·   %d bytes across %d mapped sections",
 			r.Name, m.file.AddrHexWidth(), m.hexImg.AddrAt(m.hexCur), m.hexImg.Len(), len(m.hexImg.Regions))
 	}
+	if m.hexInspect {
+		banner = m.inspectorBanner(m.hexImg.Data, m.hexCur,
+			fmt.Sprintf(" 0x%0*x", m.file.AddrHexWidth(), m.hexImg.AddrAt(m.hexCur)))
+	}
 	return m.renderHexDump(modeHex, m.hexImg.Data, m.hexCur, &m.hexTop, m.hexImg.AddrAt, banner)
 }
 
@@ -395,6 +506,9 @@ func (m *Model) renderRaw() string {
 	if sec := m.sectionAtOffset(uint64(m.rawCur)); sec != nil {
 		banner = fmt.Sprintf(" raw file · offset 0x%x · in %s · %d bytes total",
 			m.rawCur, sec.Name, len(m.rawData))
+	}
+	if m.hexInspect {
+		banner = m.inspectorBanner(m.rawData, m.rawCur, fmt.Sprintf(" +0x%x", m.rawCur))
 	}
 	return m.renderHexDump(modeRaw, m.rawData, m.rawCur, &m.rawTop, identityAddr, banner)
 }
@@ -422,6 +536,15 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 		m.renderedHexTop = top
 	}
 
+	// When wrap is on, a wide row (pointer decode, inspector, long trailing
+	// symbols) reflows under a hanging indent aligned with the annotation column.
+	// That indent is clamped to always leave a usable continuation width, so it
+	// can't collapse to 1-char lines on a narrow terminal. The section-separator
+	// divider is decorative and always truncates.
+	rowIndent := m.hexWrapIndent(addrW)
+	if lim := m.width - 24; rowIndent > lim {
+		rowIndent = max(0, lim)
+	}
 	rows := []string{m.theme.stickyTitleLine(banner, m.width)}
 	for off := top; off < len(data) && len(rows) < bodyH; {
 		if sec := m.hexSectionStartName(md, off); sec != "" {
@@ -433,14 +556,14 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 					" "+sec+" ",
 					lipgloss.WithWhitespaceChars("="),
 				)),
-				m.width, m.wrap, addrW+75,
+				m.width, false, bodyH,
 			)
 		}
 		row := m.hexRowSpan(md, data, off, addrAt)
 		if !appendRenderedRowsIndented(
 			&rows,
 			m.renderHexRow(md, data, cur, row, addrW, addrAt),
-			m.width, m.wrap, addrW+75, bodyH,
+			m.width, m.wrap, rowIndent, bodyH,
 		) {
 			break
 		}
@@ -686,7 +809,7 @@ func (m *Model) readPointer(data []byte, pos int) (uint64, bool) {
 	return v, true
 }
 
-func (m *Model) hexWordDecode(data []byte, span hexRowSpan) string {
+func (m *Model) hexWordDecode(data []byte, span hexRowSpan, cur int) string {
 	size := m.pointerSize()
 	var words, notes []string
 	for slot := 0; slot+size <= bytesPerHexRow; slot += size {
@@ -698,18 +821,39 @@ func (m *Model) hexWordDecode(data []byte, span hexRowSpan) string {
 		if !ok {
 			continue
 		}
-		words = append(words, m.theme.asmNumberStyle.Render(fmt.Sprintf("0x%0*x", size*2, v)))
+		// Three tiers: plain data keeps the muted number colour; a word that points
+		// into the binary gets the mapped-pointer colour; and the word under the
+		// cursor — the one Enter follows / v copies — the brighter link colour. Each
+		// word's → target is drawn in the same colour so they read as a pair.
+		onCursor := cur >= i && cur < i+size
+		style := m.theme.asmNumberStyle
 		if v != 0 && m.file.IsMapped(v) {
+			style = m.theme.hexPointerStyle
+			if onCursor {
+				style = m.theme.linkAddrInterStyle
+			}
 			if name := m.targetAnnotation(v); name != "" {
-				notes = append(notes, name)
+				notes = append(notes, style.Render(name))
 			}
 		}
+		words = append(words, style.Render(fmt.Sprintf("0x%0*x", size*2, v)))
 	}
 	out := strings.Join(words, " ")
 	if len(notes) > 0 {
-		out += "  " + m.theme.addrStyle.Render("→ "+strings.Join(notes, ", "))
+		out += "  " + m.theme.addrStyle.Render("→ ") + strings.Join(notes, m.theme.addrStyle.Render(", "))
 	}
 	return out
+}
+
+// pointerWordStart aligns a byte position down to the pointer-word boundary on
+// the address grid — matching the decode columns — so follow/copy act on the
+// same aligned word the cursor highlights, not a word read mid-cursor.
+func (m *Model) pointerWordStart(addr uint64, pos int) int {
+	off := int(addr % uint64(m.pointerSize()))
+	if off > pos {
+		return pos
+	}
+	return pos - off
 }
 
 func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, addrW int, addrAt func(pos int) uint64) string {
@@ -746,11 +890,14 @@ func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, add
 		hexCol.String(),
 	)
 	if m.hexWords {
-		line.WriteString(m.hexWordDecode(data, span))
+		line.WriteString(m.hexWordDecode(data, span, cur))
 	} else {
 		line.WriteString("|" + asciiCol.String() + "|")
 	}
-	if md == modeHex {
+	// The trailing symbol/section annotation is only useful in the ASCII view; in
+	// pointer mode the row already carries the word decode and its → targets, so
+	// the extra annotation just adds noise and width.
+	if md == modeHex && !m.hexWords {
 		addr := addrAt(span.start)
 		endAddr := addr + uint64(span.end-span.start)
 		if syms := m.file.SymbolsInRange(addr, endAddr); len(syms) != 0 {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestLooksLikeText(t *testing.T) {
@@ -81,6 +83,31 @@ func TestExtractPathsCommandsFromPATH(t *testing.T) {
 		if strings.Contains(p, "frobnicate") {
 			t.Fatalf("non-command/non-file matched: %v", picks)
 		}
+	}
+}
+
+func TestUnderlineRanges(t *testing.T) {
+	// Plain text: underline the middle span, leave the rest untouched.
+	got := underlineRanges("hello", []pathSpan{{start: 1, end: 3}})
+	if got != "h\x1b[4mel\x1b[24mlo" {
+		t.Fatalf("plain underline = %q", got)
+	}
+	if ansi.Strip(got) != "hello" {
+		t.Fatalf("visible text changed: %q", ansi.Strip(got))
+	}
+
+	// A reset inside the span (as a syntax highlighter emits between tokens) must
+	// re-assert the underline so it doesn't drop mid-span.
+	colored := "\x1b[31mab\x1b[0mcd" // visible "abcd"; reset after "ab"
+	out := underlineRanges(colored, []pathSpan{{start: 1, end: 3}})
+	if ansi.Strip(out) != "abcd" {
+		t.Fatalf("visible text changed: %q", ansi.Strip(out))
+	}
+	if c := strings.Count(out, "\x1b[4m"); c < 2 {
+		t.Fatalf("underline not re-asserted after reset (count=%d): %q", c, out)
+	}
+	if !strings.Contains(out, "\x1b[24m") {
+		t.Fatalf("missing underline-off: %q", out)
 	}
 }
 

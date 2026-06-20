@@ -135,9 +135,9 @@ The mouse wheel scrolls, click selects, and double-click follows in the disasm v
 ### Text scripts
 
 If `<binary>` is not an ELF/Mach-O/PE file but a readable text file — a shell,
-Python, or other script (still "executable") — exex opens it in a simple
-read-only text viewer instead of erroring. It highlights, and lets you open from
-a menu (`Enter` / `o`):
+Python, or other script (still "executable") — exex opens it in a read-only,
+syntax-highlighted text viewer instead of erroring. Two kinds of token are
+underlined as openable links, and a menu (`Enter` / `o`) opens the one you pick:
 
 - **filesystem paths** that resolve to a real file — absolute, `~`-relative, or
   relative to the script's own directory, and

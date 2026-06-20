@@ -24,6 +24,7 @@ import (
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
+	"github.com/rabarbra/exex/internal/syntax"
 )
 
 // maxTextFileBytes bounds how much of a text file the viewer loads.
@@ -64,11 +65,14 @@ type textModel struct {
 	cfg   config.Config
 	theme Theme
 
-	path  string
-	dir   string
-	lines []string
-	spans [][]pathSpan // path spans per line
-	picks []string     // unique resolved paths, for the open menu
+	hl *syntax.Highlighter
+
+	path    string
+	dir     string
+	lines   []string
+	hlLines []string     // syntax-highlighted lines (ANSI), indexed like lines
+	spans   [][]pathSpan // path spans per line
+	picks   []string     // unique resolved paths, for the open menu
 
 	top           int
 	width, height int
@@ -83,7 +87,7 @@ type textModel struct {
 
 // NewText builds the text-viewer model for a script/text file.
 func NewText(path string, cfg config.Config) (tea.Model, error) {
-	m := &textModel{cfg: cfg, theme: NewTheme(cfg)}
+	m := &textModel{cfg: cfg, theme: NewTheme(cfg), hl: syntax.NewHighlighter(sourceSyntaxTheme(cfg))}
 	if err := m.load(path); err != nil {
 		return nil, err
 	}
@@ -102,6 +106,7 @@ func (m *textModel) load(path string) error {
 	m.path = path
 	m.dir = filepath.Dir(path)
 	m.lines = strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	m.hlLines = m.hl.Highlight(path, m.lines)
 	m.spans, m.picks = extractPaths(m.lines, m.dir)
 	m.top = 0
 	m.pickerActive = false
@@ -275,26 +280,69 @@ func (m *textModel) View() tea.View {
 	return v
 }
 
-// renderLine renders one source line with its resolvable paths highlighted.
+// renderLine renders one syntax-highlighted source line, underlining the
+// resolvable path/command spans so they read as openable links without losing
+// their syntax colour.
 func (m *textModel) renderLine(i int) string {
 	line := m.lines[i]
-	spans := m.spans[i]
+	if i < len(m.hlLines) && m.hlLines[i] != "" {
+		line = m.hlLines[i]
+	}
+	line = underlineRanges(line, m.spans[i])
+	return padRight(fitANSIWidth(line, m.width), m.width)
+}
+
+// underlineRanges adds an underline over the given byte ranges of an
+// ANSI-coloured line. The spans are byte offsets into the *plain* text; this
+// maps them onto the coloured string (escapes don't count as visible bytes) and
+// re-asserts the underline after any SGR reset inside a span, so it survives the
+// per-token resets the syntax highlighter emits. The fg colour is left intact.
+func underlineRanges(s string, spans []pathSpan) string {
 	if len(spans) == 0 {
-		return padRight(fitANSIWidth(m.theme.tableRowStyle.Render(line), m.width), m.width)
+		return s
 	}
+	const ulOn, ulOff = "\x1b[4m", "\x1b[24m"
 	var b strings.Builder
-	pos := 0
-	for _, sp := range spans {
-		if sp.start > pos {
-			b.WriteString(m.theme.tableRowStyle.Render(line[pos:sp.start]))
+	b.Grow(len(s) + len(spans)*8)
+	vis, si := 0, 0
+	inSpan := false
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b { // copy an escape sequence verbatim
+			j := i + 1
+			if j < len(s) && s[j] == '[' {
+				j++
+				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+					j++
+				}
+				if j < len(s) {
+					j++
+				}
+			}
+			esc := s[i:j]
+			b.WriteString(esc)
+			if inSpan && (esc == "\x1b[0m" || esc == "\x1b[m") {
+				b.WriteString(ulOn) // reset cleared underline — turn it back on
+			}
+			i = j
+			continue
 		}
-		b.WriteString(m.theme.linkAddrInterStyle.Render(line[sp.start:sp.end]))
-		pos = sp.end
+		if !inSpan && si < len(spans) && vis == spans[si].start {
+			b.WriteString(ulOn)
+			inSpan = true
+		}
+		b.WriteByte(s[i])
+		vis++
+		i++
+		if inSpan && vis == spans[si].end {
+			b.WriteString(ulOff)
+			inSpan = false
+			si++
+		}
 	}
-	if pos < len(line) {
-		b.WriteString(m.theme.tableRowStyle.Render(line[pos:]))
+	if inSpan {
+		b.WriteString(ulOff)
 	}
-	return padRight(fitANSIWidth(b.String(), m.width), m.width)
+	return b.String()
 }
 
 func (m *textModel) renderPicker() string {

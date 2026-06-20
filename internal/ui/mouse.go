@@ -333,7 +333,7 @@ func (m *Model) handleSearchPopupClick(x, y int) {
 	pos := 0
 	sepW := lipgloss.Width(searchSwitchSep)
 	for _, sw := range m.searchSwitches() {
-		w := lipgloss.Width(sw.label)
+		w := lipgloss.Width(sw.label())
 		if cx >= pos && cx < pos+w {
 			sw.toggle()
 			return

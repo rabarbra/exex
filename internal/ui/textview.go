@@ -347,9 +347,9 @@ func underlineRanges(s string, spans []pathSpan) string {
 
 func (m *textModel) renderPicker() string {
 	const visible = 12
-	rowW := clamp(m.width-8, 24, 120)
+	rowW := modalListWidth(m.width)
 	var sb strings.Builder
-	sb.WriteString(m.theme.titleStyle.Render(" Open path ") + "\n\n")
+	sb.WriteString(m.theme.modalTitle("Open path") + "\n\n")
 	top := visualTop(m.pickerSel, m.pickerTop, len(m.picks), visible, func(int) int { return 1 })
 	m.pickerTop = top
 	end := min(top+visible, len(m.picks))
@@ -364,7 +364,7 @@ func (m *textModel) renderPicker() string {
 		}
 		sb.WriteString(line + "\n")
 	}
-	sb.WriteString("\n" + m.theme.footerStyle.Render(
+	sb.WriteString("\n" + m.theme.modalHint(
 		fmt.Sprintf("↑/↓ select · Enter open · Esc cancel   (%d/%d)", m.pickerSel+1, len(m.picks))))
 	return m.theme.modalStyle.Render(sb.String())
 }

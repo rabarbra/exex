@@ -151,7 +151,7 @@ func newKeyState(cfg config.Keys) keyState {
 			}
 		}
 	}
-	addSearchAlias(cfg.SearchMode, "ctrl+m")
+	addSearchAlias(cfg.SearchMode, "ctrl+t")
 	addSearchAlias(cfg.SearchDirection, "ctrl+r")
 	addSearchAlias(cfg.SearchOrigin, "ctrl+o")
 

@@ -176,9 +176,7 @@ func (m *Model) updateXrefModal(key string) (tea.Model, tea.Cmd) {
 func (m *Model) renderXrefModal() string {
 	var sb strings.Builder
 	addrW := m.file.AddrHexWidth()
-	// Never exceed the view: bound the content width to the screen minus the
-	// modal's border + padding (6 cols), so the modal always fits.
-	rowW := clamp(m.width-8, 24, 160)
+	rowW := modalListWidth(m.width)
 	// As many rows as the screen allows, after the modal's chrome (title, target
 	// line(s), two blanks, footer, border + padding).
 	visible := clamp(m.height-8, 3, 40)
@@ -189,10 +187,9 @@ func (m *Model) renderXrefModal() string {
 	textW := clamp(avail/3, 12, 40)
 	symW := max(8, avail-textW)
 
-	// Title is short and fixed; the target name (a possibly long demangled symbol)
-	// goes on its own line(s), wrapped to the modal width so it never widens the
-	// modal past the view.
-	sb.WriteString(m.theme.titleStyle.Render(" Cross-references ") + "\n")
+	// Title bar; the target name (a possibly long demangled symbol) goes on its
+	// own line(s), wrapped to the modal width so it never widens past the view.
+	sb.WriteString(m.theme.modalTitle("Cross-references") + "\n")
 	for _, r := range renderLineRowsIndented(m.theme.symbolNameStyle.Render(m.xrefLabel), rowW, true, 0) {
 		sb.WriteString(r + "\n")
 	}
@@ -217,7 +214,7 @@ func (m *Model) renderXrefModal() string {
 		sb.WriteString(line + "\n")
 	}
 
-	sb.WriteString("\n" + m.theme.footerStyle.Render(
+	sb.WriteString("\n" + m.theme.modalHint(
 		fmt.Sprintf("↑/↓ select · Enter jump · Esc close   (%d/%d)", m.xrefSel+1, len(m.xrefResults))))
 	return m.theme.modalStyle.Render(sb.String())
 }

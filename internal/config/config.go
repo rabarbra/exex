@@ -273,7 +273,7 @@ type Keys struct {
 	Wrap StringOrSlice `yaml:"wrap"`
 	// Cycle a view-specific type filter. (default: t)
 	FilterType StringOrSlice `yaml:"filter_type"`
-	// Cycle search popup mode (auto/text/hex where supported). (default: ctrl+m)
+	// Cycle search popup mode (auto/text/hex where supported). (default: ctrl+t)
 	SearchMode StringOrSlice `yaml:"search_mode"`
 	// Toggle search popup direction. (default: ctrl+r)
 	SearchDirection StringOrSlice `yaml:"search_direction"`

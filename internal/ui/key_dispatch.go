@@ -247,6 +247,9 @@ func (m *Model) updateSearchInput(msg tea.KeyMsg, key string) (tea.Model, tea.Cm
 		m.searchActive = false
 		m.searchInput.Blur()
 		return m, nil
+	case "ctrl+t":
+		m.cycleSearchMode()
+		return m, nil
 	case "ctrl+r":
 		m.searchForward = !m.searchForward
 		return m, nil

@@ -589,7 +589,7 @@ func TestSearchPopupClickTogglesSwitches(t *testing.T) {
 	centers := make([]int, 0, 3)
 	pos := 0
 	for _, sw := range m.searchSwitches() {
-		w := lipgloss.Width(sw.label)
+		w := lipgloss.Width(sw.label())
 		centers = append(centers, left+3+pos+w/2)
 		pos += w + sepW
 	}

@@ -172,7 +172,7 @@ keys:
   open_disasm: d
   wrap: w
   filter_type: t
-  search_mode: ctrl+m
+  search_mode: ctrl+t
   search_direction: ctrl+r
   search_origin: ctrl+o
   next: "]"   # next symbol (disasm) / next non-zero byte (hex/raw)

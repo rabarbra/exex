@@ -74,20 +74,28 @@ func (m *Model) screenView(out string) tea.View {
 // renderHelpModal lists the keybindings, grouped by scope, in two columns. The
 // key column is padded by display width (so multibyte arrows align) and the two
 // columns are laid out side by side to keep the modal compact.
+// helpEntry is one line of a help column: a section header, a key/description
+// row, or a blank spacer.
+type helpEntry struct {
+	head string // section title (uppercased + ruled) when non-empty
+	text string // a pre-rendered key+desc row; "" with no head = blank line
+}
+
 func (m *Model) renderHelpModal() string {
 	const keyW = 16
-	row := func(keys, desc string) string {
-		return m.theme.helpKeyStyle.Render(padVisual(keys, keyW)) + " " + m.theme.helpDescStyle.Render(desc)
+	row := func(keys, desc string) helpEntry {
+		return helpEntry{text: m.theme.helpKeyStyle.Render(padVisual(keys, keyW)) + " " + m.theme.helpDescStyle.Render(desc)}
 	}
-	head := func(s string) string { return m.theme.helpHeadStyle.Render(s) }
+	head := func(s string) helpEntry { return helpEntry{head: s} }
+	blank := helpEntry{}
 
-	left := []string{
+	left := []helpEntry{
 		head("Global"),
 		row("1–9", "switch view"),
 		row("g", "go to address / symbol"),
 		row(",", "settings (theme, wrap, …)"),
 		row("?", "this help  ·  q / ^C quit"),
-		"",
+		blank,
 		head("Lists (all views)"),
 		row("↑/↓  j/k", "move line"),
 		row("PgUp/PgDn  [ ]", "page  (⌘↑/⌘↓ on macOS)"),
@@ -96,19 +104,19 @@ func (m *Model) renderHelpModal() string {
 		row("Enter", "open / jump"),
 		row("a / s", "copy address / name"),
 		row("w", "toggle long-line wrap"),
-		"",
+		blank,
 		head("Sections"),
 		row("Enter", "open in Hex"),
 		row("d", "disassemble (if exec)"),
 		row("t", "toggle sections / segments"),
-		"",
+		blank,
 		head("Symbols"),
 		row("t / b", "filter by type / bind"),
 		row("i", "scope: all/internal/imported"),
 		row("o", "sort: name/address/size"),
 		row("Esc", "clear library filter"),
 	}
-	right := []string{
+	right := []helpEntry{
 		head("Disassembly"),
 		row("↑/↓", "scroll"),
 		row("←/→", "history back / forward"),
@@ -120,7 +128,7 @@ func (m *Model) renderHelpModal() string {
 		row("Tab", "show / hide right pane"),
 		row("⇧Tab", "swap source / disasm"),
 		row("⇧↑/⇧↓", "scroll right pane"),
-		"",
+		blank,
 		head("Hex / Raw"),
 		row("↑/↓/←/→", "move byte cursor"),
 		row("d", "disassemble (if exec)"),
@@ -131,35 +139,75 @@ func (m *Model) renderHelpModal() string {
 		row("a / s / v", "copy address / symbol / pointer"),
 		row("w", "wrap long rows"),
 		row("/  n/N", "search bytes/\"text\"/0x…"),
-		"",
+		blank,
 		head("Sources"),
 		row("Enter", "open · jump to disasm"),
 		row("[ / ]", "prev / next mapped line"),
 		row("/  ^F", "find in file · grep all"),
 		row("c  ·  g", "copy path · goto symbol"),
-		"",
+		blank,
 		head("Libraries"),
 		row("Enter", "imported symbols"),
 		row("o  ·  c", "open as primary · copy"),
 	}
 
-	col := func(rows []string) string {
-		w := 0
-		for _, r := range rows {
-			if rw := ansi.StringWidth(r); rw > w {
+	leftLines := m.helpColumn(left)
+	rightLines := m.helpColumn(right)
+	n := max(len(leftLines), len(rightLines))
+	lw, rw := lipgloss.Width(leftLines[0]), lipgloss.Width(rightLines[0])
+	div := m.theme.srcShadowStyle.Render("│")
+
+	var b strings.Builder
+	b.WriteString(m.theme.modalTitle("Keybindings") + "\n\n")
+	for i := 0; i < n; i++ {
+		l, r := padVisual("", lw), padVisual("", rw)
+		if i < len(leftLines) {
+			l = leftLines[i]
+		}
+		if i < len(rightLines) {
+			r = rightLines[i]
+		}
+		b.WriteString(l + "  " + div + "  " + r + "\n")
+	}
+	b.WriteString("\n" + m.theme.modalHint("Mouse: wheel scrolls · over right pane scrolls it · click selects · double-click follows"))
+	return m.theme.modalStyle.Render(b.String())
+}
+
+// helpColumn renders a help column: rows padded to a common width, section
+// headers shown uppercase with a dim rule to the column edge (matching the Info
+// view), blanks as empty lines.
+func (m *Model) helpColumn(entries []helpEntry) []string {
+	w := 0
+	for _, e := range entries {
+		if e.head == "" {
+			if rw := ansi.StringWidth(e.text); rw > w {
 				w = rw
 			}
 		}
-		for i, r := range rows {
-			rows[i] = padVisual(r, w)
-		}
-		return strings.Join(rows, "\n")
 	}
-	cols := lipgloss.JoinHorizontal(lipgloss.Top, col(left), "    ", col(right))
-	body := m.theme.titleStyle.Render(" Keybindings ") + "\n\n" + cols +
-		"\n\n" + m.theme.footerStyle.Render("Mouse: wheel scrolls · over right pane scrolls it · click selects · double-click follows")
-	return m.theme.modalStyle.Render(body)
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		switch {
+		case e.head != "":
+			label := strings.ToUpper(e.head) + " "
+			line := m.theme.helpHeadStyle.Render(label)
+			if fill := w - lipgloss.Width(label); fill > 0 {
+				line += m.theme.srcShadowStyle.Render(strings.Repeat("─", fill))
+			}
+			out[i] = padVisual(line, w)
+		default:
+			out[i] = padVisual(e.text, w)
+		}
+	}
+	return out
 }
+
+// Shared modal styling, so every popup (help, goto, search, settings, xrefs,
+// path picker) looks the same: a filled title bar, dim hint/footer lines, and a
+// common list width.
+func (t Theme) modalTitle(s string) string { return t.titleStyle.Render(" " + s + " ") }
+func (t Theme) modalHint(s string) string  { return t.footerStyle.Padding(0).Render(s) }
+func modalListWidth(termW int) int         { return clamp(termW-8, 40, 120) }
 
 // overlayCenter draws a pre-rendered modal centred over bg.
 func (m *Model) overlayCenter(bg, modal string) string {
@@ -172,11 +220,11 @@ func (m *Model) overlayCenter(bg, modal string) string {
 
 func (m *Model) renderGotoModal() string {
 	var sb strings.Builder
-	sb.WriteString("Go to address or symbol\n\n")
+	sb.WriteString(m.theme.modalTitle("Go to") + "\n\n")
 	sb.WriteString(m.gotoInput.View())
 	sb.WriteString("\n")
 	if len(m.gotoResults) == 0 {
-		sb.WriteString("\n" + m.theme.footerStyle.Render("type an address or symbol name") + "\n")
+		sb.WriteString("\n" + m.theme.modalHint("type an address or symbol name") + "\n")
 	} else {
 		sb.WriteString("\n")
 		addrW := m.file.AddrHexWidth()
@@ -186,7 +234,7 @@ func (m *Model) renderGotoModal() string {
 		if end > len(m.gotoResults) {
 			end = len(m.gotoResults)
 		}
-		rowW := min(max(72, m.width-14), 120)
+		rowW := modalListWidth(m.width)
 		labelW := rowW - addrW - 6
 		for i := gotoTop; i < end; i++ {
 			t := m.gotoResults[i]
@@ -202,7 +250,7 @@ func (m *Model) renderGotoModal() string {
 	if n := len(m.gotoResults); n > 0 {
 		count = fmt.Sprintf("  (%d/%d)", m.gotoSel+1, n)
 	}
-	sb.WriteString("\n" + m.theme.footerStyle.Render("↑/↓ select · Enter jump · Esc cancel"+count))
+	sb.WriteString("\n" + m.theme.modalHint("↑/↓ select · Enter jump · Esc cancel"+count))
 	return m.theme.modalStyle.Render(sb.String())
 }
 
@@ -221,14 +269,17 @@ func (m *Model) renderSearchModal() string {
 		}
 	}
 	// Switch strip (content row searchSwitchLine) — clickable; geometry shared
-	// with handleSearchPopupClick via searchSwitches().
+	// with handleSearchPopupClick via searchSwitches(). Each switch is a dim name
+	// plus the current value in an accent pill.
 	var segs []string
 	for _, sw := range m.searchSwitches() {
-		segs = append(segs, m.theme.switchStyle.Render(sw.label))
+		segs = append(segs, m.theme.srcShadowStyle.Render(sw.name)+" "+m.theme.switchStyle.Render("⟦"+sw.value+"⟧"))
 	}
 	switches := strings.Join(segs, searchSwitchSep)
-	body := hint + "\n\n" + m.searchInput.View() + "\n\n" + switches + "\n" +
-		m.theme.footerStyle.Render("click a switch · Ctrl+M mode · Ctrl+R direction · Ctrl+O origin · Enter find · Esc cancel")
+	help := m.theme.modalHint("^T mode · ^R dir · ^O origin · ↵ find · n/N next/prev · esc cancel")
+
+	body := m.theme.modalTitle("Search") + "\n" + m.theme.modalHint(hint) +
+		"\n\n" + m.searchInput.View() + "\n\n" + switches + "\n\n" + help
 	return m.theme.modalStyle.Render(body)
 }
 
@@ -333,36 +384,70 @@ func (m *Model) switchMode(md mode) tea.Cmd {
 	return nil
 }
 
-func (m *Model) renderFooter() string {
-	// Footers stay short; the full cheat-sheet lives behind '?'.
-	var help string
+// footerHint is one "key action" pair shown in the footer.
+type footerHint struct{ key, desc string }
+
+// globalHints are the commands available everywhere; appended to every view's
+// footer so they are never missing. The full reference lives behind '?'.
+var globalHints = []footerHint{
+	{"g", "goto"}, {",", "settings"}, {"?", "help"}, {"q", "quit"},
+}
+
+// viewHints returns the current view's primary commands (view-specific only;
+// globals are appended by renderFooter). Kept curated — the complete list is in
+// the '?' overlay.
+func (m *Model) viewHints() []footerHint {
 	switch m.mode {
 	case modeInfo:
-		help = "Enter disasm entry · g goto · ? help · q quit"
-	case modeStrings:
-		help = "Enter jump · / filter · g goto · ? help · q quit"
+		return []footerHint{{"↵", "disasm entry"}}
 	case modeSections:
-		help = "Enter open · t sections/segments · / filter · g goto · ? help · q quit"
+		return []footerHint{{"↵", "open"}, {"d", "disasm"}, {"t", "sec/seg"}, {"/", "filter"}}
 	case modeSymbols:
-		help = "Enter jump · / filter · g goto · ? help · q quit"
+		return []footerHint{{"↵", "jump"}, {"/", "filter"}, {"t/b", "type/bind"}, {"i/o", "scope/sort"}, {"a/s", "copy"}}
 	case modeDisasm:
-		help = "Enter follow · [ ] sym · x xrefs · c copy func · ←/→ history · / search · ? help"
-		if (m.showSource || m.sourceFirst) && m.file.HasDWARF() {
-			help = "Tab toggle right pane · ⇧Tab swap panes · ⇧↑/⇧↓ scroll pane · [ ] sym · ←/→ history · / search · ? help · q quit"
+		dwarf := m.file.HasDWARF()
+		switch {
+		case m.searchRunning:
+			return []footerHint{{"esc", "cancel"}, {"[ ]", "sym"}, {"←/→", "history"}, {"/", "search"}}
+		case m.sourceFirst && m.srcFile != "":
+			// Source navigation leads: no disasm history, and [ ] steps mapped lines.
+			return []footerHint{{"↵", "to disasm"}, {"[ ]", "mapped"}, {"esc", "back"}, {"⇧tab", "swap"}, {"/", "search"}, {"^f", "grep"}, {"c", "copy"}}
+		case m.showSource && dwarf:
+			// Disasm-first with the source pane open.
+			return []footerHint{{"↵", "follow"}, {"[ ]", "sym"}, {"←/→", "history"}, {"x", "xrefs"}, {"a/s", "copy"}, {"c", "copy fn"}, {"tab", "pane"}, {"⇧tab", "swap"}, {"/", "search"}}
+		default:
+			// Disasm-first, no pane. Offer tab to open the pane only when there is
+			// debug info to show.
+			hints := []footerHint{{"↵", "follow"}, {"[ ]", "sym"}, {"←/→", "history"}, {"x", "xrefs"}, {"a/s", "copy"}, {"c", "copy fn"}, {"/", "search"}}
+			if dwarf {
+				hints = append(hints, footerHint{"tab", "pane"})
+			}
+			return hints
 		}
-		if m.searchRunning {
-			help = "Esc cancel search · [ ] sym · ←/→ history · / search · g goto · ? help · q quit"
-		}
-	case modeHex:
-		help = "[ ] section · p ptrs · i inspect · ↵ follow · a/s/v copy · / search · ? help"
-	case modeRaw:
-		help = "[ ] section · p ptrs · i inspect · ↵ follow · a/s/v copy · / search · ? help"
+	case modeHex, modeRaw:
+		return []footerHint{{"↵", "follow ptr"}, {"[ ]", "section"}, {"p", "ptrs"}, {"i", "inspect"}, {"/", "search"}, {"a/s/v", "copy"}}
+	case modeStrings:
+		return []footerHint{{"↵", "jump"}, {"/", "filter"}, {"a/s", "copy"}}
 	case modeSources:
-		help = "Enter open in disasm · / filter · ^F grep all · c copy · g goto · ? help · q quit"
+		return []footerHint{{"↵", "open"}, {"/", "filter"}, {"^f", "grep all"}, {"c", "copy"}}
 	case modeLibs:
-		help = "↑/↓ move · ? help · q quit"
+		return []footerHint{{"↵", "imports"}, {"o", "open"}, {"c", "copy"}}
 	}
-	left := m.theme.footerStyle.Render(help)
+	return nil
+}
+
+func (m *Model) renderFooter() string {
+	keyStyle := m.theme.helpKeyStyle            // accent, bold
+	descStyle := m.theme.footerStyle.Padding(0) // muted, no padding
+	sep := descStyle.Render(" · ")
+
+	hints := append(m.viewHints(), globalHints...)
+	parts := make([]string, 0, len(hints))
+	for _, h := range hints {
+		parts = append(parts, keyStyle.Render(h.key)+" "+descStyle.Render(h.desc))
+	}
+	left := " " + strings.Join(parts, sep)
+
 	if m.status == "" {
 		return padRight(left, m.width)
 	}
@@ -370,7 +455,7 @@ func (m *Model) renderFooter() string {
 	if m.statusError {
 		st = m.theme.errorStyle
 	}
-	// Right-align the status in whatever space the help leaves.
+	// Right-align the status in whatever space the hints leave.
 	avail := max(1, m.width-lipgloss.Width(left))
 	right := lipgloss.PlaceHorizontal(avail, lipgloss.Right, st.Render(m.status))
 	return padRight(left+right, m.width)

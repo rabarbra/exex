@@ -141,7 +141,7 @@ func (m *Model) renderSettingsModal() string {
 
 	const rowW = 44
 	var b strings.Builder
-	b.WriteString(m.theme.titleStyle.Render(" Settings ") + "\n\n")
+	b.WriteString(m.theme.modalTitle("Settings") + "\n\n")
 	for i, f := range fields {
 		row := fmt.Sprintf(" %-13s ‹ %s ›", f.label+":", f.val)
 		if i == m.settingsCur {
@@ -151,6 +151,6 @@ func (m *Model) renderSettingsModal() string {
 		}
 		b.WriteString(row + "\n")
 	}
-	b.WriteString("\n" + m.theme.footerStyle.Render("↑/↓ field · ←/→ change · Enter save · Esc cancel"))
+	b.WriteString("\n" + m.theme.modalHint("↑/↓ field · ←/→ change · Enter save · Esc cancel"))
 	return m.theme.modalStyle.Render(b.String())
 }

@@ -28,39 +28,45 @@ func (m *Model) cycleSearchMode() {
 	m.searchMode = searchutil.NextMode(m.searchMode)
 }
 
-// searchSwitch is one clickable toggle in the search popup.
+// searchSwitch is one clickable toggle in the search popup: a dim name and the
+// current value rendered as a pill ("name ⟦value⟧").
 type searchSwitch struct {
-	label  string
+	name   string
+	value  string
 	toggle func()
 }
 
-// searchSwitchSep separates the switch segments; searchSwitchLine is the
-// 0-based content row the switch strip occupies inside the modal (hint, blank,
-// input, blank, switches, help).
+// label is the plain "name ⟦value⟧" text; its width drives both the render and
+// the mouse hit-test so they can't drift.
+func (s searchSwitch) label() string { return s.name + " ⟦" + s.value + "⟧" }
+
+// searchSwitchSep separates the switch segments; searchSwitchLine is the 0-based
+// content row the switch strip occupies inside the modal (header, hint, blank,
+// input, blank, switches).
 const (
 	searchSwitchSep  = "   "
-	searchSwitchLine = 4
+	searchSwitchLine = 5
 )
 
 // searchSwitches returns the mode / direction / origin toggles. The render and
 // the mouse hit-test both build from this, so they can't drift.
 func (m *Model) searchSwitches() []searchSwitch {
-	dir := "forward"
+	dir := "→ forward"
 	if !m.searchForward {
-		dir = "backward"
+		dir = "← backward"
 	}
-	origin := "from cursor"
+	origin := "cursor"
 	if !m.searchFromCursor {
 		if m.searchForward {
-			origin = "from start"
+			origin = "start"
 		} else {
-			origin = "from end"
+			origin = "end"
 		}
 	}
 	return []searchSwitch{
-		{"[ mode: " + searchModeName(m.searchMode) + " ]", m.cycleSearchMode},
-		{"[ dir: " + dir + " ]", func() { m.searchForward = !m.searchForward }},
-		{"[ origin: " + origin + " ]", func() { m.searchFromCursor = !m.searchFromCursor }},
+		{"mode", searchModeName(m.searchMode), m.cycleSearchMode},
+		{"dir", dir, func() { m.searchForward = !m.searchForward }},
+		{"origin", origin, func() { m.searchFromCursor = !m.searchFromCursor }},
 	}
 }
 

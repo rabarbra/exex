@@ -61,6 +61,8 @@ type Theme struct {
 	asmMoveStyle     lipgloss.Style // mov / load / store / push / pop / lea
 	asmArithStyle    lipgloss.Style // add / sub / mul / and / shifts / cmp / test
 
+	hexPointerStyle lipgloss.Style // mapped pointer words in the hex pointer-decode view
+
 	symFuncStyle    lipgloss.Style
 	symObjectStyle  lipgloss.Style
 	symFileStyle    lipgloss.Style

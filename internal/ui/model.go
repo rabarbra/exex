@@ -92,7 +92,10 @@ type symbolsState struct {
 	symbolsTop        int
 	symbolsKind       binfile.SymKind
 	symbolsKindOn     bool
+	symbolsBind       binfile.SymBind
+	symbolsBindOn     bool
 	symbolsScope      symbolScope // all / internal (defined here) / imported (from libs)
+	symbolsSort       symbolSort  // view order: name / address / size
 	symbolsLib        string      // when set, show only imports bound to this library
 	symbolRowCache    map[rowCacheKey][]string
 	symbolHeightCache map[rowCacheKey]int
@@ -277,6 +280,11 @@ type interactionState struct {
 	// pointer-sized word decode that resolves each word to the symbol/section it
 	// points at (the `p` key) — useful for reading GOT/data pointer tables.
 	hexWords bool
+
+	// hexInspect replaces the hex/raw banner with a data inspector that decodes
+	// the bytes under the cursor as int/uint of every width, float, char and
+	// pointer (the `i` key). It updates live as the cursor moves.
+	hexInspect bool
 
 	// Mouse double-click tracking (for follow-on-double-click in disasm).
 	lastClickY  int

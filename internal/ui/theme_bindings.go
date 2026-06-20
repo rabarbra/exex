@@ -67,6 +67,7 @@ var colorBindings = []colorBinding{
 	{"asm_immediate", "215", func(t *Theme) *lipgloss.Style { return &t.asmNumberStyle }, false, func(d derived) string { return d.p.Number }},
 	{"asm_move", "80", func(t *Theme) *lipgloss.Style { return &t.asmMoveStyle }, false, func(d derived) string { return d.p.Type }},
 	{"asm_arith", "176", func(t *Theme) *lipgloss.Style { return &t.asmArithStyle }, false, func(d derived) string { return d.p.Operator }},
+	{"hex_pointer_fg", "75", func(t *Theme) *lipgloss.Style { return &t.hexPointerStyle }, false, func(d derived) string { return d.p.Function }},
 	// Sticky symbol banner (fg + bg).
 	{"sticky_symbol_banner_fg", "231", func(t *Theme) *lipgloss.Style { return &t.stickySymStyle }, false, func(d derived) string { return d.barFG }},
 	{"sticky_symbol_banner_bg", "236", func(t *Theme) *lipgloss.Style { return &t.stickySymStyle }, true, func(d derived) string { return d.barBG }},

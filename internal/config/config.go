@@ -213,6 +213,11 @@ type Colors struct {
 	PathPalette []string `yaml:"path_palette"`
 
 	// ---- Hex / Raw byte colouring ---------------------------------------
+	// Colour of pointer-sized words in the pointer-decode view (the `p` toggle)
+	// that resolve to a mapped address. The word under the cursor (the one Enter
+	// follows) uses the address-link colour instead; plain data keeps the
+	// immediate/number colour.
+	HexPointerFG string `yaml:"hex_pointer_fg"`
 	// The per-byte colour ramp used by the hex and raw views. Must be exactly
 	// 18 colours when set, applied as: [0]=0x00, [1..16]=high-nibble buckets
 	// for 0x01..0xFE, [17]=0xFF. A shorter/empty list keeps the built-in ramp.

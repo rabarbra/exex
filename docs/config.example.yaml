@@ -42,6 +42,7 @@ colors:
   asm_immediate: "215"                       # immediate / numeric literals
   asm_move: "80"                             # mov / load / store / push / pop / lea
   asm_arith: "176"                           # add / sub / cmp / test / logic / shifts
+  hex_pointer_fg: "75"                        # mapped pointer words in the hex pointer-decode view (p)
 
   # ---- Sticky "current symbol" banner above the disasm scroller ----------
   sticky_symbol_banner_fg: "231"

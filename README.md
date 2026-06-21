@@ -61,6 +61,7 @@ go install -tags lite github.com/rabarbra/exex@latest   # lite build
 make build    # full  -> ./exex
 make lite     # lite  -> ./exex
 make test     # go test + lite vet
+make test-cross # cross-compile with Go & Zig for every readable target, then parse/disassemble each (needs go + zig)
 ```
 
 ### Man page and shell completions

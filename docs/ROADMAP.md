@@ -226,7 +226,7 @@ including hex coloring, highlight of source position etc.
 
 Different modes how to color hex
 
-## 23. Segments / load-commands view  (new)
+## ✅ 23. Segments / load-commands view  (new)
 
 **Goal.** A view listing the program's memory map at the segment level — ELF
 program headers (`PT_LOAD`, `PT_DYNAMIC`, `PT_GNU_STACK`, …) and Mach-O load
@@ -240,7 +240,7 @@ stitches together from sections.
 populated by each loader, a `modeSegments` view + tab, and a table renderer
 reusing the existing list/scroll/colour machinery.
 
-## 24. Copy / export a whole function's disassembly  (new)
+## ✅ 24. Copy / export a whole function's disassembly  (new)
 
 **Goal.** The disasm view can copy a single address/symbol; add copying (or
 writing to a file) the *entire* current function — the natural unit for bug

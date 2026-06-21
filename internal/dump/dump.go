@@ -364,16 +364,18 @@ func FunctionInsts(f *binfile.File, svc *explorer.DisasmService, sym binfile.Sym
 }
 
 // rangeInsts decodes the instructions covering [addr, addr+size) from the
-// executable image, fresh through the service cache.
+// executable image. addr is a known instruction boundary (a function symbol), so
+// decoding starts there with no lead-in: DecodeWindow's resync overlap can let a
+// phantom instruction straddle addr on variable-length ISAs (x86), swallowing the
+// function's real first instruction. DecodeRange with lead 0 starts on the dot.
 func rangeInsts(img *binfile.Image, svc *explorer.DisasmService, addr, size uint64) []disasm.Inst {
 	pos, ok := img.PosForAddr(addr)
 	if !ok {
 		return nil
 	}
-	win := img.Window(pos, int(size))
 	end := addr + size
 	var out []disasm.Inst
-	for _, in := range svc.DecodeWindow(win) {
+	for _, in := range svc.DecodeRange(pos, int(size), 0) {
 		if in.Addr >= addr && in.Addr < end {
 			out = append(out, in)
 		}

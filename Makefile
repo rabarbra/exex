@@ -13,7 +13,7 @@ BASHCOMPDIR ?= /usr/local/etc/bash_completion.d
 ZSHCOMPDIR ?= /usr/local/share/zsh/site-functions
 FISHCOMPDIR ?= /usr/local/share/fish/vendor_completions.d
 
-.PHONY: build lite install install-man install-completions test clean release
+.PHONY: build lite install install-man install-completions test test-cross clean release
 
 # Full build: includes Chroma syntax highlighting (source pane + asm colours).
 build:
@@ -42,6 +42,12 @@ install-completions:
 test:
 	go test ./...
 	go vet -tags lite ./...
+
+# Slow, toolchain-dependent end-to-end test: cross-compile a tiny program with Go
+# and Zig for every target exex can read, then parse/disassemble each. Needs the
+# `go` and (for the Zig half) `zig` toolchains; missing targets are skipped.
+test-cross:
+	go test -tags crosscompile ./internal/integration/ -v
 
 clean:
 	rm -f $(BINARY)

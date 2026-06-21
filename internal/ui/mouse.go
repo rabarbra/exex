@@ -155,18 +155,19 @@ func (m *Model) listGeometryFor() (listGeometry, bool) {
 	case modeSections:
 		return listGeometry{len(m.sectionsFiltered), 2, m.sectionRowHeight, &m.sectionsCur, &m.sectionsTop, m.renderedSectionsTop}, true
 	case modeSymbols:
-		return listGeometry{len(m.symbolsFiltered), 2, m.symbolRowHeight, &m.symbolsCur, &m.symbolsTop, m.renderedSymbolsTop}, true
+		return listGeometry{len(m.symbolsRows), 2, m.symbolRowHeight, &m.symbolsCur, &m.symbolsTop, m.renderedSymbolsTop}, true
 	case modeStrings:
 		m.ensureStrings()
 		return listGeometry{len(m.stringsFiltered), 2, m.stringRowHeight, &m.stringsCur, &m.stringsTop, m.renderedStringsTop}, true
 	case modeSources:
 		m.ensureSources()
-		return listGeometry{len(m.sourcesFiltered), 1, oneRow, &m.sourcesCur, &m.sourcesTop, m.renderedSourcesTop}, true
+		return listGeometry{len(m.sourcesRows), 1, oneRow, &m.sourcesCur, &m.sourcesTop, m.renderedSourcesTop}, true
 	case modeLibs:
 		if m.file.Info == nil {
 			return listGeometry{}, false
 		}
-		return listGeometry{len(m.file.Info.DynamicLibs), m.libsHeaderRows(), m.libRowHeight, &m.libsCur, &m.libsTop, m.renderedLibsTop}, true
+		m.buildLibRows()
+		return listGeometry{len(m.libsRows), m.libsHeaderRows(), m.libRowHeight, &m.libsCur, &m.libsTop, m.renderedLibsTop}, true
 	}
 	return listGeometry{}, false
 }
@@ -376,12 +377,27 @@ func (m *Model) handleClick(x, y int) {
 	if bodyRow < 0 || y >= m.height-1 {
 		return
 	}
+	// The Symbols status line (first body row) carries clickable toggle buttons.
+	if m.mode == modeSymbols && bodyRow == 0 && !m.symbolsFilter.Focused() {
+		if m.clickSymbolFacet(x) {
+			return
+		}
+	}
 	// List-style views (sections/symbols/strings/sources/libs) all map a click the
 	// same way: find the rendered top, then the item at (bodyRow - headerRows).
 	if g, ok := m.listGeometryFor(); ok {
 		top := m.visualTopForView(*g.cur, *g.top, g.n, g.visible(m.bodyHeight()), g.rowHeight)
 		if idx, ok := visualItemAtRow(top, g.n, bodyRow-g.headerRows, g.rowHeight); ok {
 			*g.cur = idx
+			// Clicking a tree group toggles it (collapse/expand the lines below).
+			switch {
+			case m.mode == modeSymbols && idx < len(m.symbolsRows) && m.symbolsRows[idx].node.leaf < 0:
+				m.toggleSymbolNode()
+			case m.mode == modeSources && idx < len(m.sourcesRows) && m.sourcesRows[idx].node.leaf < 0:
+				m.toggleSourceNode()
+			case m.mode == modeLibs && idx < len(m.libsRows) && m.libsRows[idx].node.leaf < 0:
+				m.toggleLibNode()
+			}
 		}
 		return
 	}

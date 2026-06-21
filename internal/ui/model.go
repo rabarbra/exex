@@ -97,11 +97,36 @@ type symbolsState struct {
 	symbolsKindOn     bool
 	symbolsBind       binfile.SymBind
 	symbolsBindOn     bool
-	symbolsScope      symbolScope // all / internal (defined here) / imported (from libs)
-	symbolsSort       symbolSort  // view order: name / address / size
-	symbolsLib        string      // when set, show only imports bound to this library
+	symbolsScope      symbolScope     // all / internal (defined here) / imported (from libs)
+	symbolsSort       symbolSort      // view order: name / address / size
+	symbolsSortDesc   bool            // reverse the active sort (descending)
+	symbolsLib        string          // when set, show only imports bound to this library
+	symbolsTree       bool            // group names into a collapsible namespace tree (name sort)
+	symbolsCollapsed  map[string]bool // collapsed tree node paths (persist across rebuilds)
+	symbolsRows       []treeRow       // flattened visible rows (tree nodes + leaves), nav/render unit
+	symbolsTreeInit   bool            // collapse-default applied once
+	symbolsByDisplay  []int           // all symbol indices sorted by Display(); built lazily
+	symbolFacets      []facetHit      // clickable toggle buttons on the status line (x ranges)
 	symbolRowCache    map[rowCacheKey][]string
 	symbolHeightCache map[rowCacheKey]int
+}
+
+// facetKind identifies a clickable toggle button on the symbols status line.
+type facetKind int
+
+const (
+	facetType facetKind = iota
+	facetScope
+	facetSort
+	facetSortDir
+	facetBind
+	facetTree
+)
+
+// facetHit is the screen-column span [start,end) of one clickable toggle button.
+type facetHit struct {
+	start, end int
+	kind       facetKind
 }
 
 // clearSymbolCaches drops cached symbol rows and heights.
@@ -233,8 +258,12 @@ type rawState struct {
 
 // libsState stores cursor and viewport state for the Libraries view.
 type libsState struct {
-	libsCur int
-	libsTop int
+	libsCur       int
+	libsTop       int
+	libsTree      bool            // show needed libraries as a path tree
+	libsCollapsed map[string]bool // collapsed directory paths
+	libsRows      []treeRow       // flattened visible rows (dirs + libs)
+	libsTreeInit  bool
 }
 
 // stringsState stores list, filter and cache state for printable strings.
@@ -255,6 +284,10 @@ type sourcesState struct {
 	sourcesFiltered    []int
 	sourcesCur         int
 	sourcesTop         int
+	sourcesTree        bool            // show the file list as a directory tree
+	sourcesCollapsed   map[string]bool // collapsed directory paths
+	sourcesRows        []treeRow       // flattened visible rows (dirs + files)
+	sourcesTreeInit    bool
 	srcFile            string // open source file ("" = showing the file list)
 	srcCur             int    // 1-based current line in the open file
 	srcTop             int
@@ -286,6 +319,10 @@ type interactionState struct {
 	// Global long-line wrap toggle (the `w` key). Views default to truncating to
 	// preserve table geometry; turning wrap on lets them show full rows.
 	wrap bool
+
+	// treeCollapseDefault starts each view's tree fully collapsed the first time
+	// it is built (config behavior.tree_collapsed).
+	treeCollapseDefault bool
 
 	// hexWords toggles the hex/raw views' trailing column from ASCII to a
 	// pointer-sized word decode that resolves each word to the symbol/section it

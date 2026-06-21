@@ -66,6 +66,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// filter, which matches on demangled text too) so the next render shows
 		// readable names everywhere.
 		m.file.ApplyDemangled(msg.names)
+		// Demangled names change both the display order and every tree path, so the
+		// pre-demangle tree (and any collapse-default applied to it) is stale: rebuild
+		// the order and re-apply the collapse-default against the new tree.
+		m.symbolsByDisplay = nil
+		m.symbolsTreeInit = false
+		m.symbolsCollapsed = nil
 		m.recomputeSymbols()
 		return m, nil
 

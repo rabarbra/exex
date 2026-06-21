@@ -35,6 +35,7 @@ type Theme struct {
 	helpKeyStyle  lipgloss.Style
 	helpDescStyle lipgloss.Style
 	helpHeadStyle lipgloss.Style
+	treeNodeStyle lipgloss.Style // collapsible group rows in the symbols/sources/libs trees
 
 	viewStyle lipgloss.Style
 

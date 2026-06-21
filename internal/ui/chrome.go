@@ -111,9 +111,12 @@ func (m *Model) renderHelpModal() string {
 		row("t", "toggle sections / segments"),
 		blank,
 		head("Symbols"),
-		row("t / b", "filter by type / bind"),
+		row("y / b", "filter by type / bind"),
 		row("i", "scope: all/internal/imported"),
-		row("o", "sort: name/address/size"),
+		row("o / r", "sort field · reverse (asc/desc)"),
+		row("t", "toggle namespace tree / flat table"),
+		row("←/→", "tree: collapse / expand group (← on a leaf folds its branch)"),
+		row("↵ · +/−", "tree: expand/collapse all below · all"),
 		row("Esc", "clear library filter"),
 	}
 	right := []helpEntry{
@@ -144,6 +147,7 @@ func (m *Model) renderHelpModal() string {
 		row("Enter", "open · jump to disasm"),
 		row("[ / ]", "prev / next mapped line"),
 		row("/  ^F", "find in file · grep all"),
+		row("t", "toggle directory tree / flat list"),
 		row("c  ·  g", "copy path · goto symbol"),
 		blank,
 		head("Libraries"),
@@ -418,7 +422,10 @@ func (m *Model) viewHints() []footerHint {
 	case modeSections:
 		return []footerHint{{"↵", "open"}, {"d", "disasm"}, {"t", "sec/seg"}, {"/", "filter"}}
 	case modeSymbols:
-		return []footerHint{{"↵", "jump"}, {"/", "filter"}, {"t/b", "type/bind"}, {"i/o", "scope/sort"}, {"a/s", "copy"}}
+		if m.symbolTreeActive() {
+			return []footerHint{{"←/→", "fold/unfold"}, {"↵", "all below"}, {"+/−", "all"}, {"/", "filter"}, {"t", "flat"}}
+		}
+		return []footerHint{{"↵", "jump"}, {"/", "filter"}, {"y/b", "type/bind"}, {"i", "scope"}, {"o/r", "sort/rev"}, {"t", "tree"}, {"a/s", "copy"}}
 	case modeDisasm:
 		dwarf := m.file.HasDWARF()
 		switch {
@@ -444,7 +451,10 @@ func (m *Model) viewHints() []footerHint {
 	case modeStrings:
 		return []footerHint{{"↵", "jump"}, {"/", "filter"}, {"a/s", "copy"}}
 	case modeSources:
-		return []footerHint{{"↵", "open"}, {"/", "filter"}, {"^f", "grep all"}, {"c", "copy"}}
+		if m.sourcesTree {
+			return []footerHint{{"←/→", "fold/unfold"}, {"↵", "open/all below"}, {"+/−", "all"}, {"/", "filter"}, {"t", "flat"}}
+		}
+		return []footerHint{{"↵", "open"}, {"/", "filter"}, {"^f", "grep all"}, {"t", "tree"}, {"c", "copy"}}
 	case modeLibs:
 		return []footerHint{{"↵", "imports"}, {"o", "open"}, {"c", "copy"}}
 	}

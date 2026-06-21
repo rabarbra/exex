@@ -152,6 +152,28 @@ Page up/down in the list views; previous/next section (Hex, Raw) or symbol
 .B d
 Disassemble the selected address when it is executable.
 .TP
+.B t
+In the Symbols, Sources and Libraries views, toggle a collapsible tree that
+groups names by namespace/path (C++/Swift scopes, or
+.RB \(dq / \(dq
+path components) instead of a flat list. In the tree,
+.BR \[u2190] / \[u2192]
+collapse/expand the current group one level (Left on a leaf folds its branch),
+.B Enter
+expands or collapses the whole subtree below (or opens a leaf), and
+.BR + / \-
+expand or collapse every group. These keys are rebindable
+.RB ( tree_expand ,
+.BR tree_collapse ,
+.BR tree_expand_all ,
+.BR tree_collapse_all ).
+The per-view startup defaults
+.RB ( tree_symbols ,
+.BR tree_sources ,
+.BR tree_libs ,
+.BR tree_collapsed )
+are set in the config or the settings popup.
+.TP
 .BR a / s
 Copy address / name.
 .TP
@@ -203,15 +225,16 @@ is unset,
 .BR $HOME/.config/exex/config.yaml .
 Every field is optional; unset entries keep their defaults. It can select a
 built-in theme preset, override individual colours, rebind top-level keys, and
-set behaviour (default view, default wrap, disassembly landing target, decode
-window size). See the annotated
+set behaviour (default view, default wrap, default tree view, disassembly
+landing target, decode window size). See the annotated
 .B config.example.yaml
 shipped with the distribution for the full schema.
 .PP
 A subset of these preferences can also be changed from inside the TUI: press
 .B ,
 to open the settings popup, which adjusts the theme, the view/pane background,
-default wrap and the default view live. On confirm it writes them back to the
+default wrap, the default view and the default tree view live. On confirm it
+writes them back to the
 config file; if that file is not writable, the change still applies for the
 current session.
 .SH FILES

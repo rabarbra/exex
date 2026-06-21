@@ -118,6 +118,9 @@ colors:
   help_desc_fg: "252"
   help_head_fg: "117"
 
+  # ---- Tree views (symbols/sources/libs collapsible group rows) -----------
+  tree_node_fg: "141"
+
   # ---- Status footer messages --------------------------------------------
   status_error_fg: "203"
   status_info_fg: "114"
@@ -189,6 +192,16 @@ behavior:
   # Start with long-line wrapping enabled. The `w` key still toggles wrapping for
   # the current session. Toggle/save live from the settings popup (,).
   default_wrap: false
+  # Open the Symbols / Sources / Libs views as a collapsible namespace/path tree
+  # (grouping C++/Swift scoped names by "."/"::", file & library paths by "/")
+  # instead of a flat list. The `f` key toggles each for the session; toggle/save
+  # live from the settings popup (,).
+  tree_symbols: false
+  tree_sources: false
+  tree_libs: false
+  # Start every tree fully collapsed (top-level groups only). `+`/`−` expand or
+  # collapse all for the session.
+  tree_collapsed: false
   # Where the disasm view lands by default (and redirects to when asked to show
   # a non-executable address): lowest, text, main, start, or entry. Defaults to
   # lowest (the lowest executable address). Unresolvable choices fall back.

@@ -49,6 +49,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 		},
 		symbolsState: symbolsState{
 			symbolsFilter: filter,
+			symbolsTree:   cfg.Behavior.TreeSymbols,
 		},
 		disasmState: disasmState{
 			disasmMaxBytes:      defaultDisasmMaxBytes,
@@ -62,6 +63,10 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 		},
 		sourcesState: sourcesState{
 			sourcesFilter: srcFilter,
+			sourcesTree:   cfg.Behavior.TreeSources,
+		},
+		libsState: libsState{
+			libsTree: cfg.Behavior.TreeLibs,
 		},
 		gotoState: gotoState{
 			gotoInput: gotoInput,
@@ -72,7 +77,8 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 			searchFromCursor: true,
 		},
 		interactionState: interactionState{
-			wrap: cfg.Behavior.DefaultWrap,
+			wrap:                cfg.Behavior.DefaultWrap,
+			treeCollapseDefault: cfg.Behavior.TreeCollapsed,
 		},
 		keyState: newKeyState(cfg.Keys),
 	}
@@ -141,7 +147,12 @@ func newKeyState(cfg config.Keys) keyState {
 	addAlias(cfg.CopyPath, "c")
 	addAlias(cfg.OpenDisasm, "d")
 	addAlias(cfg.Wrap, "w")
-	addAlias(cfg.FilterType, "t")
+	addAlias(cfg.FilterType, "y")
+	// Tree expand/collapse aliases onto the canonical keys the list views handle.
+	addAlias(cfg.TreeExpand, "right")
+	addAlias(cfg.TreeCollapse, "left")
+	addAlias(cfg.TreeExpandAll, "+")
+	addAlias(cfg.TreeCollapseAll, "-")
 
 	searchKeyAlias := map[string]string{}
 	addSearchAlias := func(ks config.StringOrSlice, canonical string) {

@@ -98,4 +98,8 @@ func (m keyMap) applyConfig(k config.Keys) {
 	_ = k.SearchMode
 	_ = k.SearchDirection
 	_ = k.SearchOrigin
+	_ = k.TreeExpand
+	_ = k.TreeCollapse
+	_ = k.TreeExpandAll
+	_ = k.TreeCollapseAll
 }

@@ -10,10 +10,58 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rabarbra/exex/internal/binfile"
 )
+
+// clickSymbolFacet toggles the facet button at screen column x on the status row,
+// returning whether a button was hit.
+func (m *Model) clickSymbolFacet(x int) bool {
+	for _, f := range m.symbolFacets {
+		if x >= f.start && x < f.end {
+			m.toggleSymbolFacet(f.kind)
+			return true
+		}
+	}
+	return false
+}
+
+// toggleSymbolFacet advances the clicked toggle, mirroring its keyboard binding.
+func (m *Model) toggleSymbolFacet(k facetKind) {
+	m.symbolsCur, m.symbolsTop = 0, 0
+	switch k {
+	case facetType:
+		m.cycleSymbolKindFilter()
+	case facetScope:
+		m.symbolsScope = (m.symbolsScope + 1) % 3
+		m.setStatus("symbol scope: "+m.symbolsScope.String(), false)
+	case facetSort:
+		m.symbolsSort = (m.symbolsSort + 1) % 3
+		m.setStatus("sort: "+m.symbolsSort.String(), false)
+	case facetSortDir:
+		m.symbolsSortDesc = !m.symbolsSortDesc
+	case facetBind:
+		m.cycleSymbolBindFilter()
+	case facetTree:
+		m.symbolsTree = !m.symbolsTree
+	}
+	m.recomputeSymbols()
+}
+
+// treeIndent is the per-depth indentation of a tree row.
+const treeIndent = 2
+
+// splitStyledRows splits wrapped output into lines, dropping a trailing newline
+// and never returning an empty slice.
+func splitStyledRows(wrapped string) []string {
+	parts := strings.Split(strings.TrimRight(wrapped, "\n"), "\n")
+	if len(parts) == 0 {
+		return []string{""}
+	}
+	return parts
+}
 
 // symbolSort is the display order of the (filtered) symbol table.
 type symbolSort uint8
@@ -68,24 +116,26 @@ func (sc symbolScope) includes(s binfile.Symbol) bool {
 	return true
 }
 
-// recomputeSymbols rebuilds symbolsFiltered from the current filter text.
+// recomputeSymbols rebuilds the filtered set and the flattened visible rows from
+// the current filter, sort, and (in tree mode) collapse state.
 func (m *Model) recomputeSymbols() {
 	m.clearSymbolCaches()
 	needle := strings.ToLower(m.symbolsFilter.Value())
 	lowerName, lowerDem := m.file.LowerNames()
 	m.symbolsFiltered = m.symbolsFiltered[:0]
-	for i, s := range m.file.Symbols {
+	scan := func(i int) {
+		s := m.file.Symbols[i]
 		if m.symbolsKindOn && s.Kind != m.symbolsKind {
-			continue
+			return
 		}
 		if m.symbolsBindOn && s.Bind != m.symbolsBind {
-			continue
+			return
 		}
 		if !m.symbolsScope.includes(s) {
-			continue
+			return
 		}
 		if m.symbolsLib != "" && s.Library != m.symbolsLib {
-			continue
+			return
 		}
 		if needle == "" ||
 			strings.Contains(lowerName[i], needle) ||
@@ -93,30 +143,167 @@ func (m *Model) recomputeSymbols() {
 			m.symbolsFiltered = append(m.symbolsFiltered, i)
 		}
 	}
+	// Scan in display order for a name sort, and always in tree mode: the tree's
+	// grouping relies on name adjacency, so the tree is built from name order even
+	// when the (irrelevant in tree mode) flat-list sort is by address or size.
+	if m.symbolsSort == sortByName || m.symbolsTree {
+		m.ensureSymbolDisplayOrder()
+		for _, i := range m.symbolsByDisplay {
+			scan(i)
+		}
+	} else {
+		for i := range m.file.Symbols {
+			scan(i)
+		}
+	}
 	m.applySymbolSort()
-	if m.symbolsCur >= len(m.symbolsFiltered) {
-		m.symbolsCur = max(0, len(m.symbolsFiltered)-1)
+	m.buildSymbolRows()
+	if m.symbolsCur >= len(m.symbolsRows) {
+		m.symbolsCur = max(0, len(m.symbolsRows)-1)
 	}
 }
 
-// applySymbolSort orders symbolsFiltered by the active sort. Name order is the
-// natural order (f.Symbols is name-sorted and indices were appended ascending),
-// so only address/size need an explicit sort.
+// applySymbolSort orders symbolsFiltered by the active field, ascending by
+// default and reversed when symbolsSortDesc is set. Name order is already
+// established (ascending) by scanning in display order (see recomputeSymbols), so
+// it only needs reversing for descending.
 func (m *Model) applySymbolSort() {
+	if m.symbolsTree {
+		return // tree mode is always built from (ascending) name order
+	}
+	desc := m.symbolsSortDesc
 	switch m.symbolsSort {
+	case sortByName:
+		if desc {
+			reverseInts(m.symbolsFiltered)
+		}
 	case sortByAddr:
 		sort.SliceStable(m.symbolsFiltered, func(i, j int) bool {
-			return m.file.Symbols[m.symbolsFiltered[i]].Addr < m.file.Symbols[m.symbolsFiltered[j]].Addr
+			a, b := m.file.Symbols[m.symbolsFiltered[i]].Addr, m.file.Symbols[m.symbolsFiltered[j]].Addr
+			if desc {
+				return a > b
+			}
+			return a < b
 		})
 	case sortBySize:
 		sort.SliceStable(m.symbolsFiltered, func(i, j int) bool {
-			return m.file.Symbols[m.symbolsFiltered[i]].Size > m.file.Symbols[m.symbolsFiltered[j]].Size
+			a, b := m.file.Symbols[m.symbolsFiltered[i]].Size, m.file.Symbols[m.symbolsFiltered[j]].Size
+			if desc {
+				return a > b
+			}
+			return a < b
 		})
+	}
+}
+
+// reverseInts reverses s in place.
+func reverseInts(s []int) {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
+}
+
+// ensureSymbolDisplayOrder builds (once) the symbol indices sorted by their shown
+// name. Invalidated (set nil) when demangling finishes, since Display() changes.
+func (m *Model) ensureSymbolDisplayOrder() {
+	if m.symbolsByDisplay != nil {
+		return
+	}
+	idx := make([]int, len(m.file.Symbols))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.Slice(idx, func(a, b int) bool {
+		return m.file.Symbols[idx[a]].Display() < m.file.Symbols[idx[b]].Display()
+	})
+	m.symbolsByDisplay = idx
+}
+
+// buildSymbolRows flattens symbolsFiltered into the visible row slice: a collapsed
+// namespace tree in tree mode (name sort), otherwise one leaf row per symbol.
+func (m *Model) buildSymbolRows() {
+	if m.symbolsTree {
+		label := func(i int) string { return m.file.Symbols[i].Display() }
+		roots := buildScopedTree(m.symbolsFiltered, label)
+		if !m.symbolsTreeInit {
+			m.symbolsTreeInit = true
+			if m.treeCollapseDefault {
+				m.symbolsCollapsed = map[string]bool{}
+				eachInternal(roots, func(p string) { m.symbolsCollapsed[p] = true })
+			}
+		}
+		collapsed := m.symbolsCollapsed
+		if m.symbolsFilter.Value() != "" {
+			collapsed = nil // while filtering, keep every match visible
+		}
+		m.symbolsRows = flattenTree(roots, collapsed, 0, m.symbolsRows[:0])
+		return
+	}
+	nodes := make([]treeNode, len(m.symbolsFiltered))
+	rows := m.symbolsRows[:0]
+	for k, idx := range m.symbolsFiltered {
+		nodes[k] = treeNode{label: m.file.Symbols[idx].Display(), leaf: idx, count: 1}
+		rows = append(rows, treeRow{node: &nodes[k], depth: 0})
+	}
+	m.symbolsRows = rows
+}
+
+// symbolTreeActive reports whether the tree is currently shown. The tree is
+// always built from name order, so it works under any flat-list sort field.
+func (m *Model) symbolTreeActive() bool {
+	return m.symbolsTree
+}
+
+// toggleSymbolNode collapses/expands the internal node at the current row.
+func (m *Model) toggleSymbolNode() {
+	if m.symbolsCur < 0 || m.symbolsCur >= len(m.symbolsRows) {
+		return
+	}
+	n := m.symbolsRows[m.symbolsCur].node
+	if n.leaf >= 0 {
+		return
+	}
+	if m.symbolsCollapsed == nil {
+		m.symbolsCollapsed = map[string]bool{}
+	}
+	m.symbolsCollapsed[n.path] = !m.symbolsCollapsed[n.path]
+	m.clearSymbolCaches()
+	m.buildSymbolRows()
+	m.clampSymbolCursor()
+}
+
+func (m *Model) isSymbolCollapsed(path string) bool {
+	return m.symbolsCollapsed != nil && m.symbolsCollapsed[path]
+}
+
+// setAllSymbolsCollapsed collapses or expands every internal node.
+func (m *Model) setAllSymbolsCollapsed(collapsed bool) {
+	if !m.symbolTreeActive() {
+		return
+	}
+	if !collapsed {
+		m.symbolsCollapsed = nil
+	} else {
+		m.symbolsCollapsed = map[string]bool{}
+		roots := buildScopedTree(m.symbolsFiltered, func(i int) string { return m.file.Symbols[i].Display() })
+		eachInternal(roots, func(p string) { m.symbolsCollapsed[p] = true })
+	}
+	m.clearSymbolCaches()
+	m.buildSymbolRows()
+	m.clampSymbolCursor()
+}
+
+func (m *Model) clampSymbolCursor() {
+	if m.symbolsCur >= len(m.symbolsRows) {
+		m.symbolsCur = max(0, len(m.symbolsRows)-1)
+	}
+	if m.symbolsCur < 0 {
+		m.symbolsCur = 0
 	}
 }
 
 func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
-	if navKey(&m.symbolsCur, len(m.symbolsFiltered), m.listPage(), key) {
+	if navKey(&m.symbolsCur, len(m.symbolsRows), m.listPage(), key) {
 		return m, nil
 	}
 	switch key {
@@ -131,8 +318,9 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("library filter cleared", false)
 		}
 		return m, nil
-	case "t":
+	case "y":
 		m.cycleSymbolKindFilter()
+		m.symbolsCur, m.symbolsTop = 0, 0
 		m.recomputeSymbols()
 		return m, nil
 	case "i":
@@ -152,33 +340,111 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 		m.recomputeSymbols()
 		m.setStatus("sort: "+m.symbolsSort.String(), false)
 		return m, nil
+	case "r":
+		m.symbolsSortDesc = !m.symbolsSortDesc
+		m.symbolsCur, m.symbolsTop = 0, 0
+		m.recomputeSymbols()
+		dir := "ascending"
+		if m.symbolsSortDesc {
+			dir = "descending"
+		}
+		m.setStatus("sort order: "+dir, false)
+		return m, nil
+	case "t", "f":
+		m.symbolsTree = !m.symbolsTree
+		m.symbolsCur, m.symbolsTop = 0, 0
+		m.recomputeSymbols()
+		view := "flat table"
+		if m.symbolsTree {
+			view = "tree"
+		}
+		m.setStatus("symbols view: "+view, false)
+		return m, nil
+	case "-", "_":
+		m.setAllSymbolsCollapsed(true)
+		m.setStatus("collapsed all", false)
+		return m, nil
+	case "+", "=":
+		m.setAllSymbolsCollapsed(false)
+		m.setStatus("expanded all", false)
+		return m, nil
+	case "right", "l":
+		if m.symbolTreeActive() {
+			m.ensureSymbolsCollapsed()
+			if treeExpandOne(m.symbolsRows, &m.symbolsCur, m.symbolsCollapsed) {
+				m.rebuildSymbolRows()
+			}
+		}
+		return m, nil
+	case "left", "h":
+		if m.symbolTreeActive() {
+			m.ensureSymbolsCollapsed()
+			if treeCollapseOne(m.symbolsRows, &m.symbolsCur, m.symbolsCollapsed) {
+				m.rebuildSymbolRows()
+			}
+		}
+		return m, nil
 	case "w":
 		m.toggleWrap()
 		return m, nil
-	case "enter":
-		if len(m.symbolsFiltered) == 0 {
-			return m, nil
-		}
-		sym := m.file.Symbols[m.symbolsFiltered[m.symbolsCur]]
-		if sym.Addr == 0 {
-			m.setStatus(fmt.Sprintf("symbol %s has no address", sym.Name), true)
-			return m, nil
-		}
-		m.openSymbol(sym)
+	case "enter", " ":
+		m.activateSymbolRow()
 	case "a":
-		if len(m.symbolsFiltered) == 0 {
-			return m, nil
+		if sym, ok := m.currentSymbol(); ok {
+			m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), sym.Addr), "address")
 		}
-		sym := m.file.Symbols[m.symbolsFiltered[m.symbolsCur]]
-		m.copyToClipboard(fmt.Sprintf("0x%0*x", m.file.AddrHexWidth(), sym.Addr), "address")
 	case "s":
-		if len(m.symbolsFiltered) == 0 {
-			return m, nil
+		if sym, ok := m.currentSymbol(); ok {
+			m.copyToClipboard(sym.Name, "symbol")
 		}
-		sym := m.file.Symbols[m.symbolsFiltered[m.symbolsCur]]
-		m.copyToClipboard(sym.Name, "symbol")
 	}
 	return m, nil
+}
+
+// activateSymbolRow opens a leaf symbol, or expands/collapses the whole subtree
+// under a group node (Enter switches "expand all below" ↔ "collapse all below").
+func (m *Model) activateSymbolRow() {
+	if m.symbolsCur < 0 || m.symbolsCur >= len(m.symbolsRows) {
+		return
+	}
+	n := m.symbolsRows[m.symbolsCur].node
+	if n.leaf < 0 {
+		m.ensureSymbolsCollapsed()
+		if treeToggleSubtree(m.symbolsRows, m.symbolsCur, m.symbolsCollapsed) {
+			m.rebuildSymbolRows()
+		}
+		return
+	}
+	sym := m.file.Symbols[n.leaf]
+	if sym.Addr == 0 {
+		m.setStatus(fmt.Sprintf("symbol %s has no address", sym.Name), true)
+		return
+	}
+	m.openSymbol(sym)
+}
+
+func (m *Model) ensureSymbolsCollapsed() {
+	if m.symbolsCollapsed == nil {
+		m.symbolsCollapsed = map[string]bool{}
+	}
+}
+
+func (m *Model) rebuildSymbolRows() {
+	m.clearSymbolCaches()
+	m.buildSymbolRows()
+	m.clampSymbolCursor()
+}
+
+// currentSymbol returns the symbol under the cursor when the row is a leaf.
+func (m *Model) currentSymbol() (binfile.Symbol, bool) {
+	if m.symbolsCur < 0 || m.symbolsCur >= len(m.symbolsRows) {
+		return binfile.Symbol{}, false
+	}
+	n := m.symbolsRows[m.symbolsCur].node
+	if n.leaf < 0 {
+		return binfile.Symbol{}, false
+	}
+	return m.file.Symbols[n.leaf], true
 }
 
 func (m *Model) cycleSymbolKindFilter() {
@@ -277,50 +543,84 @@ func (m *Model) renderSymbols() string {
 	}
 
 	filterRow := m.symbolsFilter.View()
+	m.symbolFacets = m.symbolFacets[:0]
 	if !m.symbolsFilter.Focused() {
 		kind := "all"
 		if m.symbolsKindOn {
 			kind = kindString(m.symbolsKind)
 		}
-		facets := []string{"type:" + kind, "scope:" + m.symbolsScope.String()}
+		var b strings.Builder
+		col := 0
+		plain := func(s string) { b.WriteString(m.theme.footerStyle.Render(s)); col += lipgloss.Width(s) }
+		// Each chip is a clickable toggle: the bound key in the accent colour (like
+		// the footer hints) followed by the current value.
+		button := func(key, label string, k facetKind) {
+			start := col
+			b.WriteString(m.theme.helpKeyStyle.Render(key))
+			b.WriteString(m.theme.footerStyle.Render(" " + label))
+			col += lipgloss.Width(key + " " + label)
+			m.symbolFacets = append(m.symbolFacets, facetHit{start, col, k})
+			plain("   ")
+		}
+		bind := "all"
 		if m.symbolsBindOn {
-			facets = append(facets, "bind:"+bindString(m.symbolsBind))
+			bind = bindString(m.symbolsBind)
 		}
-		if m.symbolsSort != sortByName {
-			facets = append(facets, "sort:"+m.symbolsSort.String())
+		treeLabel := "view:flat"
+		if m.symbolTreeActive() {
+			treeLabel = "view:tree"
 		}
+		plain("/ " + m.symbolsFilter.Value() + "   ")
+		button("y", "type:"+kind, facetType)
+		button("i", "scope:"+m.symbolsScope.String(), facetScope)
+		button("b", "bind:"+bind, facetBind)
+		button("o", "sort:"+m.symbolsSort.String(), facetSort)
+		dir := "↑asc"
+		if m.symbolsSortDesc {
+			dir = "↓desc"
+		}
+		button("r", dir, facetSortDir)
+		button("t", treeLabel, facetTree)
 		if m.symbolsLib != "" {
-			facets = append(facets, "lib:"+m.symbolsLib+" (Esc clears)")
+			plain("lib:" + m.symbolsLib + " (Esc clears)   ")
 		}
-		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   %s   (%d / %d)",
-			m.symbolsFilter.Value(), strings.Join(facets, "  "), len(m.symbolsFiltered), len(m.file.Symbols)))
+		plain(fmt.Sprintf("(%d / %d)", len(m.symbolsFiltered), len(m.file.Symbols)))
+		filterRow = b.String()
 	}
 
 	addrW := m.file.AddrHexWidth()
-	addrCol := 2 + addrW
-	hdr := fmt.Sprintf(" %-*s %-6s %-5s %-8s  %s", addrCol, "Address", "Size", "Bind", "Type", "Name")
-	header := m.tableHeader(hdr)
+	var header string
+	if m.symbolTreeActive() {
+		header = m.theme.footerStyle.Render(" tree · ←/→ fold · ↵ all below · +/− expand/collapse all · t flat")
+	} else {
+		addrCol := 2 + addrW
+		header = m.tableHeader(fmt.Sprintf(" %-*s %9s %6s %7s  %s", addrCol, "Address", "Size", "Bind", "Type", "Name"))
+	}
 
 	visible := bodyH - 2 // filter row + header
 	if visible < 1 {
 		visible = 1
 	}
-	rowHeight := func(i int) int {
-		return m.symbolRowHeight(i)
-	}
-	top := m.visualTopForView(m.symbolsCur, m.symbolsTop, len(m.symbolsFiltered), visible, rowHeight)
+	rowHeight := func(i int) int { return m.symbolRowHeight(i) }
+	top := m.visualTopForView(m.symbolsCur, m.symbolsTop, len(m.symbolsRows), visible, rowHeight)
 	m.symbolsTop = top
 	m.renderedSymbolsTop = top
-	m.pageRows = pageStep(top, len(m.symbolsFiltered), visible, rowHeight)
+	m.pageRows = pageStep(top, len(m.symbolsRows), visible, rowHeight)
 
 	rows := []string{filterRow, header}
-	for i := top; i < len(m.symbolsFiltered); i++ {
+	for i := top; i < len(m.symbolsRows); i++ {
+		node := m.symbolsRows[i].node
 		for _, row := range m.symbolRows(i, addrW) {
 			if len(rows) >= bodyH {
 				break
 			}
 			if i == m.symbolsCur {
-				row = m.theme.tableSelStyle.Render(ansi.Strip(row))
+				if node.leaf < 0 {
+					// Group node: highlight the arrow only (no full-width white bar).
+					row = m.treeNodeRow(m.symbolsRows[i].depth, node.label, node.count, m.isSymbolCollapsed(node.path), true, "", m.width)
+				} else {
+					row = m.theme.tableSelStyle.Render(ansi.Strip(row))
+				}
 			}
 			rows = append(rows, row)
 		}
@@ -332,7 +632,7 @@ func (m *Model) renderSymbols() string {
 }
 
 func (m *Model) symbolRowHeight(i int) int {
-	if i < 0 || i >= len(m.symbolsFiltered) {
+	if i < 0 || i >= len(m.symbolsRows) {
 		return 1
 	}
 	key := rowCacheKey{i, m.width, m.file.AddrHexWidth(), m.wrap}
@@ -349,42 +649,52 @@ func (m *Model) symbolRowHeight(i int) int {
 	return h
 }
 
+// symbolRows renders one visible row — an internal tree node (arrow + underlined
+// label + collapsed count) or a leaf symbol (address columns + indented name).
 func (m *Model) symbolRows(i, addrW int) []string {
-	s := m.file.Symbols[m.symbolsFiltered[i]]
-
 	key := rowCacheKey{i, m.width, addrW, m.wrap}
 	if m.symbolRowCache != nil {
 		if rows, ok := m.symbolRowCache[key]; ok {
 			return rows
 		}
 	}
+	const sep = " \t/.-_:$@<>"
+	row := m.symbolsRows[i]
+	n := row.node
+	indentW := row.depth * treeIndent
+	indent := strings.Repeat(" ", indentW)
 
-	rowStyle := m.theme.styleForSymbol(s.Kind, s.Bind)
-	prefixPlain := fmt.Sprintf(" 0x%0*x %-6d %-5s %-8s  ", addrW, s.Addr, s.Size, bindString(s.Bind), kindString(s.Kind))
-	prefix := " " + m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)) + rowStyle.Render(fmt.Sprintf(" %-6d %-5s %-8s  ", s.Size, bindString(s.Bind), kindString(s.Kind)))
-	nameW := m.width - len(prefixPlain)
-	if nameW < 1 {
-		nameW = 1
-	}
-	name := s.Display()
-	parts := []string{name}
-	if m.wrap {
-		parts = strings.Split(strings.TrimRight(ansi.Wrap(name, nameW, " \t/.-_:$@<>"), "\n"), "\n")
-		if len(parts) == 0 {
-			parts = []string{""}
-		}
+	var rows []string
+	if n.leaf < 0 {
+		// Internal (group) node: arrow + highlighted, underlined segment.
+		rows = []string{m.treeNodeRow(row.depth, n.label, n.count, m.isSymbolCollapsed(n.path), false, "", m.width)}
 	} else {
-		parts = []string{truncateMiddle(name, nameW)}
-	}
-	rows := make([]string, 0, len(parts))
-	for j, part := range parts {
-		var line string
-		if j == 0 {
-			line = prefix + rowStyle.Render(part)
-		} else {
-			line = strings.Repeat(" ", len(prefixPlain)) + rowStyle.Render(part)
+		s := m.file.Symbols[n.leaf]
+		rowStyle := m.theme.styleForSymbol(s.Kind, s.Bind)
+		colsPlain := fmt.Sprintf("0x%0*x %9d %6s %7s  ", addrW, s.Addr, s.Size, bindString(s.Bind), kindString(s.Kind))
+		cols := m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, s.Addr)) +
+			rowStyle.Render(fmt.Sprintf(" %9d %6s %7s  ", s.Size, bindString(s.Bind), kindString(s.Kind)))
+		nameW := m.width - indentW - len(colsPlain)
+		if nameW < 1 {
+			nameW = 1
 		}
-		rows = append(rows, line)
+		var parts []string
+		if m.wrap {
+			parts = splitStyledRows(ansi.Wrap(n.label, nameW, sep))
+			for k := range parts {
+				parts[k] = rowStyle.Render(parts[k])
+			}
+		} else {
+			parts = []string{rowStyle.Render(truncateMiddle(n.label, nameW))}
+		}
+		rows = make([]string, 0, len(parts))
+		for j, part := range parts {
+			if j == 0 {
+				rows = append(rows, indent+cols+part)
+			} else {
+				rows = append(rows, strings.Repeat(" ", indentW+len(colsPlain))+part)
+			}
+		}
 	}
 
 	if m.symbolRowCache == nil {

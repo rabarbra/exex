@@ -620,6 +620,7 @@ func TestWrappedSymbolsKeepAddressGrayOnContinuation(t *testing.T) {
 		},
 	}
 	m.symbolsFiltered = []int{0}
+	m.buildSymbolRows()
 	rows := m.symbolRows(0, 8)
 	if len(rows) < 2 {
 		t.Fatalf("symbol did not wrap: %q", rows)
@@ -644,6 +645,7 @@ func TestWrappedSymbolsMouseSelectionUsesVisualRows(t *testing.T) {
 		}},
 	}
 	m.symbolsFiltered = []int{0, 1}
+	m.buildSymbolRows()
 	firstRows := m.symbolRowHeight(0)
 	if firstRows < 2 {
 		t.Fatalf("first symbol did not wrap")

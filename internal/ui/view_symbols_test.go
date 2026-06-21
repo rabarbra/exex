@@ -57,10 +57,15 @@ func TestSymbolSortAndBind(t *testing.T) {
 	if got := addrs(); !reflect.DeepEqual(got, []uint64{0x1000, 0x2000, 0x3000}) {
 		t.Fatalf("sort by addr = %#x", got)
 	}
-	m.symbolsSort = sortBySize // descending by size: b(50) c(30) a(10)
-	if got := addrs(); !reflect.DeepEqual(got, []uint64{0x3000, 0x2000, 0x1000}) {
+	m.symbolsSort = sortBySize // ascending by size: a(10) c(30) b(50)
+	if got := addrs(); !reflect.DeepEqual(got, []uint64{0x1000, 0x2000, 0x3000}) {
 		t.Fatalf("sort by size = %#x", got)
 	}
+	m.symbolsSortDesc = true // reverse → largest first: b(50) c(30) a(10)
+	if got := addrs(); !reflect.DeepEqual(got, []uint64{0x3000, 0x2000, 0x1000}) {
+		t.Fatalf("sort by size desc = %#x", got)
+	}
+	m.symbolsSortDesc = false
 
 	m.symbolsSort = sortByName
 	m.symbolsBindOn = true

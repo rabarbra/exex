@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	sourceutil "github.com/rabarbra/exex/internal/sourcefiles"
 )
@@ -55,7 +57,8 @@ func (m *Model) ensureSources() {
 	}
 }
 
-// recomputeSourceFiles rebuilds the filtered file list from the filter text.
+// recomputeSourceFiles rebuilds the filtered file list and visible rows from the
+// current filter (and, in tree mode, the directory tree + collapse state).
 func (m *Model) recomputeSourceFiles() {
 	needle := strings.ToLower(m.sourcesFilter.Value())
 	m.sourcesFiltered = m.sourcesFiltered[:0]
@@ -64,8 +67,95 @@ func (m *Model) recomputeSourceFiles() {
 			m.sourcesFiltered = append(m.sourcesFiltered, i)
 		}
 	}
-	if m.sourcesCur >= len(m.sourcesFiltered) {
-		m.sourcesCur = max(0, len(m.sourcesFiltered)-1)
+	m.buildSourceRows()
+	if m.sourcesCur >= len(m.sourcesRows) {
+		m.sourcesCur = max(0, len(m.sourcesRows)-1)
+	}
+}
+
+// sortedSourceIdxs returns the filtered file indices sorted alphabetically by
+// path — needed for the adjacency-based directory tree (the flat list keeps its
+// project-first order).
+func (m *Model) sortedSourceIdxs() []int {
+	idxs := append([]int(nil), m.sourcesFiltered...)
+	sort.Slice(idxs, func(a, b int) bool { return m.sourcesFiles[idxs[a]] < m.sourcesFiles[idxs[b]] })
+	return idxs
+}
+
+// buildSourceRows flattens the filtered files into a directory tree (tree mode) or
+// one leaf row per file (flat mode).
+func (m *Model) buildSourceRows() {
+	if m.sourcesTree {
+		roots := buildTree(m.sortedSourceIdxs(), func(i int) string { return m.sourcesFiles[i] }, segPath)
+		if !m.sourcesTreeInit {
+			m.sourcesTreeInit = true
+			if m.treeCollapseDefault {
+				m.sourcesCollapsed = map[string]bool{}
+				eachInternal(roots, func(p string) { m.sourcesCollapsed[p] = true })
+			}
+		}
+		collapsed := m.sourcesCollapsed
+		if m.sourcesFilter.Value() != "" {
+			collapsed = nil
+		}
+		m.sourcesRows = flattenTree(roots, collapsed, 0, m.sourcesRows[:0])
+		return
+	}
+	nodes := make([]treeNode, len(m.sourcesFiltered))
+	rows := m.sourcesRows[:0]
+	for k, idx := range m.sourcesFiltered {
+		nodes[k] = treeNode{label: m.sourcesFiles[idx], leaf: idx, count: 1}
+		rows = append(rows, treeRow{node: &nodes[k], depth: 0})
+	}
+	m.sourcesRows = rows
+}
+
+// sourceFileAt returns the file path for the row, when it is a leaf.
+func (m *Model) sourceFileAt(rowIdx int) (string, bool) {
+	if rowIdx < 0 || rowIdx >= len(m.sourcesRows) {
+		return "", false
+	}
+	n := m.sourcesRows[rowIdx].node
+	if n.leaf < 0 {
+		return "", false
+	}
+	return m.sourcesFiles[n.leaf], true
+}
+
+// toggleSourceNode collapses/expands the directory node at the current row.
+func (m *Model) toggleSourceNode() {
+	if m.sourcesCur < 0 || m.sourcesCur >= len(m.sourcesRows) {
+		return
+	}
+	n := m.sourcesRows[m.sourcesCur].node
+	if n.leaf >= 0 {
+		return
+	}
+	if m.sourcesCollapsed == nil {
+		m.sourcesCollapsed = map[string]bool{}
+	}
+	m.sourcesCollapsed[n.path] = !m.sourcesCollapsed[n.path]
+	m.buildSourceRows()
+	if m.sourcesCur >= len(m.sourcesRows) {
+		m.sourcesCur = max(0, len(m.sourcesRows)-1)
+	}
+}
+
+// setAllSourcesCollapsed collapses or expands every directory node.
+func (m *Model) setAllSourcesCollapsed(collapsed bool) {
+	if !m.sourcesTree {
+		return
+	}
+	if !collapsed {
+		m.sourcesCollapsed = nil
+	} else {
+		m.sourcesCollapsed = map[string]bool{}
+		roots := buildTree(m.sortedSourceIdxs(), func(i int) string { return m.sourcesFiles[i] }, segPath)
+		eachInternal(roots, func(p string) { m.sourcesCollapsed[p] = true })
+	}
+	m.buildSourceRows()
+	if m.sourcesCur >= len(m.sourcesRows) {
+		m.sourcesCur = max(0, len(m.sourcesRows)-1)
 	}
 }
 
@@ -158,8 +248,7 @@ func (m *Model) updateSources(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateSourceList(key string) (tea.Model, tea.Cmd) {
-	n := len(m.sourcesFiltered)
-	if navKey(&m.sourcesCur, n, m.listPage(), key) {
+	if navKey(&m.sourcesCur, len(m.sourcesRows), m.listPage(), key) {
 		return m, nil
 	}
 	switch key {
@@ -170,21 +259,61 @@ func (m *Model) updateSourceList(key string) (tea.Model, tea.Cmd) {
 		m.srcSearchAll = true
 		m.openSearch()
 		return m, nil
+	case "t", "f":
+		m.sourcesTree = !m.sourcesTree
+		m.sourcesCur, m.sourcesTop = 0, 0
+		m.recomputeSourceFiles()
+		view := "flat list"
+		if m.sourcesTree {
+			view = "tree"
+		}
+		m.setStatus("sources view: "+view, false)
+	case "-", "_":
+		m.setAllSourcesCollapsed(true)
+		m.setStatus("collapsed all", false)
+	case "+", "=":
+		m.setAllSourcesCollapsed(false)
+		m.setStatus("expanded all", false)
+	case "right", "l":
+		if m.sourcesTree {
+			m.ensureSourcesCollapsed()
+			if treeExpandOne(m.sourcesRows, &m.sourcesCur, m.sourcesCollapsed) {
+				m.buildSourceRows()
+			}
+		}
+	case "left", "h":
+		if m.sourcesTree {
+			m.ensureSourcesCollapsed()
+			if treeCollapseOne(m.sourcesRows, &m.sourcesCur, m.sourcesCollapsed) {
+				m.buildSourceRows()
+			}
+		}
 	case "c":
-		if m.sourcesCur >= 0 && m.sourcesCur < n {
-			m.copyToClipboard(m.sourcesFiles[m.sourcesFiltered[m.sourcesCur]], "source path")
+		if f, ok := m.sourceFileAt(m.sourcesCur); ok {
+			m.copyToClipboard(f, "source path")
 		}
 	case "w":
 		m.toggleWrap()
-	case "enter":
-		if m.sourcesCur >= 0 && m.sourcesCur < n {
-			m.openSourceFile(m.sourcesFiles[m.sourcesFiltered[m.sourcesCur]], 1)
+	case "enter", " ":
+		if m.sourcesCur >= 0 && m.sourcesCur < len(m.sourcesRows) && m.sourcesRows[m.sourcesCur].node.leaf < 0 {
+			m.ensureSourcesCollapsed()
+			if treeToggleSubtree(m.sourcesRows, m.sourcesCur, m.sourcesCollapsed) {
+				m.buildSourceRows()
+			}
+		} else if f, ok := m.sourceFileAt(m.sourcesCur); ok {
+			m.openSourceFile(f, 1)
 			m.setMode(modeDisasm)
 			m.showSource = true
 			m.sourceFirst = true
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) ensureSourcesCollapsed() {
+	if m.sourcesCollapsed == nil {
+		m.sourcesCollapsed = map[string]bool{}
+	}
 }
 
 // updateSourceOpenSrc drives source-first navigation: the source cursor leads
@@ -402,36 +531,51 @@ func (m *Model) renderSourceList(bodyH int) string {
 	}
 	filterRow := m.sourcesFilter.View()
 	if !m.sourcesFilter.Focused() {
-		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   (%d / %d source files)",
-			m.sourcesFilter.Value(), len(m.sourcesFiltered), len(m.sourcesFiles)))
+		facet := ""
+		if m.sourcesTree {
+			facet = "  tree"
+		}
+		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   (%d / %d source files)%s",
+			m.sourcesFilter.Value(), len(m.sourcesFiltered), len(m.sourcesFiles), facet))
 	}
 
 	visible := bodyH - 1
 	if visible < 1 {
 		visible = 1
 	}
-	top := m.visualTopForView(m.sourcesCur, m.sourcesTop, len(m.sourcesFiltered), visible, func(int) int { return 1 })
+	one := func(int) int { return 1 }
+	top := m.visualTopForView(m.sourcesCur, m.sourcesTop, len(m.sourcesRows), visible, one)
 	m.sourcesTop = top
 	m.renderedSourcesTop = top
-	m.pageRows = pageStep(top, len(m.sourcesFiltered), visible, func(int) int { return 1 })
+	m.pageRows = pageStep(top, len(m.sourcesRows), visible, one)
 	end := top + visible
-	if end > len(m.sourcesFiltered) {
-		end = len(m.sourcesFiltered)
+	if end > len(m.sourcesRows) {
+		end = len(m.sourcesRows)
 	}
 
 	var b strings.Builder
 	b.WriteString(filterRow)
 	b.WriteString("\n")
-	if len(m.sourcesFiltered) == 0 {
+	if len(m.sourcesRows) == 0 {
 		b.WriteString(m.theme.footerStyle.Render(" (no source files)"))
 		return padBody(b.String(), m.width, bodyH)
 	}
 	for i := top; i < end; i++ {
-		full := m.sourcesFiles[m.sourcesFiltered[i]]
-		name := m.theme.colorPathByPrefix(full, truncateMiddle(full, max(16, m.width-2)))
-		line := padRight(" "+name, m.width)
-		if i == m.sourcesCur {
-			b.WriteString(m.theme.tableSelStyle.Render(line))
+		row := m.sourcesRows[i]
+		n := row.node
+		selected := i == m.sourcesCur
+		if n.leaf < 0 {
+			collapsed := m.sourcesCollapsed != nil && m.sourcesCollapsed[n.path]
+			b.WriteString(m.treeNodeRow(row.depth, n.label, n.count, collapsed, selected, " ", m.width))
+			b.WriteString("\n")
+			continue
+		}
+		full := m.sourcesFiles[n.leaf]
+		indent := strings.Repeat(" ", row.depth*treeIndent)
+		name := m.theme.colorPathByPrefix(full, truncateMiddle(n.label, max(8, m.width-len(indent)-2)))
+		line := padRight(" "+indent+name, m.width)
+		if selected {
+			b.WriteString(m.theme.tableSelStyle.Render(ansi.Strip(line)))
 		} else {
 			b.WriteString(m.theme.tableRowStyle.Render(line))
 		}

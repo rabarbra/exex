@@ -16,7 +16,7 @@ import (
 	"github.com/rabarbra/exex/internal/theme"
 )
 
-const settingsFieldCount = 4
+const settingsFieldCount = 8
 
 // settingsViewNames is the cycle for the "default view" setting.
 var settingsViewNames = []string{
@@ -80,6 +80,27 @@ func (m *Model) cycleSetting(dir int) {
 		m.clearAllViewCaches()
 	case 3:
 		m.cfg.Behavior.DefaultView = settingsViewNames[cycleIndex(settingsViewNames, m.cfg.Behavior.DefaultView, dir)]
+	case 4:
+		m.cfg.Behavior.TreeSymbols = !m.cfg.Behavior.TreeSymbols
+		m.symbolsTree = m.cfg.Behavior.TreeSymbols
+		m.recomputeSymbols()
+	case 5:
+		m.cfg.Behavior.TreeSources = !m.cfg.Behavior.TreeSources
+		m.sourcesTree = m.cfg.Behavior.TreeSources
+		if m.sourcesFiles != nil {
+			m.recomputeSourceFiles()
+		}
+	case 6:
+		m.cfg.Behavior.TreeLibs = !m.cfg.Behavior.TreeLibs
+		m.libsTree = m.cfg.Behavior.TreeLibs
+		m.buildLibRows()
+	case 7:
+		m.cfg.Behavior.TreeCollapsed = !m.cfg.Behavior.TreeCollapsed
+		m.treeCollapseDefault = m.cfg.Behavior.TreeCollapsed
+		// Apply live to whichever trees are currently shown.
+		m.setAllSymbolsCollapsed(m.treeCollapseDefault)
+		m.setAllSourcesCollapsed(m.treeCollapseDefault)
+		m.setAllLibsCollapsed(m.treeCollapseDefault)
 	}
 }
 
@@ -106,7 +127,7 @@ func (m *Model) applyThemeChange() {
 }
 
 func (m *Model) persistSettings() {
-	path, err := config.Save(effectiveThemeName(m.cfg.Theme), m.cfg.Behavior.Background, m.cfg.Behavior.DefaultWrap, m.cfg.Behavior.DefaultView)
+	path, err := config.Save(effectiveThemeName(m.cfg.Theme), m.cfg.Behavior)
 	if err != nil {
 		m.setStatus(fmt.Sprintf("settings applied for this session (not saved: %v)", err), true)
 	} else {
@@ -132,11 +153,21 @@ func (m *Model) renderSettingsModal() string {
 	if dv == "" {
 		dv = "info"
 	}
+	onOff := func(b bool) string {
+		if b {
+			return "on"
+		}
+		return "off"
+	}
 	fields := [settingsFieldCount]struct{ label, val string }{
 		{"Theme", themeVal},
 		{"Background", bgVal},
 		{"Default wrap", wrapVal},
 		{"Default view", dv},
+		{"Tree: symbols", onOff(m.cfg.Behavior.TreeSymbols)},
+		{"Tree: sources", onOff(m.cfg.Behavior.TreeSources)},
+		{"Tree: libs", onOff(m.cfg.Behavior.TreeLibs)},
+		{"Tree collapsed", onOff(m.cfg.Behavior.TreeCollapsed)},
 	}
 
 	const rowW = 44

@@ -51,6 +51,15 @@ type Behavior struct {
 	// DefaultWrap starts long-line wrapping enabled. The `w` key still toggles it
 	// for the current session.
 	DefaultWrap bool `yaml:"default_wrap"`
+	// TreeSymbols/TreeSources/TreeLibs open that view as a collapsible
+	// namespace/path tree instead of a flat list/table. The `f` key toggles each
+	// for the current session.
+	TreeSymbols bool `yaml:"tree_symbols"`
+	TreeSources bool `yaml:"tree_sources"`
+	TreeLibs    bool `yaml:"tree_libs"`
+	// TreeCollapsed starts every tree fully collapsed (top-level groups only); the
+	// `+`/`−` keys expand/collapse all for the session.
+	TreeCollapsed bool `yaml:"tree_collapsed"`
 }
 
 // Colors lists every visual element the user can re-skin. Empty strings mean
@@ -200,6 +209,9 @@ type Colors struct {
 	HelpDescFG string `yaml:"help_desc_fg"`
 	HelpHeadFG string `yaml:"help_head_fg"`
 
+	// ---- Tree views (symbols/sources/libs collapsible groups) -----------
+	TreeNodeFG string `yaml:"tree_node_fg"`
+
 	// ---- Status footer messages -----------------------------------------
 	StatusErrorFG string `yaml:"status_error_fg"`
 	StatusInfoFG  string `yaml:"status_info_fg"`
@@ -281,6 +293,13 @@ type Keys struct {
 	SearchOrigin StringOrSlice `yaml:"search_origin"`
 	// Open the settings popup. (default: ,)
 	Settings StringOrSlice `yaml:"settings"`
+	// Tree views (symbols/sources/libs): expand / collapse the current group one
+	// level. (defaults: right/l and left/h)
+	TreeExpand   StringOrSlice `yaml:"tree_expand"`
+	TreeCollapse StringOrSlice `yaml:"tree_collapse"`
+	// Tree views: expand / collapse every group. (defaults: + and -)
+	TreeExpandAll   StringOrSlice `yaml:"tree_expand_all"`
+	TreeCollapseAll StringOrSlice `yaml:"tree_collapse_all"`
 }
 
 // StringOrSlice accepts either a YAML scalar ("q") or a sequence (["q",
@@ -331,7 +350,7 @@ func Path() string {
 // nodes, so any other keys and comments already in the file are preserved.
 // Returns the written path; a read-only location yields an error (the caller can
 // keep the values in memory for the session).
-func Save(theme string, background, defaultWrap bool, defaultView string) (string, error) {
+func Save(theme string, beh Behavior) (string, error) {
 	p := Path()
 	if p == "" {
 		return "", errors.New("no config path available")
@@ -347,18 +366,21 @@ func Save(theme string, background, defaultWrap bool, defaultView string) (strin
 
 	root := yamlDocRoot(&doc)
 	yamlSetScalar(root, "theme", theme, "!!str")
-	beh := yamlChildMap(root, "behavior")
-	bg := "false"
-	if background {
-		bg = "true"
+	node := yamlChildMap(root, "behavior")
+	yamlBool := func(key string, v bool) {
+		s := "false"
+		if v {
+			s = "true"
+		}
+		yamlSetScalar(node, key, s, "!!bool")
 	}
-	yamlSetScalar(beh, "background", bg, "!!bool")
-	wrap := "false"
-	if defaultWrap {
-		wrap = "true"
-	}
-	yamlSetScalar(beh, "default_wrap", wrap, "!!bool")
-	yamlSetScalar(beh, "default_view", defaultView, "!!str")
+	yamlBool("background", beh.Background)
+	yamlBool("default_wrap", beh.DefaultWrap)
+	yamlSetScalar(node, "default_view", beh.DefaultView, "!!str")
+	yamlBool("tree_symbols", beh.TreeSymbols)
+	yamlBool("tree_sources", beh.TreeSources)
+	yamlBool("tree_libs", beh.TreeLibs)
+	yamlBool("tree_collapsed", beh.TreeCollapsed)
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {

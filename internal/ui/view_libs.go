@@ -5,6 +5,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,31 +16,153 @@ import (
 	"github.com/rabarbra/exex/internal/explorer"
 )
 
-func (m *Model) updateLibs(key string) (tea.Model, tea.Cmd) {
-	n := 0
+// sortedLibIdxs returns the needed-library indices sorted alphabetically by
+// path, so both the flat list and the (adjacency-based) tree read in order.
+func (m *Model) sortedLibIdxs() ([]int, []string) {
+	var libs []string
 	if m.file.Info != nil {
-		n = len(m.file.Info.DynamicLibs)
+		libs = m.file.Info.DynamicLibs
 	}
-	if n == 0 {
+	idxs := make([]int, len(libs))
+	for i := range idxs {
+		idxs[i] = i
+	}
+	sort.Slice(idxs, func(a, b int) bool { return libs[idxs[a]] < libs[idxs[b]] })
+	return idxs, libs
+}
+
+// buildLibRows flattens the needed libraries into a path tree (tree mode) or one
+// leaf row per library (flat mode).
+func (m *Model) buildLibRows() {
+	idxs, libs := m.sortedLibIdxs()
+	if m.libsTree {
+		roots := buildTree(idxs, func(i int) string { return libs[i] }, segPath)
+		if !m.libsTreeInit {
+			m.libsTreeInit = true
+			if m.treeCollapseDefault {
+				m.libsCollapsed = map[string]bool{}
+				eachInternal(roots, func(p string) { m.libsCollapsed[p] = true })
+			}
+		}
+		m.libsRows = flattenTree(roots, m.libsCollapsed, 0, m.libsRows[:0])
+		return
+	}
+	nodes := make([]treeNode, len(idxs))
+	rows := m.libsRows[:0]
+	for k, idx := range idxs {
+		nodes[k] = treeNode{label: libs[idx], leaf: idx, count: 1}
+		rows = append(rows, treeRow{node: &nodes[k], depth: 0})
+	}
+	m.libsRows = rows
+}
+
+// libAt returns the library string for a leaf row.
+func (m *Model) libAt(rowIdx int) (string, bool) {
+	if m.file.Info == nil || rowIdx < 0 || rowIdx >= len(m.libsRows) {
+		return "", false
+	}
+	n := m.libsRows[rowIdx].node
+	if n.leaf < 0 {
+		return "", false
+	}
+	return m.file.Info.DynamicLibs[n.leaf], true
+}
+
+func (m *Model) ensureLibsCollapsed() {
+	if m.libsCollapsed == nil {
+		m.libsCollapsed = map[string]bool{}
+	}
+}
+
+func (m *Model) toggleLibNode() {
+	if m.libsCur < 0 || m.libsCur >= len(m.libsRows) || m.libsRows[m.libsCur].node.leaf >= 0 {
+		return
+	}
+	if m.libsCollapsed == nil {
+		m.libsCollapsed = map[string]bool{}
+	}
+	p := m.libsRows[m.libsCur].node.path
+	m.libsCollapsed[p] = !m.libsCollapsed[p]
+	m.buildLibRows()
+	if m.libsCur >= len(m.libsRows) {
+		m.libsCur = max(0, len(m.libsRows)-1)
+	}
+}
+
+func (m *Model) setAllLibsCollapsed(collapsed bool) {
+	if !m.libsTree || m.file.Info == nil {
+		return
+	}
+	if !collapsed {
+		m.libsCollapsed = nil
+	} else {
+		m.libsCollapsed = map[string]bool{}
+		idxs, libs := m.sortedLibIdxs()
+		roots := buildTree(idxs, func(i int) string { return libs[i] }, segPath)
+		eachInternal(roots, func(p string) { m.libsCollapsed[p] = true })
+	}
+	m.buildLibRows()
+	if m.libsCur >= len(m.libsRows) {
+		m.libsCur = max(0, len(m.libsRows)-1)
+	}
+}
+
+func (m *Model) updateLibs(key string) (tea.Model, tea.Cmd) {
+	if m.file.Info == nil || len(m.file.Info.DynamicLibs) == 0 {
 		return m, nil
 	}
-	if navKey(&m.libsCur, n, m.listPage(), key) {
+	m.buildLibRows()
+	if navKey(&m.libsCur, len(m.libsRows), m.listPage(), key) {
 		return m, nil
 	}
 	switch key {
 	case "w":
 		m.toggleWrap()
-	case "c", "s":
-		if m.file.Info != nil && m.libsCur < len(m.file.Info.DynamicLibs) {
-			m.copyToClipboard(m.file.Info.DynamicLibs[m.libsCur], "library")
+	case "t", "f":
+		m.libsTree = !m.libsTree
+		m.libsCur, m.libsTop = 0, 0
+		m.buildLibRows()
+		view := "flat list"
+		if m.libsTree {
+			view = "tree"
 		}
-	case "enter":
-		if m.file.Info != nil && m.libsCur < len(m.file.Info.DynamicLibs) {
-			m.openSymbolsForLib(m.file.Info.DynamicLibs[m.libsCur])
+		m.setStatus("libs view: "+view, false)
+	case "-", "_":
+		m.setAllLibsCollapsed(true)
+		m.setStatus("collapsed all", false)
+	case "+", "=":
+		m.setAllLibsCollapsed(false)
+		m.setStatus("expanded all", false)
+	case "right", "l":
+		if m.libsTree {
+			m.ensureLibsCollapsed()
+			if treeExpandOne(m.libsRows, &m.libsCur, m.libsCollapsed) {
+				m.buildLibRows()
+			}
+		}
+	case "left", "h":
+		if m.libsTree {
+			m.ensureLibsCollapsed()
+			if treeCollapseOne(m.libsRows, &m.libsCur, m.libsCollapsed) {
+				m.buildLibRows()
+			}
+		}
+	case "c", "s":
+		if lib, ok := m.libAt(m.libsCur); ok {
+			m.copyToClipboard(lib, "library")
+		}
+	case "enter", " ":
+		if m.libsCur < len(m.libsRows) && m.libsRows[m.libsCur].node.leaf < 0 {
+			m.ensureLibsCollapsed()
+			if treeToggleSubtree(m.libsRows, m.libsCur, m.libsCollapsed) {
+				m.buildLibRows()
+			}
+		} else if lib, ok := m.libAt(m.libsCur); ok {
+			m.openSymbolsForLib(lib)
 		}
 	case "o":
-		if m.file.Info != nil && m.libsCur < len(m.file.Info.DynamicLibs) {
-			return m.openLibAsPrimary(m.file.Info.DynamicLibs[m.libsCur])
+		if lib, ok := m.libAt(m.libsCur); ok {
+			return m.openLibAsPrimary(lib)
 		}
 	}
 	return m, nil
@@ -107,6 +230,7 @@ func (m *Model) renderLibs() string {
 		return padBody(body, m.width, bodyH)
 	}
 
+	m.buildLibRows()
 	b := strings.Builder{}
 	b.WriteString(m.renderLibsHeader())
 	headerH := lipgloss.Height(b.String())
@@ -117,11 +241,11 @@ func (m *Model) renderLibs() string {
 	rowHeight := func(i int) int {
 		return m.libRowHeight(i)
 	}
-	top := m.visualTopForView(m.libsCur, m.libsTop, len(info.DynamicLibs), visible, rowHeight)
+	top := m.visualTopForView(m.libsCur, m.libsTop, len(m.libsRows), visible, rowHeight)
 	m.libsTop = top
-	m.pageRows = pageStep(top, len(info.DynamicLibs), visible, rowHeight)
+	m.pageRows = pageStep(top, len(m.libsRows), visible, rowHeight)
 	m.renderedLibsTop = top
-	for i := top; i < len(info.DynamicLibs); i++ {
+	for i := top; i < len(m.libsRows); i++ {
 		line := m.libRow(i, i == m.libsCur)
 		for _, row := range renderLineRowsIndented(line, m.width, m.wrap, 6) {
 			if lipgloss.Height(b.String()) >= bodyH {
@@ -165,7 +289,11 @@ func (m *Model) renderLibsHeader() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.tableHeader(fmt.Sprintf(" %3s  %s", "#", "Needed library")))
+	hdr := " Needed libraries"
+	if m.libsTree {
+		hdr += "  " + m.theme.footerStyle.Render("(tree · ←/→ fold · ↵ all below · +/− all · t flat)")
+	}
+	b.WriteString(m.tableHeader(hdr))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -178,19 +306,26 @@ func (m *Model) libsHeaderRows() int {
 }
 
 func (m *Model) libRowHeight(i int) int {
-	if m.file.Info == nil || i < 0 || i >= len(m.file.Info.DynamicLibs) {
+	if i < 0 || i >= len(m.libsRows) {
 		return 1
 	}
 	return len(renderLineRowsIndented(m.libRow(i, false), m.width, m.wrap, 6))
 }
 
 func (m *Model) libRow(i int, selected bool) string {
-	lib := m.file.Info.DynamicLibs[i]
-	display := lib
-	if !m.wrap {
-		display = truncateMiddle(lib, max(1, m.width-7))
+	row := m.libsRows[i]
+	n := row.node
+	if n.leaf < 0 {
+		collapsed := m.libsCollapsed != nil && m.libsCollapsed[n.path]
+		return m.treeNodeRow(row.depth, n.label, n.count, collapsed, selected, " ", m.width)
 	}
-	line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("%3d", i)), m.theme.colorPathByPrefix(lib, display))
+	indent := strings.Repeat(" ", row.depth*treeIndent)
+	lib := m.file.Info.DynamicLibs[n.leaf]
+	display := n.label // basename in tree mode, full path in flat mode
+	if !m.wrap {
+		display = truncateMiddle(display, max(1, m.width-len(indent)-2))
+	}
+	line := " " + indent + m.theme.colorPathByPrefix(lib, display)
 	if selected {
 		return m.theme.tableSelStyle.Render(ansi.Strip(line))
 	}

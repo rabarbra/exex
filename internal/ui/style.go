@@ -193,12 +193,6 @@ func (t *Theme) ApplyColors(c config.Colors) {
 // large; this table makes byte output an O(1) lookup.
 var byteHex [256]string
 
-// byteFG holds a precomputed foreground style for every possible byte value.
-// The palette follows the hex viewer convention: 0x00 is grey, 0xFF is white,
-// and the values in between cycle through a smooth rainbow keyed by the high
-// nibble — making structural patterns in raw bytes pop out visually.
-var byteFG [256]lipgloss.Style
-
 // byteASCII holds the pre-rendered, per-byte-coloured ASCII cell ("." for
 // non-printable bytes). Like byteHex, this avoids a lipgloss.Render call for
 // every byte of every visible row on each frame.
@@ -242,6 +236,13 @@ func setBytePalette(p []string) {
 			return
 		}
 	}
+	// One foreground style per palette colour, reused across the byte values that
+	// map onto it. The convention: 0x00 is grey, 0xFF is white, and 0x01..0xFE
+	// cycle through a rainbow keyed by the high nibble, making byte patterns pop.
+	styles := make([]lipgloss.Style, len(p))
+	for i, c := range p {
+		styles[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c))
+	}
 	for i := 0; i < 256; i++ {
 		var idx int
 		switch {
@@ -252,13 +253,13 @@ func setBytePalette(p []string) {
 		default:
 			idx = 1 + (i >> 4)
 		}
-		byteFG[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(p[idx]))
-		byteHex[i] = byteFG[i].Render(hex2(byte(i)))
+		st := styles[idx]
+		byteHex[i] = st.Render(hex2(byte(i)))
 		ch := byte('.')
 		if i >= 0x20 && i < 0x7f {
 			ch = byte(i)
 		}
-		byteASCII[i] = byteFG[i].Render(string(ch))
+		byteASCII[i] = st.Render(string(ch))
 	}
 }
 

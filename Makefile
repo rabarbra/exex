@@ -13,7 +13,7 @@ BASHCOMPDIR ?= /usr/local/etc/bash_completion.d
 ZSHCOMPDIR ?= /usr/local/share/zsh/site-functions
 FISHCOMPDIR ?= /usr/local/share/fish/vendor_completions.d
 
-.PHONY: build lite install install-man install-completions test test-cross lint-docs clean release
+.PHONY: build lite install install-man install-completions test test-cross lint-docs size-report clean release
 
 # Full build: includes Chroma syntax highlighting (source pane + asm colours).
 build:
@@ -49,6 +49,12 @@ test:
 lint-docs:
 	@command -v mandoc >/dev/null 2>&1 || { echo "mandoc not found (brew install mandoc / apt-get install mandoc)"; exit 1; }
 	mandoc -T lint -W warning $(MANPAGE)
+
+# Break down what makes up the binary: stripped full-vs-lite totals (the Chroma
+# cost is their difference, since its embedded lexer XML hides under go:string.*),
+# then a per-module attribution from the symbol table. See scripts/size-report.sh.
+size-report:
+	@sh scripts/size-report.sh $(BINARY)
 
 # Slow, toolchain-dependent end-to-end test: cross-compile a tiny program with Go
 # and Zig for every target exex can read, then parse/disassemble each. Needs the

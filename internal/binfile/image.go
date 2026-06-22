@@ -2,16 +2,23 @@ package binfile
 
 import "sort"
 
-// Image is a continuous byte buffer stitched together from several sections in
+// Image is a logical byte stream stitched together from several sections in
 // virtual-address order, with the gaps between them removed. It lets the hex
 // and disasm views scroll across *all* mapped (or all executable) sections as
 // one stream while still recovering the real virtual address of any byte.
 //
+// The bytes are NOT copied into one buffer: each region keeps a slice into the
+// original (mmap'd or read) file image, so building an Image is allocation-free
+// and a 100 MB binary doesn't cost a second 50 MB of heap. Callers read bytes
+// through At/Bytes/Window; Bytes is zero-copy when the range stays inside one
+// region (the common case — one section usually dominates) and copies only a
+// bounded range that straddles a region boundary.
+//
 // Regions are sorted by both Addr and Off (Off is assigned sequentially as
 // regions are appended in address order, so the two orderings coincide).
 type Image struct {
-	Data    []byte
 	Regions []Region
+	size    int // total logical length (sum of region sizes)
 }
 
 // Window is a bounded slice of an Image. Start/End are byte positions within
@@ -26,9 +33,47 @@ type Window struct {
 // Region records where one section landed inside the flattened image.
 type Region struct {
 	Addr uint64 // virtual address of the first byte
-	Size uint64 // number of bytes (== len of the section's slice in Data)
-	Off  int    // offset of the first byte within Image.Data
+	Size uint64 // number of bytes (== len(b))
+	Off  int    // offset of the first byte within the logical stream
 	Name string
+	b    []byte // the region's bytes — a slice into the file image, not a copy
+}
+
+// NewImage builds an Image from a single contiguous backing slice and its
+// regions: each region's bytes are data[Off:Off+Size]. Used by tests and callers
+// that already hold the bytes contiguously. buildImage uses the per-section
+// slices directly instead.
+func NewImage(data []byte, regions []Region) *Image {
+	im := &Image{}
+	for _, r := range regions {
+		lo := min(r.Off, len(data))
+		r.b = data[lo:min(r.Off+int(r.Size), len(data))]
+		r.Size = uint64(len(r.b)) // keep Size == len(b) so At/Bytes can't over-read
+		im.Regions = append(im.Regions, r)
+		im.size = max(im.size, r.Off+len(r.b))
+	}
+	return im
+}
+
+// Run is one region's contiguous native bytes (zero-copy, a slice into the file
+// image) with its logical start offset. Whole-image scans iterate Runs so
+// bytes.Index/IndexByte run on the real bytes at full speed, region by region,
+// instead of fixed-size chunks (which hit bytes.Index's small-slice slow path).
+type Run struct {
+	Off int
+	B   []byte
+}
+
+// Runs returns the image's regions as native byte runs, in offset order.
+func (im *Image) Runs() []Run {
+	if im == nil {
+		return nil
+	}
+	out := make([]Run, len(im.Regions))
+	for i := range im.Regions {
+		out[i] = Run{Off: im.Regions[i].Off, B: im.Regions[i].b}
+	}
+	return out
 }
 
 // Len is the total number of bytes in the image.
@@ -36,7 +81,55 @@ func (im *Image) Len() int {
 	if im == nil {
 		return 0
 	}
-	return len(im.Data)
+	return im.size
+}
+
+// At returns the byte at logical position pos (0 when out of range).
+func (im *Image) At(pos int) byte {
+	r := im.RegionAt(pos)
+	if r == nil {
+		return 0
+	}
+	return r.b[pos-r.Off]
+}
+
+// Bytes returns the logical bytes in [start,end). It is zero-copy when the range
+// lies within a single region (the common case); a range straddling a region
+// boundary is copied into a fresh bounded buffer.
+func (im *Image) Bytes(start, end int) []byte {
+	if im == nil || start < 0 {
+		start = 0
+	}
+	if end > im.size {
+		end = im.size
+	}
+	if start >= end {
+		return nil
+	}
+	if r := im.RegionAt(start); r != nil && end <= r.Off+int(r.Size) {
+		return r.b[start-r.Off : end-r.Off] // within one region: no copy
+	}
+	out := make([]byte, end-start) // zero-filled; gaps between regions stay zero
+	for i := start; i < end; {
+		r := im.RegionAt(i)
+		if r == nil {
+			// In a gap (no region covers i): skip to the next region's start,
+			// leaving zeros. (Images built from sections have no gaps; this only
+			// arises for sparse/synthetic region maps.)
+			k := sort.Search(len(im.Regions), func(k int) bool { return im.Regions[k].Off > i })
+			if k >= len(im.Regions) {
+				break
+			}
+			i = im.Regions[k].Off
+			continue
+		}
+		n := copy(out[i-start:], r.b[i-r.Off:])
+		if n == 0 {
+			break
+		}
+		i += n
+	}
+	return out
 }
 
 // AddrAt maps a byte position within Data to its virtual address.
@@ -85,24 +178,25 @@ func (im *Image) RegionAt(pos int) *Region {
 	return r
 }
 
-// Window returns a clamped byte window into the image.
+// Window returns a clamped byte window into the image. Data is zero-copy when the
+// window stays within one region (see Bytes).
 func (im *Image) Window(start, size int) Window {
-	if im == nil || len(im.Data) == 0 || size <= 0 {
+	if im == nil || im.size == 0 || size <= 0 {
 		return Window{}
 	}
 	if start < 0 {
 		start = 0
 	}
-	if start >= len(im.Data) {
-		start = len(im.Data)
+	if start >= im.size {
+		start = im.size
 	}
-	if size > len(im.Data)-start {
-		size = len(im.Data) - start
+	if size > im.size-start {
+		size = im.size - start
 	}
 	end := max(start+size, start)
 	return Window{
 		Addr:  im.AddrAt(start),
-		Data:  im.Data[start:end],
+		Data:  im.Bytes(start, end),
 		Start: start,
 		End:   end,
 	}
@@ -115,8 +209,8 @@ func (im *Image) WindowContaining(addr uint64, size, before int) (Window, bool) 
 	if !ok {
 		return Window{}, false
 	}
-	if size <= 0 || size > len(im.Data) {
-		size = len(im.Data)
+	if size <= 0 || size > im.size {
+		size = im.size
 	}
 	if size == 0 {
 		return Window{}, false
@@ -128,8 +222,8 @@ func (im *Image) WindowContaining(addr uint64, size, before int) (Window, bool) 
 		before = size - 1
 	}
 	start := max(pos-before, 0)
-	if start+size > len(im.Data) {
-		start = max(len(im.Data)-size, 0)
+	if start+size > im.size {
+		start = max(im.size-size, 0)
 	}
 	return im.Window(start, size), true
 }
@@ -153,14 +247,15 @@ func (f *File) buildImage(keep func(*Section) bool) *Image {
 
 	im := &Image{}
 	for _, s := range secs {
-		data := f.sectionData(s)
+		data := f.sectionData(s) // a slice into f.raw — not copied
 		im.Regions = append(im.Regions, Region{
 			Addr: s.Addr,
 			Size: uint64(len(data)),
-			Off:  len(im.Data),
+			Off:  im.size,
 			Name: s.Name,
+			b:    data,
 		})
-		im.Data = append(im.Data, data...)
+		im.size += len(data)
 	}
 	return im
 }

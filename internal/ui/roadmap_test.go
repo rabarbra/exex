@@ -143,13 +143,10 @@ func TestHexVisibleTopPreservesUnalignedSectionStart(t *testing.T) {
 	m := &Model{
 		theme: DefaultTheme(),
 		file:  &binfile.File{},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data: make([]byte, 0x200),
-			Regions: []binfile.Region{
-				{Addr: 0x1000, Size: sectionStart, Off: 0, Name: "A"},
-				{Addr: 0x2003, Size: 0x200 - sectionStart, Off: sectionStart, Name: "B"},
-			},
-		}},
+		hexState: hexState{hexImg: binfile.NewImage(make([]byte, 0x200), []binfile.Region{
+			{Addr: 0x1000, Size: sectionStart, Off: 0, Name: "A"},
+			{Addr: 0x2003, Size: 0x200 - sectionStart, Off: sectionStart, Name: "B"},
+		})},
 	}
 	addrAt := m.hexImg.AddrAt
 
@@ -160,11 +157,11 @@ func TestHexVisibleTopPreservesUnalignedSectionStart(t *testing.T) {
 	if got := m.hexVisibleTop(modeHex, sectionStart-1, sectionStart, 10, addrAt); got != 0x60 {
 		t.Fatalf("hexVisibleTop before section start = 0x%x, want 0x60", got)
 	}
-	if got := m.scrollByteViewportTop(modeHex, m.hexImg.Data, sectionStart, 10, -1, addrAt); got != 0x60 {
+	if got := m.scrollByteViewportTop(modeHex, m.hexImg, sectionStart, 10, -1, addrAt); got != 0x60 {
 		t.Fatalf("scrollByteViewportTop up = 0x%x, want 0x60", got)
 	}
 	// Section B's first row spans the 13 bytes up to the next aligned address.
-	if got := m.scrollByteViewportTop(modeHex, m.hexImg.Data, sectionStart, 10, 1, addrAt); got != sectionStart+13 {
+	if got := m.scrollByteViewportTop(modeHex, m.hexImg, sectionStart, 10, 1, addrAt); got != sectionStart+13 {
 		t.Fatalf("scrollByteViewportTop down = 0x%x, want 0x%x", got, sectionStart+13)
 	}
 }
@@ -182,10 +179,7 @@ func TestHexMiddleRowsNeverGap(t *testing.T) {
 		theme:       DefaultTheme(),
 		file:        &binfile.File{},
 		layoutState: layoutState{width: 120, height: 12},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data:    data,
-			Regions: []binfile.Region{{Addr: 0x1029052b8, Size: uint64(len(data)), Off: 0, Name: "__objc_data"}},
-		}},
+		hexState: hexState{hexImg: binfile.NewImage(data, []binfile.Region{{Addr: 0x1029052b8, Size: uint64(len(data)), Off: 0, Name: "__objc_data"}})},
 	}
 	for range 40 { // scroll well past the section start
 		m.updateHex("down")
@@ -232,13 +226,10 @@ func TestHexAndRawRowsSplitAtUnalignedSectionStart(t *testing.T) {
 		file:             &binfile.File{Sections: sections},
 		layoutState:      layoutState{width: 120, height: 10},
 		interactionState: interactionState{viewportDetached: true},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data: hexData,
-			Regions: []binfile.Region{
-				{Addr: 0x10203cb04, Size: 0x13, Off: 0, Name: "prev"},
-				{Addr: 0x10203cb17, Size: 0x20, Off: 0x13, Name: "__objc_methname"},
-			},
-		}, hexCur: 0x13, hexTop: 0x10},
+		hexState: hexState{hexImg: binfile.NewImage(hexData, []binfile.Region{
+			{Addr: 0x10203cb04, Size: 0x13, Off: 0, Name: "prev"},
+			{Addr: 0x10203cb17, Size: 0x20, Off: 0x13, Name: "__objc_methname"},
+		}), hexCur: 0x13, hexTop: 0x10},
 	}
 	assertSectionBytesBelowSeparator(t, ansi.Strip(hexModel.renderHex()), "__objc_methname", "43  47 43", "0x000000010203cb10")
 }
@@ -253,10 +244,7 @@ func TestOpeningUnalignedSectionPinsSeparatorAtTop(t *testing.T) {
 			viewportDetached: true,
 			renderedHexTop:   99,
 		},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data:    []byte("CGColor.CGContext._device"),
-			Regions: []binfile.Region{{Addr: section.Addr, Size: section.FileSize, Off: 0, Name: section.Name}},
-		}},
+		hexState: hexState{hexImg: binfile.NewImage([]byte("CGColor.CGContext._device"), []binfile.Region{{Addr: section.Addr, Size: section.FileSize, Off: 0, Name: section.Name}})},
 	}
 	hexModel.openHexAt(section.Addr)
 	if hexModel.viewportDetached {
@@ -299,13 +287,10 @@ func TestCurrentUnalignedSectionSnapsPastPreviousSectionGap(t *testing.T) {
 		theme:       DefaultTheme(),
 		file:        &binfile.File{Sections: sections},
 		layoutState: layoutState{width: 120, height: 10},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data: hexData,
-			Regions: []binfile.Region{
-				{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
-				{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x4e, Name: sections[1].Name},
-			},
-		}, hexCur: 0x7f, hexTop: 0},
+		hexState: hexState{hexImg: binfile.NewImage(hexData, []binfile.Region{
+			{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
+			{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x4e, Name: sections[1].Name},
+		}), hexCur: 0x7f, hexTop: 0},
 	}
 	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(hexModel.renderHex()), sections[1].Name)
 	if got, want := hexModel.hexTop, 0x4e; got != want {
@@ -359,13 +344,10 @@ func TestPinnedUnalignedSectionOverridesStaleDetachedTop(t *testing.T) {
 			viewportDetached: true,
 			renderedHexTop:   0,
 		},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data: hexData,
-			Regions: []binfile.Region{
-				{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
-				{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x67, Name: sections[1].Name},
-			},
-		}, hexCur: 0x67, hexTop: 0, hexPinnedTop: 0x67, hexPinned: true},
+		hexState: hexState{hexImg: binfile.NewImage(hexData, []binfile.Region{
+			{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
+			{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x67, Name: sections[1].Name},
+		}), hexCur: 0x67, hexTop: 0, hexPinnedTop: 0x67, hexPinned: true},
 	}
 	assertSeparatorDirectlyUnderBanner(t, ansi.Strip(m.renderHex()), sections[1].Name)
 	if got, want := m.hexTop, 0x67; got != want {
@@ -396,13 +378,10 @@ func TestHexSearchReattachesViewportAtUnalignedSectionStart(t *testing.T) {
 		layoutState:      layoutState{width: 120, height: 10},
 		interactionState: interactionState{viewportDetached: true},
 		searchState:      searchState{searchActive: true, searchMode: searchModeText, searchForward: true, searchFromCursor: false},
-		hexState: hexState{hexImg: &binfile.Image{
-			Data: hexData,
-			Regions: []binfile.Region{
-				{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
-				{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x4e, Name: sections[1].Name},
-			},
-		}, hexCur: 0, hexTop: 0},
+		hexState: hexState{hexImg: binfile.NewImage(hexData, []binfile.Region{
+			{Addr: sections[0].Addr, Size: sections[0].FileSize, Off: 0, Name: sections[0].Name},
+			{Addr: sections[1].Addr, Size: sections[1].FileSize, Off: 0x4e, Name: sections[1].Name},
+		}), hexCur: 0, hexTop: 0},
 	}
 	m.searchInput = textinput.New()
 	m.searchInput.SetValue("Vibrant")
@@ -678,11 +657,11 @@ func TestVisualItemAtRowUsesWrappedHeights(t *testing.T) {
 func TestRawClickSkipsSectionSplitRows(t *testing.T) {
 	m := &Model{layoutState: layoutState{width: 100}, file: &binfile.File{Sections: []binfile.Section{{Name: ".text", Offset: 0, FileSize: 32}}}}
 	data := make([]byte, 64)
-	cur := m.clickByte(modeRaw, data, 0, 7, hexBodyStart(16), 1, func(pos int) uint64 { return uint64(pos) })
+	cur := m.clickByte(modeRaw, rawBytes(data), 0, 7, hexBodyStart(16), 1, func(pos int) uint64 { return uint64(pos) })
 	if cur != 7 {
 		t.Fatalf("click on split row changed cursor to %d", cur)
 	}
-	cur = m.clickByte(modeRaw, data, 0, 7, hexBodyStart(16), 2, func(pos int) uint64 { return uint64(pos) })
+	cur = m.clickByte(modeRaw, rawBytes(data), 0, 7, hexBodyStart(16), 2, func(pos int) uint64 { return uint64(pos) })
 	if cur != 0 {
 		t.Fatalf("click on first data row selected %d, want 0", cur)
 	}

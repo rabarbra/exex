@@ -264,3 +264,76 @@ address and the `scope:imported` filter is empty on PE.
 imported function, synthesise a `Symbol` at its IAT slot address with
 `Library` set to the owning DLL and `Kind = SymObject` (or `SymFunc` for the
 thunk), mirroring `appendELFImportSymbols` / `machoImportSymbols`.
+
+## 25. Pathes libs presence / openability
+
+Mark somehow pathes that present and can be opened. Add filter for this criteria
+in the view. Same about libs.
+
+## 26. Sortings / filters for strings view
+
+## 27. Buttons unification
+
+== GLOBAL ==
+
+g - goto
+q - quit
+w - wrap lines
+? - help
+, - settings
+
+== CHANGE VIEW ==
+
+1..9 - go to view (tab) by number
+d - go to caret addres in disasm view from section / symbol / hex / raw / string
+h - go to caret addres in hex view from section / symbol / disasm / raw / string 
+r - go to caret addres in raw view from section / symbol / disasm / hex / string
+
+== SWITCH MODE ==
+
+t - toggle 
+    arches for fat mach-o in info
+    sections / segments in sections
+    tree / flat in symbols, libs, sources
+    ascii / pointers mode in hex, raw
+e - collapse / expand args in symbol names in symbols, disasm, hex, raw
+tab - turn on / of sources pane in disasm view
+shift+tab - switch disasm first / sources first modes in disasm view
+
+== NAVIGATION ==
+
+ctrl+up, option+up, pageup - page up in sections, symbols, disasm, hex, raw, strings, libs, sources
+ctrl+down, option+down, pagedown - page down in sections, symbols, disasm, hex, raw, strings, libs, sources
+home, ctrl+a, cmd+up - go to top in sections, symbols, disasm, hex, raw, strings, libs, sources
+end, ctrl_e, cmd+down - got to botton in sections, symbols, disasm, hex, raw, strings, libs, sources
+[] -  page down / up in sections, symbols, strings, libs, sources
+      next / prev symbol in disasm
+      next / prev mapped in source-first view disasm
+      next / prev section in hex, raw
+shift+[, shift+] - next / prev not empty in hex and raw
+
+== COPY ==
+
+shift+a - copy address in sections, symbols, disasm, hex, raw, strings
+shift+s - copy
+          section / segment name in sections
+          symbol name in symbols, disasm, hex, raw
+          string in strings
+          library in libs
+          path in sources
+shift+p - copy pointer in hex, raw view
+shift+c - copy symbol (instructions) in disasm view
+
+== ACTIONS ==
+
+= search =
+
+/ - search in sections, symbols, disasm, hex, raw, strings, libs, sources (think about regexp support)
+n, N - next / prev occurence in disasm, hex, raw
+
+= filter =
+
+
+
+= sort =
+

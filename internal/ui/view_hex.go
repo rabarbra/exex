@@ -130,23 +130,23 @@ func (m *Model) openRawAt(off uint64) {
 // inspectorBanner decodes the bytes at pos as integers of every width (signed
 // and unsigned), floats, a char, and a pointer (resolved to its symbol/section),
 // for the data-inspector banner. prefix is the cursor's location label.
-func (m *Model) inspectorBanner(data []byte, pos int, prefix string) string {
-	if pos < 0 || pos >= len(data) {
+func (m *Model) inspectorBanner(data byteSource, pos int, prefix string) string {
+	if pos < 0 || pos >= data.Len() {
 		return prefix + "  inspect: (no byte under cursor)"
 	}
 	be := m.file.Info != nil && m.file.Info.ByteOrder == "big-endian"
 	readU := func(n int) (uint64, bool) {
-		if pos+n > len(data) {
+		if pos+n > data.Len() {
 			return 0, false
 		}
 		var v uint64
 		if be {
 			for k := 0; k < n; k++ {
-				v = v<<8 | uint64(data[pos+k])
+				v = v<<8 | uint64(data.At(pos+k))
 			}
 		} else {
 			for k := n - 1; k >= 0; k-- {
-				v = v<<8 | uint64(data[pos+k])
+				v = v<<8 | uint64(data.At(pos+k))
 			}
 		}
 		return v, true
@@ -206,7 +206,7 @@ func (m *Model) toggleHexInspect() {
 // copyPointerAt copies the pointer-sized word at byte position pos to the
 // clipboard as 0x… (the value the pointer-decode column shows), mirroring the
 // address/symbol copy keys.
-func (m *Model) copyPointerAt(data []byte, pos int) {
+func (m *Model) copyPointerAt(data byteSource, pos int) {
 	v, ok := m.readPointer(data, pos)
 	if !ok {
 		m.setStatus("not enough bytes for a pointer here", true)
@@ -218,7 +218,7 @@ func (m *Model) copyPointerAt(data []byte, pos int) {
 // followPointerAt reads the pointer-sized word at pos and navigates to the
 // address it points to (disasm when executable, else the hex view), so GOT/data
 // pointer tables can be walked. Reports when the word isn't a mapped pointer.
-func (m *Model) followPointerAt(data []byte, pos int) {
+func (m *Model) followPointerAt(data byteSource, pos int) {
 	v, ok := m.readPointer(data, pos)
 	if !ok {
 		m.setStatus("not enough bytes for a pointer here", true)
@@ -277,8 +277,8 @@ func (m *Model) moveByteCursor(key string, cur, n int) int {
 
 func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 	m.ensureHex()
-	data := m.hexImg.Data
-	if len(data) == 0 {
+	data := byteSource(m.hexImg)
+	if data.Len() == 0 {
 		return m, nil
 	}
 	switch key {
@@ -326,7 +326,7 @@ func (m *Model) updateHex(key string) (tea.Model, tea.Cmd) {
 	case "e":
 		m.toggleSymbolAbbrevAll()
 	default:
-		m.hexCur = m.moveByteCursor(key, m.hexCur, len(data))
+		m.hexCur = m.moveByteCursor(key, m.hexCur, data.Len())
 	}
 	return m, nil
 }
@@ -378,17 +378,31 @@ func (m *Model) seekHexSection(forward bool) int {
 
 // seekNonZero moves a byte cursor to the next/previous non-zero byte. It
 // reports via the status line when there is no further non-zero byte.
-func (m *Model) seekNonZero(data []byte, cur int, forward bool) int {
+func (m *Model) seekNonZero(data byteSource, cur int, forward bool) int {
+	runs := data.Runs() // native region slices: the inner loop indexes them directly
 	if forward {
-		for i := cur + 1; i < len(data); i++ {
-			if data[i] != 0 {
-				return i
+		for _, r := range runs {
+			if r.Off+len(r.B) <= cur+1 {
+				continue
+			}
+			from := max(cur+1-r.Off, 0)
+			for i := from; i < len(r.B); i++ {
+				if r.B[i] != 0 {
+					return r.Off + i
+				}
 			}
 		}
 	} else {
-		for i := cur - 1; i >= 0; i-- {
-			if data[i] != 0 {
-				return i
+		for i := len(runs) - 1; i >= 0; i-- {
+			r := runs[i]
+			if r.Off > cur-1 {
+				continue
+			}
+			hi := min(cur-1-r.Off, len(r.B)-1)
+			for j := hi; j >= 0; j-- {
+				if r.B[j] != 0 {
+					return r.Off + j
+				}
 			}
 		}
 	}
@@ -409,9 +423,9 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 	case "i":
 		m.toggleHexInspect()
 	case "v":
-		m.copyPointerAt(m.rawData, m.pointerWordStart(uint64(m.rawCur), m.rawCur))
+		m.copyPointerAt(rawBytes(m.rawData), m.pointerWordStart(uint64(m.rawCur), m.rawCur))
 	case "enter":
-		m.followPointerAt(m.rawData, m.pointerWordStart(uint64(m.rawCur), m.rawCur))
+		m.followPointerAt(rawBytes(m.rawData), m.pointerWordStart(uint64(m.rawCur), m.rawCur))
 	case "a":
 		m.copyToClipboard(fmt.Sprintf("0x%x", m.rawCur), "offset")
 	case "s":
@@ -425,9 +439,9 @@ func (m *Model) updateRaw(key string) (tea.Model, tea.Cmd) {
 	case "[":
 		m.jumpByteCursor(modeRaw, m.seekRawSection(false))
 	case "}", "shift+]":
-		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, true)
+		m.rawCur = m.seekNonZero(rawBytes(m.rawData), m.rawCur, true)
 	case "{", "shift+[":
-		m.rawCur = m.seekNonZero(m.rawData, m.rawCur, false)
+		m.rawCur = m.seekNonZero(rawBytes(m.rawData), m.rawCur, false)
 	case "/":
 		m.openSearch()
 	case "n":
@@ -517,10 +531,10 @@ func (m *Model) renderHex() string {
 			r.Name, m.file.AddrHexWidth(), m.hexImg.AddrAt(m.hexCur), m.hexImg.Len(), len(m.hexImg.Regions))
 	}
 	if m.hexInspect {
-		banner = m.inspectorBanner(m.hexImg.Data, m.hexCur,
+		banner = m.inspectorBanner(m.hexImg, m.hexCur,
 			fmt.Sprintf(" 0x%0*x", m.file.AddrHexWidth(), m.hexImg.AddrAt(m.hexCur)))
 	}
-	return m.renderHexDump(modeHex, m.hexImg.Data, m.hexCur, &m.hexTop, m.hexImg.AddrAt, banner)
+	return m.renderHexDump(modeHex, m.hexImg, m.hexCur, &m.hexTop, m.hexImg.AddrAt, banner)
 }
 
 func (m *Model) renderRaw() string {
@@ -534,15 +548,15 @@ func (m *Model) renderRaw() string {
 			m.rawCur, sec.Name, len(m.rawData))
 	}
 	if m.hexInspect {
-		banner = m.inspectorBanner(m.rawData, m.rawCur, fmt.Sprintf(" +0x%x", m.rawCur))
+		banner = m.inspectorBanner(rawBytes(m.rawData), m.rawCur, fmt.Sprintf(" +0x%x", m.rawCur))
 	}
-	return m.renderHexDump(modeRaw, m.rawData, m.rawCur, &m.rawTop, identityAddr, banner)
+	return m.renderHexDump(modeRaw, rawBytes(m.rawData), m.rawCur, &m.rawTop, identityAddr, banner)
 }
 
 // renderHexDump draws a classic offset|hex|ascii table. addrAt maps a byte
 // position to the address shown at the start of its row, so the same renderer
 // serves both the VA image and the raw file view.
-func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt func(pos int) uint64, banner string) string {
+func (m *Model) renderHexDump(md mode, data byteSource, cur int, topPtr *int, addrAt func(pos int) uint64, banner string) string {
 	bodyH := m.bodyHeight()
 	addrW := m.file.AddrHexWidth()
 	visible := max(bodyH-1, 1)
@@ -572,7 +586,7 @@ func (m *Model) renderHexDump(md mode, data []byte, cur int, topPtr *int, addrAt
 		rowIndent = max(0, lim)
 	}
 	rows := []string{m.theme.stickyTitleLine(banner, m.width)}
-	for off := top; off < len(data) && len(rows) < bodyH; {
+	for off := top; off < data.Len() && len(rows) < bodyH; {
 		if sec := m.hexSectionStartName(md, off); sec != "" {
 			appendRenderedRows(
 				&rows,
@@ -605,16 +619,16 @@ type hexRowSpan struct {
 	lead     int
 }
 
-func (m *Model) hexRowSpan(md mode, data []byte, start int, addrAt func(pos int) uint64) hexRowSpan {
+func (m *Model) hexRowSpan(md mode, data byteSource, start int, addrAt func(pos int) uint64) hexRowSpan {
 	addr := addrAt(start)
 	lead := int(addr % bytesPerHexRow)
 	lineAddr := addr - uint64(lead)
-	end := min(start+bytesPerHexRow-lead, len(data))
+	end := min(start+bytesPerHexRow-lead, data.Len())
 	if next, ok := m.nextHexSectionStart(md, start); ok && next < end {
 		end = next
 	}
 	if end <= start {
-		end = min(start+1, len(data))
+		end = min(start+1, data.Len())
 	}
 	return hexRowSpan{start: start, end: end, lineAddr: lineAddr, lead: lead}
 }
@@ -655,11 +669,11 @@ func (m *Model) hexPrevRowTop(md mode, pos int, addrAt func(pos int) uint64) int
 }
 
 // hexMaxTop returns the highest row-start that still fills the last screen.
-func (m *Model) hexMaxTop(md mode, data []byte, visibleRows int, addrAt func(pos int) uint64) int {
-	if len(data) == 0 {
+func (m *Model) hexMaxTop(md mode, data byteSource, visibleRows int, addrAt func(pos int) uint64) int {
+	if data.Len() == 0 {
 		return 0
 	}
-	top := m.hexRowTop(md, len(data)-1, addrAt)
+	top := m.hexRowTop(md, data.Len()-1, addrAt)
 	for i := 0; i < visibleRows-1 && top > 0; i++ {
 		top = m.hexPrevRowTop(md, top, addrAt)
 	}
@@ -811,25 +825,25 @@ func (m *Model) pointerSize() int {
 
 // readPointer reads a pointer-sized word at data[pos:] in the binary's byte
 // order, reporting false when the word doesn't fully fit.
-func (m *Model) readPointer(data []byte, pos int) (uint64, bool) {
+func (m *Model) readPointer(data byteSource, pos int) (uint64, bool) {
 	size := m.pointerSize()
-	if pos < 0 || pos+size > len(data) {
+	if pos < 0 || pos+size > data.Len() {
 		return 0, false
 	}
 	var v uint64
 	if m.file.Info != nil && m.file.Info.ByteOrder == "big-endian" {
 		for k := 0; k < size; k++ {
-			v = v<<8 | uint64(data[pos+k])
+			v = v<<8 | uint64(data.At(pos+k))
 		}
 	} else {
 		for k := size - 1; k >= 0; k-- {
-			v = v<<8 | uint64(data[pos+k])
+			v = v<<8 | uint64(data.At(pos+k))
 		}
 	}
 	return v, true
 }
 
-func (m *Model) hexWordDecode(data []byte, span hexRowSpan, cur int) string {
+func (m *Model) hexWordDecode(data byteSource, span hexRowSpan, cur int) string {
 	size := m.pointerSize()
 	var words, notes []string
 	for slot := 0; slot+size <= bytesPerHexRow; slot += size {
@@ -876,7 +890,8 @@ func (m *Model) pointerWordStart(addr uint64, pos int) int {
 	return pos - off
 }
 
-func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, addrW int, addrAt func(pos int) uint64) string {
+func (m *Model) renderHexRow(md mode, data byteSource, cur int, span hexRowSpan, addrW int, addrAt func(pos int) uint64) string {
+	row := data.Bytes(span.start, span.end) // one zero-copy fetch; indexed natively below
 	var hexCol, asciiCol strings.Builder
 	for slot := 0; slot < bytesPerHexRow; slot++ {
 		if slot > 0 {
@@ -891,7 +906,7 @@ func (m *Model) renderHexRow(md mode, data []byte, cur int, span hexRowSpan, add
 			asciiCol.WriteByte(' ')
 			continue
 		}
-		b := data[i]
+		b := row[i-span.start]
 		if i == cur {
 			ascii := byte('.')
 			if b >= 0x20 && b < 0x7f {

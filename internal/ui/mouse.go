@@ -186,11 +186,11 @@ func (m *Model) routeScroll(delta int) (tea.Model, tea.Cmd) {
 	case modeHex:
 		m.ensureHex()
 		m.clearByteSectionPin(modeHex)
-		m.hexTop = m.scrollByteViewportTop(modeHex, m.hexImg.Data, m.hexTop, max(1, m.bodyHeight()-1), delta, m.hexImg.AddrAt)
+		m.hexTop = m.scrollByteViewportTop(modeHex, m.hexImg, m.hexTop, max(1, m.bodyHeight()-1), delta, m.hexImg.AddrAt)
 	case modeRaw:
 		m.ensureRaw()
 		m.clearByteSectionPin(modeRaw)
-		m.rawTop = m.scrollByteViewportTop(modeRaw, m.rawData, m.rawTop, max(1, m.bodyHeight()-1), delta, identityAddr)
+		m.rawTop = m.scrollByteViewportTop(modeRaw, rawBytes(m.rawData), m.rawTop, max(1, m.bodyHeight()-1), delta, identityAddr)
 	case modeInfo:
 		if delta < 0 {
 			m.headerVP.ScrollUp(-delta)
@@ -211,10 +211,10 @@ func (m *Model) captureViewportTop() {
 		m.captureDisasmViewportTop()
 	case modeHex:
 		m.ensureHex()
-		m.hexTop = m.scrollByteViewportTop(modeHex, m.hexImg.Data, m.renderedHexTop, max(1, m.bodyHeight()-1), 0, m.hexImg.AddrAt)
+		m.hexTop = m.scrollByteViewportTop(modeHex, m.hexImg, m.renderedHexTop, max(1, m.bodyHeight()-1), 0, m.hexImg.AddrAt)
 	case modeRaw:
 		m.ensureRaw()
-		m.rawTop = m.scrollByteViewportTop(modeRaw, m.rawData, m.renderedRawTop, max(1, m.bodyHeight()-1), 0, identityAddr)
+		m.rawTop = m.scrollByteViewportTop(modeRaw, rawBytes(m.rawData), m.renderedRawTop, max(1, m.bodyHeight()-1), 0, identityAddr)
 	}
 }
 
@@ -296,8 +296,8 @@ func scrollViewportTop(top, n, visible, delta int, rowHeight func(int) int) int 
 // scrollByteViewportTop scrolls a byte view's top by delta rows, stepping along
 // the address-aware row grid (see view_hex.go) and clamping so the last screen
 // stays full. delta == 0 just normalizes top to a valid row-start.
-func (m *Model) scrollByteViewportTop(md mode, data []byte, top, visibleRows, delta int, addrAt func(pos int) uint64) int {
-	n := len(data)
+func (m *Model) scrollByteViewportTop(md mode, data byteSource, top, visibleRows, delta int, addrAt func(pos int) uint64) int {
+	n := data.Len()
 	if n <= 0 {
 		return 0
 	}
@@ -406,16 +406,16 @@ func (m *Model) handleClick(x, y int) {
 		m.ensureHex()
 		top := m.hexVisibleTop(modeHex, m.hexCur, m.hexTop, max(1, m.bodyHeight()-1), m.hexImg.AddrAt)
 		if m.viewportDetached {
-			top = m.scrollByteViewportTop(modeHex, m.hexImg.Data, m.hexTop, max(1, m.bodyHeight()-1), 0, m.hexImg.AddrAt)
+			top = m.scrollByteViewportTop(modeHex, m.hexImg, m.hexTop, max(1, m.bodyHeight()-1), 0, m.hexImg.AddrAt)
 		}
-		m.hexCur = m.clickByte(modeHex, m.hexImg.Data, top, m.hexCur, x, bodyRow, m.hexImg.AddrAt)
+		m.hexCur = m.clickByte(modeHex, m.hexImg, top, m.hexCur, x, bodyRow, m.hexImg.AddrAt)
 	case modeRaw:
 		m.ensureRaw()
 		top := m.hexVisibleTop(modeRaw, m.rawCur, m.rawTop, max(1, m.bodyHeight()-1), identityAddr)
 		if m.viewportDetached {
-			top = m.scrollByteViewportTop(modeRaw, m.rawData, m.rawTop, max(1, m.bodyHeight()-1), 0, identityAddr)
+			top = m.scrollByteViewportTop(modeRaw, rawBytes(m.rawData), m.rawTop, max(1, m.bodyHeight()-1), 0, identityAddr)
 		}
-		m.rawCur = m.clickByte(modeRaw, m.rawData, top, m.rawCur, x, bodyRow, identityAddr)
+		m.rawCur = m.clickByte(modeRaw, rawBytes(m.rawData), top, m.rawCur, x, bodyRow, identityAddr)
 	case modeDisasm:
 		if m.sourceFirst && m.srcFile != "" && m.clickInSourcePane(x) {
 			if ln, ok := m.sourceLineAtBodyRow(bodyRow, m.sourcePaneWidth()); ok {
@@ -455,7 +455,7 @@ func (m *Model) sourceLineAtBodyRow(bodyRow, paneW int) (int, bool) {
 // Body layout: row 0 is the banner, byte rows follow with bytesPerHexRow bytes
 // each. The column→byte mapping lives in view_hex.go so it stays in sync with
 // the renderer.
-func (m *Model) clickByte(md mode, data []byte, top, cur, x, bodyRow int, addrAt func(pos int) uint64) int {
+func (m *Model) clickByte(md mode, data byteSource, top, cur, x, bodyRow int, addrAt func(pos int) uint64) int {
 	r := bodyRow - 1 // strip the banner row
 	if r < 0 {
 		return cur
@@ -465,7 +465,7 @@ func (m *Model) clickByte(md mode, data []byte, top, cur, x, bodyRow int, addrAt
 	if top >= bytesPerHexRow {
 		prevSec = m.hexSectionName(md, top-bytesPerHexRow, addrAt)
 	}
-	for rowStart := top; rowStart < len(data); {
+	for rowStart := top; rowStart < data.Len(); {
 		if sec := m.hexSectionName(md, rowStart, addrAt); sec != "" && sec != prevSec {
 			if emitted == r {
 				return cur // clicked a section-separator row
@@ -485,8 +485,8 @@ func (m *Model) clickByte(md mode, data []byte, top, cur, x, bodyRow int, addrAt
 			if pos < rowStart || pos >= span.end {
 				return cur
 			}
-			if pos >= len(data) {
-				pos = len(data) - 1
+			if pos >= data.Len() {
+				pos = data.Len() - 1
 			}
 			return pos
 		}

@@ -128,10 +128,10 @@ func (m *Model) runHexSearch(forward, inclusive, fromCursor bool) {
 		if forward {
 			start = -1
 		} else {
-			start = len(m.hexImg.Data) - 1
+			start = m.hexImg.Len() - 1
 		}
 	}
-	m.hexCur = m.searchBytesAt(m.hexImg.Data, start, forward, inclusive)
+	m.hexCur = m.searchBytesAt(m.hexImg, start, forward, inclusive)
 }
 
 func (m *Model) runRawSearch(forward, inclusive, fromCursor bool) {
@@ -144,7 +144,7 @@ func (m *Model) runRawSearch(forward, inclusive, fromCursor bool) {
 			start = len(m.rawData) - 1
 		}
 	}
-	m.rawCur = m.searchBytesAt(m.rawData, start, forward, inclusive)
+	m.rawCur = m.searchBytesAt(rawBytes(m.rawData), start, forward, inclusive)
 }
 
 func (m *Model) runSourcesSearch(forward, inclusive bool) {
@@ -162,7 +162,7 @@ func (m *Model) cancelSearch(status string) {
 	m.setStatus(status, false)
 }
 
-func (m *Model) searchBytesAt(data []byte, cur int, forward, inclusive bool) int {
+func (m *Model) searchBytesAt(data byteSource, cur int, forward, inclusive bool) int {
 	pat := searchutil.ParsePattern(m.searchQuery, m.searchMode)
 	if len(pat) == 0 {
 		m.setStatus("empty search pattern", true)
@@ -176,10 +176,57 @@ func (m *Model) searchBytesAt(data []byte, cur int, forward, inclusive bool) int
 			start--
 		}
 	}
-	if i := searchutil.FindBytes(data, pat, start, forward); i >= 0 {
+	if i := findBytesSrc(data, pat, start, forward); i >= 0 {
 		m.setStatus(fmt.Sprintf("match at offset +0x%x", i), false)
 		return i
 	}
 	m.setStatus("not found: "+m.searchQuery, true)
 	return cur
+}
+
+// findBytesSrc finds pat in data scanning from start (forward or backward)
+// without materializing the whole stream: it runs bytes.Index/LastIndex on each
+// region's native bytes in turn (zero-copy), so a 100 MB binary is scanned at the
+// same speed as a flat []byte and never allocates. Matches are within a region
+// (sections) — the meaningful scope; a pattern straddling a section boundary in
+// the flattened image is not matched.
+func findBytesSrc(data byteSource, pat []byte, start int, forward bool) int {
+	n := data.Len()
+	if len(pat) == 0 || len(pat) > n {
+		return -1
+	}
+	runs := data.Runs()
+	if forward {
+		if start < 0 {
+			start = 0
+		}
+		for _, r := range runs {
+			if r.Off+len(r.B) <= start {
+				continue // region ends at/before start
+			}
+			from := max(start-r.Off, 0)
+			if from <= len(r.B)-len(pat) {
+				if j := searchutil.FindBytes(r.B, pat, from, true); j >= 0 {
+					return r.Off + j
+				}
+			}
+		}
+		return -1
+	}
+	if start > n-len(pat) {
+		start = n - len(pat)
+	}
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if r.Off > start {
+			continue // every match start in this region would exceed start
+		}
+		hi := min(start-r.Off, len(r.B)-len(pat)) // greatest local start to consider
+		if hi >= 0 {
+			if j := searchutil.FindBytes(r.B, pat, hi, false); j >= 0 {
+				return r.Off + j
+			}
+		}
+	}
+	return -1
 }

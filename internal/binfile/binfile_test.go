@@ -93,8 +93,8 @@ func TestOpenAndProbeSampleBinary(t *testing.T) {
 }
 
 func TestImageWindowContainingBoundsAndPreservesTarget(t *testing.T) {
-	im := &Image{Data: []byte("abcdefghijklmnopqrstuvwxyz")}
-	im.Regions = []Region{{Addr: 0x1000, Size: uint64(len(im.Data)), Off: 0, Name: ".text"}}
+	data := []byte("abcdefghijklmnopqrstuvwxyz")
+	im := NewImage(data, []Region{{Addr: 0x1000, Size: uint64(len(data)), Off: 0, Name: ".text"}})
 
 	win, ok := im.WindowContaining(0x1008, 10, 3)
 	if !ok {
@@ -120,11 +120,10 @@ func TestImageWindowContainingBoundsAndPreservesTarget(t *testing.T) {
 }
 
 func TestImageRegionAtRejectsGapsAndEnd(t *testing.T) {
-	im := &Image{Data: []byte("abcdef")}
-	im.Regions = []Region{
+	im := NewImage([]byte("abcdef"), []Region{
 		{Addr: 0x1000, Size: 2, Off: 0, Name: ".text"},
 		{Addr: 0x2000, Size: 2, Off: 4, Name: ".data"},
-	}
+	})
 
 	if got := im.RegionAt(1); got == nil || got.Name != ".text" {
 		t.Fatalf("RegionAt(1) = %#v, want .text", got)

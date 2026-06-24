@@ -437,17 +437,13 @@ enter / mouse double click - open imported symbols (symbols view)
 enter / mouse double click - open source file i disasm source-first view
 
 
-## 28. Extract syscalls
-
-Extract all the syscalls used in binary
-
-## ✅ 29. Do not use bold font in symbols
+## ✅ 28. Do not use bold font in symbols
 
 Symbols are no longer bold: dropped the global-symbol bold in `styleForSymbol`
 (it made most of the table heavy) and the bold on `symbolNameStyle` (disasm
 labels). Weak symbols stay italic.
 
-## ✅ 30. Pathes libs presence / openability
+## ✅ 29. Pathes libs presence / openability
 
 Sources and Libs now mark availability and filter on it (`v` cycles the filter):
 - **Sources:** files not present on disk are dimmed; `v` cycles all → present →
@@ -456,3 +452,15 @@ Sources and Libs now mark availability and filter on it (`v` cycles the filter):
   (`·missing`) are dimmed and tagged; on-disk (openable) libs render normally;
   `v` cycles all → on-disk → in-cache (`libAvail` via `explorer.ResolveLibPath`
   / `IsDyldSharedCacheLib`).
+
+## 30. Extract syscalls
+
+Extract all the syscalls used in binary
+
+## 31. Extract pathes
+
+Extract all the pathes from strings
+
+## 32. Search
+
+0x000106b6 should match with $0x106b6

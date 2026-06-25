@@ -15,6 +15,7 @@ nearest analogues are `objdump -S` (same data, but flat text) and `gdb`'s
 ```
 exex [-debug PATH] [-s STRING] [-o [VIEW]] <binary> [goto]
 ```
+![ExEx usage animation](/resources/exex.svg)
 
 ## Full vs lite build
 

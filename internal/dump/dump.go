@@ -105,6 +105,7 @@ func DisasmTo(w io.Writer, f *binfile.File, all bool) error {
 	defer bw.Flush()
 	labels := map[string]string{} // lazy label demangle cache
 
+	buf := make([]byte, 0, 96) // reused per line so formatting allocates nothing
 	for i, s := range secs {
 		end := s.Offset + s.FileSize
 		if end > uint64(len(raw)) {
@@ -117,13 +118,23 @@ func DisasmTo(w io.Writer, f *binfile.File, all bool) error {
 		stop := false
 		disasm.RangeFunc(dis, raw[s.Offset:end], s.Addr, func(in disasm.Inst) bool {
 			if sym, ok := f.SymbolAt(in.Addr); ok && sym.Addr == in.Addr {
-				if _, e := fmt.Fprintf(bw, "\n%0*x <%s>:\n", addrW, in.Addr, labelName(sym, labels)); e != nil {
+				buf = append(buf[:0], '\n')
+				buf = appendHexPad(buf, in.Addr, addrW)
+				buf = append(buf, " <"...)
+				buf = append(buf, labelName(sym, labels)...)
+				buf = append(buf, ">:\n"...)
+				if _, e := bw.Write(buf); e != nil {
 					stop = true
 					return false
 				}
 			}
-			if _, e := fmt.Fprintf(bw, "%0*x:  %-21s %s\n",
-				addrW, in.Addr, plainBytes(in.Bytes), AlignAsm(in.Text)); e != nil {
+			buf = appendHexPad(buf[:0], in.Addr, addrW)
+			buf = append(buf, ':', ' ', ' ')
+			buf = appendSpacedBytes(buf, in.Bytes, 21)
+			buf = append(buf, ' ')
+			buf = appendAlignAsm(buf, in.Text)
+			buf = append(buf, '\n')
+			if _, e := bw.Write(buf); e != nil {
 				stop = true
 				return false
 			}
@@ -401,8 +412,9 @@ func FunctionText(sym binfile.Symbol, insts []disasm.Inst, addrW int) string {
 // a single vertical seam, which makes operands easy to scan down.
 const asmMnemWidth = 7
 
-// asmPad is asmMnemWidth spaces, sliced for left-padding without a per-line alloc.
-const asmPad = "       "
+// hexLower indexes a nibble to its lowercase hex digit, for the append helpers
+// below that format without fmt (the streaming dump is allocation-sensitive).
+const hexLower = "0123456789abcdef"
 
 // AlignAsm renders an instruction's text objdump-style: the mnemonic
 // right-aligned in asmMnemWidth, operands left-aligned after a single space (so
@@ -410,38 +422,66 @@ const asmPad = "       "
 // than the field simply overflows it (no truncation). Hex immediates are already
 // produced by the decoder (see disasm.hexImmediates); this only handles layout,
 // so the dump and the TUI disasm view stay identical.
-func AlignAsm(text string) string {
+func AlignAsm(text string) string { return string(appendAlignAsm(nil, text)) }
+
+// appendAlignAsm is AlignAsm writing into dst, so the streaming dump can format a
+// whole line into one reused buffer instead of allocating a string per row.
+func appendAlignAsm(dst []byte, text string) []byte {
 	text = strings.TrimSpace(text)
 	i := strings.IndexAny(text, " \t")
 	if i < 0 { // bare mnemonic: right-justify it alone
-		if len(text) >= asmMnemWidth {
-			return text
+		for pad := asmMnemWidth - len(text); pad > 0; pad-- {
+			dst = append(dst, ' ')
 		}
-		return asmPad[:asmMnemWidth-len(text)] + text
+		return append(dst, text...)
 	}
 	mnem := text[:i]
 	args := strings.TrimLeft(text[i+1:], " \t")
-	pad := max(asmMnemWidth-len(mnem), 0)
-	var b strings.Builder
-	b.Grow(pad + len(mnem) + 1 + len(args))
-	b.WriteString(asmPad[:pad])
-	b.WriteString(mnem)
-	b.WriteByte(' ')
-	b.WriteString(args)
-	return b.String()
+	for pad := asmMnemWidth - len(mnem); pad > 0; pad-- {
+		dst = append(dst, ' ')
+	}
+	dst = append(dst, mnem...)
+	dst = append(dst, ' ')
+	return append(dst, args...)
+}
+
+// appendHexPad appends v as lowercase hex, zero-padded to at least width digits
+// (no "0x" prefix), like fmt's "%0*x".
+func appendHexPad(dst []byte, v uint64, width int) []byte {
+	var tmp [16]byte
+	n := len(tmp)
+	for {
+		n--
+		tmp[n] = hexLower[v&0xf]
+		v >>= 4
+		if v == 0 {
+			break
+		}
+	}
+	for pad := width - (len(tmp) - n); pad > 0; pad-- {
+		dst = append(dst, '0')
+	}
+	return append(dst, tmp[n:]...)
+}
+
+// appendSpacedBytes appends b as space-separated hex ("01 00 00 14"), padded with
+// trailing spaces to at least minW columns (like fmt's "%-21s" over plainBytes).
+func appendSpacedBytes(dst []byte, b []byte, minW int) []byte {
+	start := len(dst)
+	for i, x := range b {
+		if i > 0 {
+			dst = append(dst, ' ')
+		}
+		dst = append(dst, hexLower[x>>4], hexLower[x&0xf])
+	}
+	for w := len(dst) - start; w < minW; w++ {
+		dst = append(dst, ' ')
+	}
+	return dst
 }
 
 // plainBytes formats instruction bytes as space-separated hex, no colour.
-func plainBytes(b []byte) string {
-	var sb strings.Builder
-	for i, x := range b {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
-		fmt.Fprintf(&sb, "%02x", x)
-	}
-	return sb.String()
-}
+func plainBytes(b []byte) string { return string(appendSpacedBytes(nil, b, 0)) }
 
 // resolveFuncSym finds the function symbol for target: an address (covered by a
 // symbol), or an exact symbol name (raw or demangled).

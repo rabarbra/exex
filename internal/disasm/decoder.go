@@ -492,6 +492,12 @@ func (loong64d) Decode(code []byte, addr uint64) (out Inst, err error) {
 // signed displacement (e.g. ".+0xfffffffffffffc58" is a negative jump); uint64
 // wraparound makes "addr + value" land on the right byte either way.
 func resolveRelTargets(text string, addr uint64) string {
+	// Fast path: only branch/PC-relative operands carry the ".+0x"/".-0x" form, so
+	// the vast majority of instructions need no rewrite — skip the allocation.
+	if !strings.Contains(text, ".+0x") && !strings.Contains(text, ".-0x") &&
+		!strings.Contains(text, ".+0X") && !strings.Contains(text, ".-0X") {
+		return text
+	}
 	var b strings.Builder
 	for i := 0; i < len(text); {
 		if text[i] == '.' && i+3 < len(text) &&
@@ -508,7 +514,7 @@ func resolveRelTargets(text string, addr uint64) string {
 					if text[i+1] == '-' {
 						target = addr - v
 					}
-					fmt.Fprintf(&b, "0x%x", target)
+					appendHexTo(&b, target)
 					i = j
 					continue
 				}
@@ -565,10 +571,19 @@ func hexImmediates(s string) string {
 		if neg {
 			b.WriteByte('-')
 		}
-		fmt.Fprintf(&b, "0x%x", v)
+		appendHexTo(&b, v)
 		i = j
 	}
 	return b.String()
+}
+
+// appendHexTo writes "0x" + v in lowercase hex to b without fmt's interface
+// boxing — these decoders run on every instruction, so the dump/TUI decode paths
+// are allocation-sensitive. The scratch array stays on the stack.
+func appendHexTo(b *strings.Builder, v uint64) {
+	b.WriteString("0x")
+	var tmp [16]byte
+	b.Write(strconv.AppendUint(tmp[:0], v, 16))
 }
 
 // isHexDigit reports whether c is an ASCII hex digit.

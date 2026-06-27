@@ -365,7 +365,7 @@ func (m *Model) renderSections() string {
 			if m.sectionsFlagsOn {
 				ff = m.sectionsFlags
 			}
-			extra = fmt.Sprintf("   ⌥t type:%s   ⌥f flags:%s", tf, ff)
+			extra = fmt.Sprintf("   %s type:%s   %s flags:%s", altKeys("t"), tf, altKeys("f"), ff)
 		}
 		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   %s (%d / %d)   t: toggle   s: sort:%s%s%s",
 			m.sectionsFilter.Value(), kind, len(m.sectionsFiltered), total, m.sectionsSort.String(), dir, extra))

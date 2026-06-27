@@ -633,7 +633,7 @@ func (m *Model) renderSourceList(bodyH int) string {
 			facet = "  tree"
 		}
 		if m.sourcesAvail != availAll {
-			facet += "  " + m.theme.helpKeyStyle.Render("⌥a") + " " + availLabel(m.sourcesAvail)
+			facet += "  " + m.theme.helpKeyStyle.Render(altKeys("a")) + " " + availLabel(m.sourcesAvail)
 		}
 		if !m.sourcesTree {
 			dir := "↑"

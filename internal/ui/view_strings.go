@@ -274,7 +274,7 @@ func (m *Model) renderStrings() string {
 			dir = "↓"
 		}
 		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   (%d / %d)   ", m.stringsFilter.Value(), len(m.stringsFiltered), len(m.stringsList))) +
-			m.theme.helpKeyStyle.Render("⌥s") + m.theme.footerStyle.Render(" section:"+secLabel) +
+			m.theme.helpKeyStyle.Render(altKeys("s")) + m.theme.footerStyle.Render(" section:"+secLabel) +
 			m.theme.footerStyle.Render("   ") + m.theme.helpKeyStyle.Render("s") + m.theme.footerStyle.Render(" sort:"+m.stringsSort.String()+dir)
 	}
 

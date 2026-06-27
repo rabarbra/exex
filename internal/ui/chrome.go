@@ -107,7 +107,7 @@ func (m *Model) renderHelpModal() string {
 		row("/", "filter / search"),
 		row("↑/↓", "move line"),
 		row("s/r", "sort · reverse"),
-		row("PgUp/PgDn  [ ]", "page  (⌥↑/⌥↓ on macOS)"),
+		row("PgUp/PgDn  [ ]", "page  ("+altKeys("↑", "↓")+")"),
 		row("Home/End ^A/^E", "begin/end"),
 		row("Esc", "clear filters"),
 		blank,
@@ -121,12 +121,12 @@ func (m *Model) renderHelpModal() string {
 		row("↵ Enter", "open entry point"),
 		blank,
 		head("Sections"),
-		row("⌥t/⌥f", "filter by type / flags"),
+		row(altKeys("t", "f"), "filter by type / flags"),
 		row("t / ⇥", "toggle sections / segments"),
 	}
 	right := []helpEntry{
 		head("Symbols"),
-		row("⌥t/⌥b/⌥s", "filter by type / bind / scope"),
+		row(altKeys("t", "b", "s"), "filter by type / bind / scope"),
 		row("e / .", "collapse (…)/<…> to ... · all / current"),
 		blank,
 		head("Disassembly"),
@@ -149,17 +149,17 @@ func (m *Model) renderHelpModal() string {
 		blank,
 		head("Sources"),
 		row("[ ]", "prev / next mapped line"),
-		row("⌥a", "filter: all / present / missing"),
+		row(altKeys("a"), "filter: all / present / missing"),
 		row("t / ⇥", "toggle directory tree / flat list"),
 		row("↵ Enter / o", "open in disasm source-first view"),
 		blank,
 		head("Libraries"),
 		row("o", "open as primary"),
-		row("⌥a", "filter all/on-disk/cache"),
+		row(altKeys("a"), "filter all/on-disk/cache"),
 		row("↵ Enter", "imported symbols"),
 		blank,
 		head("Strings"),
-		row("⌥s", "filter by section"),
+		row(altKeys("s"), "filter by section"),
 	}
 
 	leftLines := m.helpColumn(left)
@@ -427,12 +427,12 @@ func (m *Model) viewHints() []footerHint {
 		}
 		return hints
 	case modeSections:
-		return []footerHint{{"↵", "open"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"t", "sec/seg"}, {"/", "filter"}, {"⌥t/⌥f", "type/flags"}, {"⇧a/⇧s", "copy"}}
+		return []footerHint{{"↵", "open"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"t", "sec/seg"}, {"/", "filter"}, {altKeys("t", "f"), "type/flags"}, {"⇧a/⇧s", "copy"}}
 	case modeSymbols:
 		if m.symbolTreeActive() {
 			return []footerHint{{"←/→", "fold/unfold"}, {"↵", "all below"}, {"+/−", "all"}, {"t", "flat"}}
 		}
-		return []footerHint{{"↵", "jump"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"t", "tree"}, {"/", "filter"}, {"⌥t/⌥s/⌥b", "type/scope/bind"}, {"⇧a/⇧s", "copy"}}
+		return []footerHint{{"↵", "jump"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"t", "tree"}, {"/", "filter"}, {altKeys("t", "s", "b"), "type/scope/bind"}, {"⇧a/⇧s", "copy"}}
 	case modeDisasm:
 		dwarf := m.file.HasDWARF()
 		switch {
@@ -458,14 +458,14 @@ func (m *Model) viewHints() []footerHint {
 	case modeRaw:
 		return []footerHint{{"↵", "follow ptr"}, {"d", "disasm"}, {"[ ]", "section"}, {"t", "ptrs"}, {"i", "inspect"}, {"/", "search"}, {"⇧a/⇧s/⇧p", "copy"}}
 	case modeStrings:
-		return []footerHint{{"↵", "jump"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"/", "filter"}, {"⌥s", "section"}, {"⇧a/⇧s", "copy"}}
+		return []footerHint{{"↵", "jump"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"/", "filter"}, {altKeys("s"), "section"}, {"⇧a/⇧s", "copy"}}
 	case modeSources:
 		if m.sourcesTree {
-			return []footerHint{{"←/→", "fold/unfold"}, {"↵", "open/all below"}, {"⌥a", "present"}, {"t", "flat"}}
+			return []footerHint{{"←/→", "fold/unfold"}, {"↵", "open/all below"}, {altKeys("a"), "present"}, {"t", "flat"}}
 		}
-		return []footerHint{{"↵", "open"}, {"s/r", "sort/rev"}, {"t", "tree"}, {"/", "filter"}, {"⌥a", "present"}, {"⇧s", "copy"}}
+		return []footerHint{{"↵", "open"}, {"s/r", "sort/rev"}, {"t", "tree"}, {"/", "filter"}, {altKeys("a"), "present"}, {"⇧s", "copy"}}
 	case modeLibs:
-		return []footerHint{{"↵", "imports"}, {"o", "open"}, {"r", "rev"}, {"/", "filter"}, {"⌥a", "avail"}, {"⇧s", "copy"}}
+		return []footerHint{{"↵", "imports"}, {"o", "open"}, {"r", "rev"}, {"/", "filter"}, {altKeys("a"), "avail"}, {"⇧s", "copy"}}
 	}
 	return nil
 }

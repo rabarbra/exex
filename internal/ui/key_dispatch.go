@@ -24,9 +24,25 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// after the user has moved on.
 	m.pendingWheel = 0
 
-	// The help overlay swallows the next keypress to dismiss itself.
+	// While the help overlay is up, scroll keys page through it (it can be taller
+	// than the terminal); any other key dismisses it.
 	if m.helpActive {
-		m.helpActive = false
+		switch key {
+		case "up", "k":
+			m.helpScroll--
+		case "down", "j":
+			m.helpScroll++
+		case "pgup":
+			m.helpScroll -= helpPageStep
+		case "pgdown":
+			m.helpScroll += helpPageStep
+		case "home", "g":
+			m.helpScroll = 0
+		case "end", "G":
+			m.helpScroll = 1 << 20 // clamped to the bottom in renderHelpModal
+		default:
+			m.helpActive = false
+		}
 		return m, nil
 	}
 	if m.searchRunning && key == "esc" {
@@ -61,6 +77,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// still types into inputs).
 	if key == "?" {
 		m.helpActive = true
+		m.helpScroll = 0
 		return m, nil
 	}
 	// `tab` doubles as the mode-toggle (the `t` key) in every non-disasm view —

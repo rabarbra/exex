@@ -409,8 +409,10 @@ type interactionState struct {
 	// of overshooting on chrome rows or wrapped multi-line entries.
 	pageRows int
 
-	// helpActive toggles the keybinding cheat-sheet overlay.
+	// helpActive toggles the keybinding cheat-sheet overlay; helpScroll is its
+	// vertical scroll offset when it is taller than the terminal.
 	helpActive bool
+	helpScroll int
 
 	// View output memoization. Bubble Tea calls View() after every message, so a
 	// burst of wheel events that only accumulate (without changing what's shown)

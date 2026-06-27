@@ -165,32 +165,61 @@ func (m *Model) renderHelpModal() string {
 
 	leftLines := m.helpColumn(left)
 	rightLines := m.helpColumn(right)
-	n := max(len(leftLines), len(rightLines))
 	lw, rw := lipgloss.Width(leftLines[0]), lipgloss.Width(rightLines[0])
-	div := m.theme.srcShadowStyle.Render("│")
+
+	// Two side-by-side columns when they fit the terminal; otherwise stack into a
+	// single column so the modal never overruns a narrow window.
+	var bodyRows []string
+	if lw+rw+6 <= m.width-6 {
+		div := m.theme.srcShadowStyle.Render("│")
+		n := max(len(leftLines), len(rightLines))
+		for i := range n {
+			l, r := padVisual("", lw), padVisual("", rw)
+			if i < len(leftLines) {
+				l = leftLines[i]
+			}
+			if i < len(rightLines) {
+				r = rightLines[i]
+			}
+			bodyRows = append(bodyRows, l+"  "+div+"  "+r)
+		}
+	} else {
+		bodyRows = append(bodyRows, leftLines...)
+		bodyRows = append(bodyRows, padVisual("", lw))
+		bodyRows = append(bodyRows, rightLines...)
+	}
+
+	// Vertically window the body when it is taller than the screen, scrolled by
+	// m.helpScroll (the title, hint and modal chrome cost ~8 rows).
+	hint := "Mouse: wheel scrolls · over right pane scrolls it · click selects · double-click follows"
+	total := len(bodyRows)
+	maxRows := max(1, m.height-8)
+	if total > maxRows {
+		m.helpScroll = clamp(m.helpScroll, 0, total-maxRows)
+		bodyRows = bodyRows[m.helpScroll : m.helpScroll+maxRows]
+		hint = fmt.Sprintf("↑/↓ scroll · %d–%d of %d · Esc/any key closes",
+			m.helpScroll+1, m.helpScroll+maxRows, total)
+	} else {
+		m.helpScroll = 0
+	}
+
+	// Never let a row push the modal past the terminal (very narrow windows).
+	rowCap := max(1, m.width-6)
 
 	var b strings.Builder
 	b.WriteString(m.theme.modalTitle("Keybindings"))
 	b.WriteString("\n\n")
-	for i := range n {
-		l, r := padVisual("", lw), padVisual("", rw)
-		if i < len(leftLines) {
-			l = leftLines[i]
-		}
-		if i < len(rightLines) {
-			r = rightLines[i]
-		}
-		b.WriteString(l)
-		b.WriteString("  ")
-		b.WriteString(div)
-		b.WriteString("  ")
-		b.WriteString(r)
+	for _, r := range bodyRows {
+		b.WriteString(fitANSIWidth(r, rowCap))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.theme.modalHint("Mouse: wheel scrolls · over right pane scrolls it · click selects · double-click follows"))
+	b.WriteString(m.theme.modalHint(hint))
 	return m.theme.modalStyle.Render(b.String())
 }
+
+// helpPageStep is how many rows PgUp/PgDn move the help overlay.
+const helpPageStep = 8
 
 // helpColumn renders a help column: rows padded to a common width, section
 // headers shown uppercase with a dim rule to the column edge (matching the Info

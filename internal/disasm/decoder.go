@@ -271,7 +271,7 @@ func (arm64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if err != nil {
 		return Inst{}, err
 	}
-	text := resolveRelTargets(arm64asm.GNUSyntax(inst), addr)
+	text := hexImmediates(resolveRelTargets(arm64asm.GNUSyntax(inst), addr))
 	return Inst{Addr: addr, Bytes: code[:4], Text: text, Class: Classify(text)}, nil
 }
 
@@ -373,7 +373,7 @@ func (armd) Decode(code []byte, addr uint64) (out Inst, err error) {
 	if n == 0 || n > len(code) {
 		n = 4
 	}
-	text := resolveRelTargets(armasm.GNUSyntax(inst), addr)
+	text := hexImmediates(resolveRelTargets(armasm.GNUSyntax(inst), addr))
 	return Inst{Addr: addr, Bytes: code[:n], Text: text, Class: Classify(text)}, nil
 }
 
@@ -502,6 +502,57 @@ func resolveRelTargets(text string, addr uint64) string {
 		}
 		b.WriteByte(text[i])
 		i++
+	}
+	return b.String()
+}
+
+// hexImmediates rewrites the decimal immediates the ARM/ARM64 GNU syntaxers print
+// (e.g. memory offsets "[sp,#8]", "[sp,#-16]") into hex, so they read like objdump
+// ("[sp,#0x8]", "[sp,#-0x10]"). Immediates already in hex ("#0x40"), floats
+// ("#1.0") and any non-"#" use are left untouched; x86 immediates use "$" and are
+// already hex, so only the ARM-family decoders call this. The fast path returns
+// the input unchanged (no allocation) when there is no "#" to rewrite.
+func hexImmediates(s string) string {
+	if strings.IndexByte(s, '#') < 0 {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); {
+		if s[i] != '#' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		j := i + 1
+		neg := false
+		if j < len(s) && (s[j] == '-' || s[j] == '+') {
+			neg = s[j] == '-'
+			j++
+		}
+		start := j
+		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			j++
+		}
+		// Leave it alone unless this is a plain decimal: no digits, an "0x" hex
+		// prefix, or a "." float suffix all mean "not a decimal immediate".
+		if start == j || (j < len(s) && (s[j] == 'x' || s[j] == 'X' || s[j] == '.')) {
+			b.WriteByte('#')
+			i++
+			continue
+		}
+		v, err := strconv.ParseUint(s[start:j], 10, 64)
+		if err != nil {
+			b.WriteByte('#')
+			i++
+			continue
+		}
+		b.WriteByte('#')
+		if neg {
+			b.WriteByte('-')
+		}
+		fmt.Fprintf(&b, "0x%x", v)
+		i = j
 	}
 	return b.String()
 }

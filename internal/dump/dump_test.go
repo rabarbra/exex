@@ -21,9 +21,9 @@ func TestFunctionText(t *testing.T) {
 		t.Fatalf("header wrong:\n%s", out)
 	}
 	for _, want := range []string{
-		"0x0000000000001000:  55                    push %rbp",
-		"0x0000000000001001:  48 89 e5              mov %rsp,%rbp",
-		"0x0000000000001004:  c3                    ret",
+		"0x0000000000001000:  55                       push %rbp",
+		"0x0000000000001001:  48 89 e5                  mov %rsp,%rbp",
+		"0x0000000000001004:  c3                        ret",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing line %q in:\n%s", want, out)

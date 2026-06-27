@@ -123,7 +123,7 @@ func DisasmTo(w io.Writer, f *binfile.File, all bool) error {
 				}
 			}
 			if _, e := fmt.Fprintf(bw, "%0*x:  %-21s %s\n",
-				addrW, in.Addr, plainBytes(in.Bytes), strings.TrimSpace(in.Text)); e != nil {
+				addrW, in.Addr, plainBytes(in.Bytes), AlignAsm(in.Text)); e != nil {
 				stop = true
 				return false
 			}
@@ -391,8 +391,43 @@ func FunctionText(sym binfile.Symbol, insts []disasm.Inst, addrW int) string {
 		sym.Display(), addrW, sym.Addr, addrW, sym.Addr+sym.Size, sym.Size)
 	for _, in := range insts {
 		fmt.Fprintf(&b, "0x%0*x:  %-21s %s\n",
-			addrW, in.Addr, plainBytes(in.Bytes), strings.TrimSpace(in.Text))
+			addrW, in.Addr, plainBytes(in.Bytes), AlignAsm(in.Text))
 	}
+	return b.String()
+}
+
+// asmMnemWidth is the column the mnemonic is right-justified within so operands
+// start in a fixed, left-justified column. The mnemonic/operand boundary becomes
+// a single vertical seam, which makes operands easy to scan down.
+const asmMnemWidth = 7
+
+// asmPad is asmMnemWidth spaces, sliced for left-padding without a per-line alloc.
+const asmPad = "       "
+
+// AlignAsm renders an instruction's text objdump-style: the mnemonic
+// right-aligned in asmMnemWidth, operands left-aligned after a single space (so
+// the mnemonic/operand boundary is a single vertical seam). A mnemonic longer
+// than the field simply overflows it (no truncation). Hex immediates are already
+// produced by the decoder (see disasm.hexImmediates); this only handles layout,
+// so the dump and the TUI disasm view stay identical.
+func AlignAsm(text string) string {
+	text = strings.TrimSpace(text)
+	i := strings.IndexAny(text, " \t")
+	if i < 0 { // bare mnemonic: right-justify it alone
+		if len(text) >= asmMnemWidth {
+			return text
+		}
+		return asmPad[:asmMnemWidth-len(text)] + text
+	}
+	mnem := text[:i]
+	args := strings.TrimLeft(text[i+1:], " \t")
+	pad := max(asmMnemWidth-len(mnem), 0)
+	var b strings.Builder
+	b.Grow(pad + len(mnem) + 1 + len(args))
+	b.WriteString(asmPad[:pad])
+	b.WriteString(mnem)
+	b.WriteByte(' ')
+	b.WriteString(args)
 	return b.String()
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/disasm"
+	"github.com/rabarbra/exex/internal/dump"
 )
 
 // renderInstText colours an instruction's assembly text, caching the result.
@@ -334,7 +335,7 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 	}
 	asmCol := m.disasmAsmColumn()
 	annCol := m.disasmAnnotationColumn(w)
-	asm := m.renderInstText(inst.Text, inst.Class, inst.Addr)
+	asm := m.renderInstText(dump.AlignAsm(inst.Text), inst.Class, inst.Addr)
 	note := m.instAnnotation(inst.Text, inst.Class)
 
 	asmFit := fitANSIWidth(asm, max(1, w-asmCol))

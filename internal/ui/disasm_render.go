@@ -295,8 +295,15 @@ func (m *Model) disasmInstVisualHeight(i, w int) int {
 	return h
 }
 
+// instByteWidth is the number of instruction bytes the byte column is sized for:
+// the arch's longest encoding, so fixed-length RISC ISAs get a tight column
+// instead of x86's wide one.
+func (m *Model) instByteWidth() int {
+	return disasm.MaxInstLen(m.file.Arch())
+}
+
 func (m *Model) disasmAsmColumn() int {
-	return 1 + 2 + m.file.AddrHexWidth() + 2 + (8 * 2) + 2
+	return 1 + 2 + m.file.AddrHexWidth() + 2 + (m.instByteWidth() * 2) + 2
 }
 
 func (m *Model) disasmAnnotationColumn(w int) int {
@@ -341,7 +348,7 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 	asmFit := fitANSIWidth(asm, max(1, w-asmCol))
 	asmEnd := asmCol + lipgloss.Width(asmFit)
 
-	asmRow := fmt.Sprintf(" %s  %s  ", addrCol, bytesHex(inst.Bytes, 8)) + asmFit
+	asmRow := fmt.Sprintf(" %s  %s  ", addrCol, bytesHex(inst.Bytes, m.instByteWidth())) + asmFit
 	// Highlight only the assembly (prefix + code) of the selected line; the gap,
 	// the annotation, and any continuation rows stay uncoloured.
 	if selected {

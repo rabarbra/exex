@@ -16,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/rabarbra/exex/internal/dump"
 	sourceutil "github.com/rabarbra/exex/internal/sourcefiles"
 )
 
@@ -942,8 +943,8 @@ func (m *Model) sourceAsmRow(i, addrW, w int) string {
 	addrText := fmt.Sprintf("0x%0*x", addrW, inst.Addr)
 	line := fmt.Sprintf(" %s  %s  %s",
 		m.addrMapStyle(inst.Addr, m.srcFile, m.srcCur).Render(addrText),
-		bytesHex(inst.Bytes, 6),
-		m.renderInstText(inst.Text, inst.Class, inst.Addr))
+		bytesHex(inst.Bytes, m.instByteWidth()),
+		m.renderInstText(dump.AlignAsm(inst.Text), inst.Class, inst.Addr))
 	row := fitANSIWidth(line, w)
 	if m.sourceAsmRowCache == nil {
 		m.sourceAsmRowCache = make(map[sourceAsmRowCacheKey]string)

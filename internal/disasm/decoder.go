@@ -175,6 +175,20 @@ type Disassembler interface {
 	Name() string
 }
 
+// MaxInstLen returns the longest instruction encoding (in bytes) for an
+// architecture, used to size the byte column in disassembly views. Fixed-length
+// RISC ISAs need only their word size, so their column is much narrower than the
+// variable-length x86 cap; an unknown arch falls back to the x86 cap.
+func MaxInstLen(a Arch) int {
+	switch a {
+	case ArchARM64, ArchARM, ArchPPC64, ArchPPC64LE, ArchPPC, ArchPPCLE, ArchLoong64, ArchRISCV64:
+		return 4 // fixed 4 bytes (RISC-V's compressed forms are 2, still ≤ 4)
+	case ArchS390X:
+		return 6 // 2, 4 or 6
+	}
+	return 8 // x86/x86-64 are variable-length; cap the column as before
+}
+
 // For returns a single-instruction decoder for a supported architecture.
 func For(a Arch) (Disassembler, error) {
 	switch a {

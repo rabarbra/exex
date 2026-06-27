@@ -1,6 +1,7 @@
-// Command perfreport measures exex's non-interactive work against a sample
-// binary and prints a Markdown table: the parse/startup cost, every `-o` view's
-// render time and allocation volume, and the process's peak resident memory.
+// Command perfreport measures exex against a sample binary and prints a Markdown
+// table: the parse/startup cost, every `-o` view's render time and allocation
+// volume, each interactive (TUI) view's full-frame render cost, and the process's
+// peak resident memory.
 //
 // It exercises the real code paths (binfile.Open, dump.View/DisasmTo, ui.New), so
 // the numbers track what a user actually pays. CI feeds it the freshly built exex
@@ -106,6 +107,11 @@ func main() {
 		}
 	})
 	rows = append(rows, row{"TUI startup (ui.New)", tui})
+
+	// Per-view interactive render cost (a full 160×48 frame, decode completed).
+	for _, v := range ui.RenderViewStats(f, 160, 48, *runs) {
+		rows = append(rows, row{"TUI view: " + v.View, stat{dur: v.Dur, alloc: v.Alloc}})
+	}
 
 	peak := peakRSS()
 

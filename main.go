@@ -17,15 +17,17 @@ import (
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/config"
 	"github.com/rabarbra/exex/internal/dump"
+	"github.com/rabarbra/exex/internal/syscalls"
 	"github.com/rabarbra/exex/internal/ui"
 )
 
 func main() {
-	var debugPath, searchString, archName string
+	var debugPath, searchString, archName, syscallTables string
 	flag.StringVar(&debugPath, "debug", "", "path to an external debug-symbols file or directory (ELF .debug / Mach-O .dSYM)")
 	flag.StringVar(&debugPath, "d", "", "shorthand for -debug")
 	flag.StringVar(&searchString, "s", "", "search printable strings: open the match in Hex, or the Strings view filtered when several match")
 	flag.StringVar(&archName, "arch", "", "for a universal (fat) Mach-O, which architecture slice to open (e.g. x86_64, arm64)")
+	flag.StringVar(&syscallTables, "syscall-tables", "", "directory of custom syscall-name tables; files named <os>-<arch> (e.g. linux-amd64), one \"<num> <name>\" per line, override the built-ins")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [-debug PATH] [-s STRING] [-arch NAME] [-o [VIEW]] <binary> [goto]\n", os.Args[0])
 		fmt.Fprintln(os.Stderr, "  <binary>  path to an ELF/Mach-O/PE file, or a command name on $PATH")
@@ -47,6 +49,14 @@ func main() {
 	if len(args) < 1 || len(args) > 2 {
 		flag.Usage()
 		os.Exit(2)
+	}
+	if syscallTables != "" {
+		if n, err := syscalls.LoadOverrideDir(syscallTables); err != nil {
+			fmt.Fprintf(os.Stderr, "exex: -syscall-tables: %v\n", err)
+			os.Exit(2)
+		} else if n == 0 {
+			fmt.Fprintf(os.Stderr, "exex: -syscall-tables: no <os>-<arch> table files in %s\n", syscallTables)
+		}
 	}
 	path := resolveTarget(args[0])
 	gotoTarget := ""

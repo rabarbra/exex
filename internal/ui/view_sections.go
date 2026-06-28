@@ -433,6 +433,13 @@ func (m *Model) renderSections() string {
 	m.sectionsTop = top
 	m.renderedSectionsTop = top
 
+	if len(m.sectionsFiltered) == 0 {
+		msg := "no entries"
+		if m.sectionsFilter.Value() != "" || m.sectionsTypeOn || m.sectionsFlagsOn {
+			msg = "no matching entries  ·  Esc clears filters"
+		}
+		return m.emptyList(msg, filterRow, header)
+	}
 	rows := []string{filterRow, header}
 	for i := top; i < len(m.sectionsFiltered); i++ {
 		line := m.sectionRow(i, addrW)

@@ -288,7 +288,7 @@ func (m *Model) renderLibs() string {
 				body += "\n"
 			}
 		}
-		return padBody(body, m.width, bodyH)
+		return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Center, strings.TrimRight(body, "\n"))
 	}
 
 	m.buildLibRows()
@@ -306,6 +306,10 @@ func (m *Model) renderLibs() string {
 	m.libsTop = top
 	m.pageRows = pageStep(top, len(m.libsRows), visible, rowHeight)
 	m.renderedLibsTop = top
+	if len(m.libsRows) == 0 {
+		b.WriteString(m.placeCentred("no matching libraries  ·  Esc clears filters", bodyH-headerH))
+		return padBody(b.String(), m.width, bodyH)
+	}
 	for i := top; i < len(m.libsRows); i++ {
 		line := m.libRow(i, i == m.libsCur)
 		for _, row := range renderLineRowsIndented(line, m.width, m.wrap, 6) {

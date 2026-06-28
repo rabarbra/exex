@@ -592,7 +592,7 @@ func (m *Model) sectionAtOffset(off uint64) *binfile.Section {
 func (m *Model) renderHex() string {
 	m.ensureHex()
 	if m.hexImg.Len() == 0 {
-		return padBody("no mapped sections to display\n", m.width, m.bodyHeight())
+		return m.emptyBody("no mapped sections to display")
 	}
 	banner := fmt.Sprintf(" virtual-address image · %d bytes · %d mapped sections",
 		m.hexImg.Len(), len(m.hexImg.Regions))

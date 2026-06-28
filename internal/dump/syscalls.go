@@ -10,6 +10,7 @@ package dump
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"runtime"
 	"sort"
@@ -19,6 +20,7 @@ import (
 	"github.com/rabarbra/exex/internal/binfile"
 	"github.com/rabarbra/exex/internal/disasm"
 	"github.com/rabarbra/exex/internal/explorer"
+	"github.com/rabarbra/exex/internal/syscalls"
 )
 
 // syscallScanBack is how many preceding instructions are scanned for the load
@@ -33,7 +35,15 @@ type SyscallSite struct {
 	VDSO   bool   // true for a vDSO/__kernel_ call rather than a real syscall insn
 	Num    int64  // resolved syscall number, when recoverable
 	HasNum bool   // whether Num was recovered
+	Name   string // resolved syscall name (os/arch table), when known
 	Origin string // object the site came from (full scan), e.g. "libc.so.6"; "" = this binary
+}
+
+// SyscallName resolves a syscall number to its name for f's os/arch, consulting
+// any loaded override tables. Exposed so the TUI's syscall modal resolves names
+// the same way the dump does.
+func SyscallName(f *binfile.File, num int64) (string, bool) {
+	return syscalls.Name(syscalls.Key(string(f.Format), f.Arch()), num)
 }
 
 // IsVDSOName reports whether a symbol name is a vDSO / kernel-helper entry point,
@@ -186,7 +196,10 @@ func syscallNumRegs(a disasm.Arch) (regs []string, att bool, ok bool) {
 	case disasm.ArchAMD64, disasm.ArchX86:
 		return []string{"eax", "rax"}, true, true
 	case disasm.ArchARM64:
-		return []string{"x8", "w8"}, false, true
+		// Linux passes the number in x8; Apple/Darwin uses x16. Both are listed
+		// because the resolver keeps the *most recent* immediate write before the
+		// syscall, which is whichever register that platform actually set.
+		return []string{"x8", "w8", "x16", "w16"}, false, true
 	case disasm.ArchARM:
 		return []string{"r7"}, false, true
 	case disasm.ArchRISCV64:
@@ -343,9 +356,17 @@ func SyscallsFull(f *binfile.File) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "binary + %d libraries scanned\n", objs-1)
 	writeSyscallsUniqueOrigin(&b, sites)
-	for _, n := range notes {
-		b.WriteString(n)
-		b.WriteByte('\n')
+	// On macOS the system libraries (including libsystem_kernel, which holds the
+	// actual svc instructions) live in the dyld shared cache rather than as files,
+	// so they can't be opened and scanned — and app/framework code itself almost
+	// never makes direct syscalls. Collapse the per-library spam into one note.
+	if f.Format == binfile.FormatMachO && len(notes) > 0 {
+		fmt.Fprintf(&b, "· %d system libraries are in the dyld shared cache (not standalone files) — their syscalls can't be scanned\n", len(notes))
+	} else {
+		for _, n := range notes {
+			b.WriteString(n)
+			b.WriteByte('\n')
+		}
 	}
 	return b.String()
 }
@@ -438,6 +459,7 @@ func writeSyscallsUniqueOrigin(b *strings.Builder, sites []SyscallSite) {
 		num     int64
 		hasNum  bool
 		vdso    bool
+		name    string
 		text    string
 		count   int
 		origins []string
@@ -457,7 +479,7 @@ func writeSyscallsUniqueOrigin(b *strings.Builder, sites []SyscallSite) {
 		}
 		a := byKey[k]
 		if a == nil {
-			a = &agg{num: s.Num, hasNum: s.HasNum, vdso: s.VDSO, text: s.Text, seen: map[string]bool{}}
+			a = &agg{num: s.Num, hasNum: s.HasNum, vdso: s.VDSO, name: s.Name, text: s.Text, seen: map[string]bool{}}
 			byKey[k] = a
 			order = append(order, k)
 		}
@@ -486,18 +508,11 @@ func writeSyscallsUniqueOrigin(b *strings.Builder, sites []SyscallSite) {
 	})
 	fmt.Fprintf(b, "%d distinct system calls\n", len(aggs))
 	for _, a := range aggs {
-		num := "—"
-		switch {
-		case a.hasNum:
-			num = fmt.Sprintf("#%d", a.num)
-		case a.vdso:
-			num = "vdso"
-		}
 		origin := strings.Join(a.origins, ", ")
 		if origin == "" {
 			origin = "—"
 		}
-		fmt.Fprintf(b, "%-6s %4d×  %-32s %s\n", num, a.count, truncASCII(origin, 32), a.text)
+		fmt.Fprintf(b, "%-20s %4d×  %-32s %s\n", syscallLabel(a.name, a.num, a.hasNum, a.vdso), a.count, truncASCII(origin, 32), a.text)
 	}
 }
 
@@ -511,14 +526,17 @@ func syscallsFull(f *binfile.File, sites []SyscallSite) string {
 			sym = "—"
 		}
 		num := ""
-		if s.HasNum {
+		switch {
+		case s.Name != "":
+			num = s.Name
+		case s.HasNum:
 			num = fmt.Sprintf("#%d", s.Num)
 		}
 		tag := ""
 		if s.VDSO {
 			tag = "  (vdso)"
 		}
-		fmt.Fprintf(&b, "0x%0*x  %-6s %-28s %s%s\n", addrW, s.Addr, num, truncASCII(sym, 28), AlignAsm(s.Text), tag)
+		fmt.Fprintf(&b, "0x%0*x  %-16s %-28s %s%s\n", addrW, s.Addr, num, truncASCII(sym, 28), AlignAsm(s.Text), tag)
 	}
 	return b.String()
 }
@@ -540,6 +558,7 @@ func writeSyscallsUnique(b *strings.Builder, sites []SyscallSite) {
 		num     int64
 		hasNum  bool
 		vdso    bool
+		name    string // resolved syscall name, when known
 		text    string // representative instruction / vDSO name
 		count   int
 		example string // first enclosing symbol seen
@@ -560,7 +579,7 @@ func writeSyscallsUnique(b *strings.Builder, sites []SyscallSite) {
 		k := keyOf(s)
 		a := byKey[k]
 		if a == nil {
-			a = &agg{num: s.Num, hasNum: s.HasNum, vdso: s.VDSO, text: s.Text, example: s.Sym}
+			a = &agg{num: s.Num, hasNum: s.HasNum, vdso: s.VDSO, name: s.Name, text: s.Text, example: s.Sym}
 			byKey[k] = a
 			order = append(order, k)
 		}
@@ -590,19 +609,28 @@ func writeSyscallsUnique(b *strings.Builder, sites []SyscallSite) {
 
 	fmt.Fprintf(b, "%d distinct system calls\n", len(aggs))
 	for _, a := range aggs {
-		num := "—"
-		switch {
-		case a.hasNum:
-			num = fmt.Sprintf("#%d", a.num)
-		case a.vdso:
-			num = "vdso"
-		}
 		ex := a.example
 		if ex == "" {
 			ex = "—"
 		}
-		fmt.Fprintf(b, "%-6s %4d×  %-28s %s\n", num, a.count, truncASCII(ex, 28), a.text)
+		fmt.Fprintf(b, "%-20s %4d×  %-28s %s\n", syscallLabel(a.name, a.num, a.hasNum, a.vdso), a.count, truncASCII(ex, 28), a.text)
 	}
+}
+
+// syscallLabel formats a summary row's leading label: the resolved name (with its
+// number) when known, else "#<num>", else "vdso" / "—".
+func syscallLabel(name string, num int64, hasNum, vdso bool) string {
+	switch {
+	case name != "" && hasNum:
+		return fmt.Sprintf("#%d %s", num, name)
+	case name != "":
+		return name
+	case hasNum:
+		return fmt.Sprintf("#%d", num)
+	case vdso:
+		return "vdso"
+	}
+	return "—"
 }
 
 // dumpScanChunk / dumpScanLead bound the parallel scan: each worker decodes a
@@ -659,7 +687,6 @@ func collectSyscalls(f *binfile.File, dis disasm.Disassembler) []SyscallSite {
 		}
 	}
 
-	patterns := syscallCandidatePatterns(a)
 	results := make([][]SyscallSite, len(tasks))
 	workers := max(min(runtime.GOMAXPROCS(0), len(tasks)), 1)
 	sem := make(chan struct{}, workers)
@@ -671,11 +698,17 @@ func collectSyscalls(f *binfile.File, dis disasm.Disassembler) []SyscallSite {
 			defer wg.Done()
 			defer func() { <-sem }()
 			code := raw[tk.lo:tk.hi]
-			// Skip decoding a chunk that can't contain a syscall: the opcode byte
-			// patterns are present in every real syscall/trampoline encoding, so a
-			// chunk with none has none. This avoids decoding the vast majority of a
-			// large binary (most code never makes a syscall).
-			if !chunkHasCandidate(code, patterns) {
+			// Fixed-width arch with no vDSO heuristic: locate svc sites by their byte
+			// encoding and decode only a window at each — never the whole chunk.
+			if instLen := syscallInstLen(a); instLen > 0 && symAt == nil {
+				results[i] = scanChunkLocalized(dis, code, tk.baseVA, tk.emitVA, a, instLen, f)
+				return
+			}
+			// Otherwise skip a chunk that can't contain a syscall (the opcode byte
+			// patterns are present in every real syscall/trampoline encoding), then
+			// fully decode the rest — needed for variable-length x86 and the vDSO
+			// call heuristic.
+			if !chunkHasSyscallCandidate(code, a) {
 				return
 			}
 			results[i] = scanChunk(dis, code, tk.baseVA, tk.emitVA, a, symAt, f)
@@ -687,35 +720,123 @@ func collectSyscalls(f *binfile.File, dis disasm.Disassembler) []SyscallSite {
 	for _, rs := range results {
 		out = append(out, rs...)
 	}
+	// Resolve each recovered number to a name for this binary's os/arch (user
+	// override tables consulted first; see -syscall-tables).
+	key := syscalls.Key(string(f.Format), f.Arch())
+	for i := range out {
+		if out[i].HasNum {
+			if name, ok := syscalls.Name(key, out[i].Num); ok {
+				out[i].Name = name
+			}
+		}
+	}
 	return out
 }
 
-// syscallCandidatePatterns returns the opcode byte sequences whose presence is
-// necessary (not sufficient) for a syscall site, so a chunk lacking all of them
-// can be skipped without decoding. nil means "no prefilter" (always decode) for
-// architectures without a compact byte signature.
-func syscallCandidatePatterns(a disasm.Arch) [][]byte {
+// chunkHasSyscallCandidate reports whether code can contain a syscall site, so a
+// chunk that provably can't is skipped without decoding (decoding dominates the
+// scan, and most code makes no syscalls). x86 keys off the fixed opcode bytes;
+// arm64/arm scan for the svc encoding at any offset (an unaligned coincidence just
+// decodes the chunk — still correct, never a miss). Other arches have no compact
+// signature and are always decoded.
+func chunkHasSyscallCandidate(code []byte, a disasm.Arch) bool {
 	switch a {
 	case disasm.ArchAMD64, disasm.ArchX86:
-		// syscall (0f 05), sysenter (0f 34), int 0x80 (cd 80), gs-indirect call
-		// such as the i386 vsyscall trampoline (65 ff …).
-		return [][]byte{{0x0f, 0x05}, {0x0f, 0x34}, {0xcd, 0x80}, {0x65, 0xff}}
+		// syscall (0f 05), sysenter (0f 34), int 0x80 (cd 80), gs-indirect call such
+		// as the i386 vsyscall trampoline (65 ff …).
+		for _, p := range [][]byte{{0x0f, 0x05}, {0x0f, 0x34}, {0xcd, 0x80}, {0x65, 0xff}} {
+			if bytes.Index(code, p) >= 0 {
+				return true
+			}
+		}
+		return false
+	case disasm.ArchARM64:
+		// svc #imm16 = 0xd4000001 | (imm<<5).
+		for i := 0; i+4 <= len(code); i++ {
+			if binary.LittleEndian.Uint32(code[i:])&0xffe0001f == 0xd4000001 {
+				return true
+			}
+		}
+		return false
+	case disasm.ArchARM:
+		// ARM-mode SVC: cond·1111·imm24 → opcode bits 27..24 all set.
+		for i := 0; i+4 <= len(code); i++ {
+			if binary.LittleEndian.Uint32(code[i:])&0x0f000000 == 0x0f000000 {
+				return true
+			}
+		}
+		return false
 	}
-	return nil
+	return true
 }
 
-// chunkHasCandidate reports whether code contains any candidate opcode pattern
-// (true when patterns is nil, i.e. the prefilter is disabled for this arch).
-func chunkHasCandidate(code []byte, patterns [][]byte) bool {
-	if patterns == nil {
-		return true
+
+// syscallInstLen returns the fixed instruction width for arches whose syscall
+// instruction (svc) can be located by a byte test, enabling a localized scan that
+// decodes only a window around each site rather than the whole chunk. 0 means the
+// arch is variable-length (x86) and must be fully decoded.
+func syscallInstLen(a disasm.Arch) int {
+	switch a {
+	case disasm.ArchARM64, disasm.ArchARM:
+		return 4
 	}
-	for _, p := range patterns {
-		if bytes.Index(code, p) >= 0 {
-			return true
-		}
+	return 0
+}
+
+// isSvcEncoding reports whether the 4 bytes at b are a kernel-entry svc on a.
+func isSvcEncoding(b []byte, a disasm.Arch) bool {
+	if len(b) < 4 {
+		return false
+	}
+	w := binary.LittleEndian.Uint32(b)
+	switch a {
+	case disasm.ArchARM64:
+		return w&0xffe0001f == 0xd4000001
+	case disasm.ArchARM:
+		return w&0x0f000000 == 0x0f000000
 	}
 	return false
+}
+
+// scanChunkLocalized finds syscall sites on a fixed-width arch by scanning for the
+// svc byte encoding and decoding only a bounded backward window at each match —
+// so the (overwhelming majority of) non-syscall instructions are never decoded or
+// text-formatted. Used when there is no vDSO heuristic to run (the common case);
+// the full scanChunk is kept for variable-length arches and vDSO-bearing binaries.
+func scanChunkLocalized(dis disasm.Disassembler, code []byte, baseVA, emitVA uint64, a disasm.Arch, instLen int, f *binfile.File) []SyscallSite {
+	var out []SyscallSite
+	il := uint64(instLen)
+	start := int((il - baseVA%il) % il) // align the scan to instruction boundaries
+	for i := start; i+instLen <= len(code); i += instLen {
+		if !isSvcEncoding(code[i:], a) {
+			continue
+		}
+		va := baseVA + uint64(i)
+		if va < emitVA {
+			continue
+		}
+		lo := i - syscallScanBack*instLen
+		if lo < start {
+			lo = start
+		}
+		window := disasm.Range(dis, code[lo:i+instLen], baseVA+uint64(lo), 0)
+		if len(window) == 0 {
+			continue
+		}
+		site := window[len(window)-1]
+		if site.Addr != va || !isSyscallInstr(site.Text) {
+			continue // resync drift or a byte coincidence that isn't really svc
+		}
+		hit := SyscallSite{Addr: va, Text: strings.TrimSpace(site.Text)}
+		if sm, ok := f.SymbolAt(va); ok {
+			hit.Sym = sm.Display()
+		}
+		if n, ok := ResolveSyscallNum(window[:len(window)-1], a); ok {
+			hit.Num, hit.HasNum = n, true
+		}
+		out = append(out, hit)
+	}
+	return out
 }
 
 // scanChunk decodes one chunk and returns its syscall sites (those at or after

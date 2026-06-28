@@ -135,11 +135,10 @@ func (m *Model) targetAnnotation(addr uint64) string {
 func (m *Model) renderDisasm() string {
 	bodyH := m.bodyHeight()
 	if m.disasmDecoding {
-		return padBody("decoding instructions…\n", m.width, bodyH)
+		return m.emptyBody("decoding instructions…")
 	}
 	if len(m.disasmInst) == 0 {
-		msg := "no disassembly loaded — press g to go to an address, or pick a symbol from view 3"
-		return padBody(msg+"\n", m.width, bodyH)
+		return m.emptyBody("no disassembly loaded — press g to go to an address, or pick a symbol from view 3")
 	}
 	// The source pane only makes sense when the binary actually carries debug
 	// info; otherwise keep the disasm full-width instead of opening an empty

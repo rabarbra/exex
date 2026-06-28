@@ -165,7 +165,6 @@ func (m *Model) applyRelocSort(rels []binfile.Reloc) {
 // A focused filter input is captured centrally (captureActiveFilter), so by the
 // time a key reaches here it is navigation or an action.
 func (m *Model) updateRelocs(key string) (tea.Model, tea.Cmd) {
-	m.recomputeRelocs()
 	if navKey(&m.relocCur, len(m.relocFiltered), m.listPage(), key) {
 		return m, nil
 	}
@@ -250,7 +249,9 @@ func (m *Model) renderRelocs() string {
 	if bodyH < 3 {
 		bodyH = 3
 	}
-	m.recomputeRelocs()
+	// relocFiltered is (re)built on entry and on every filter/sort/facet change
+	// (enterRelocs, captureActiveFilter, updateRelocs) — not here, so a reloc-heavy
+	// object isn't re-filtered and re-sorted on every frame.
 	rels := m.file.Relocations()
 	addrW := m.file.AddrHexWidth()
 
@@ -289,9 +290,16 @@ func (m *Model) renderRelocs() string {
 	m.relocTop = top
 	m.pageRows = pageStep(top, len(m.relocFiltered), visible, func(int) int { return 1 })
 
+	if len(m.relocFiltered) == 0 {
+		msg := relocsEmptyHint(m.file.Format)
+		if len(rels) > 0 {
+			msg = "no matching relocations  ·  Esc clears filters"
+		}
+		return m.emptyList(msg, filterRow, header)
+	}
 	rows := []string{filterRow, header}
 	for i := top; i < len(m.relocFiltered); i++ {
-		line := m.relocRow(rels[m.relocFiltered[i]], addrW)
+		line := m.relocRow(m.relocFiltered[i], addrW)
 		if i == m.relocCur {
 			line = m.theme.tableSelStyle.Render(ansi.Strip(line))
 		}
@@ -304,7 +312,14 @@ func (m *Model) renderRelocs() string {
 
 // relocRow renders one relocation row: offset (address colour), type, section,
 // and the target symbol with any addend.
-func (m *Model) relocRow(r binfile.Reloc, addrW int) string {
+func (m *Model) relocRow(ri, addrW int) string {
+	key := rowCacheKey{ri, m.width, addrW, m.wrap}
+	if m.relocRowCache != nil {
+		if s, ok := m.relocRowCache[key]; ok {
+			return s
+		}
+	}
+	r := m.file.Relocations()[ri]
 	target := r.Sym
 	if r.HasAddend {
 		add := fmt.Sprintf("0x%x", uint64(r.Addend))
@@ -321,11 +336,16 @@ func (m *Model) relocRow(r binfile.Reloc, addrW int) string {
 		sec = truncateMiddle(sec, 12)
 		target = truncateMiddle(target, max(8, m.width-addrW-2-24-12-8))
 	}
-	return fmt.Sprintf(" %s  %s %s %s",
+	row := fmt.Sprintf(" %s  %s %s %s",
 		m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, r.Offset)),
 		m.theme.tableRowStyle.Render(padVisual(typ, 24)),
 		m.theme.srcShadowStyle.Render(padVisual(sec, 12)),
 		m.theme.symbolNameStyle.Render(target))
+	if m.relocRowCache == nil {
+		m.relocRowCache = make(map[rowCacheKey]string)
+	}
+	m.relocRowCache[key] = row
+	return row
 }
 
 // relocsEmptyHint explains an empty relocation table for the current format.

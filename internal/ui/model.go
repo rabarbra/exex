@@ -188,6 +188,7 @@ func (m *Model) clearColorCaches() {
 	m.disasmAsmCache = nil
 	m.disasmTokenStyles = nil
 	m.sourceAsmRowCache = nil
+	m.relocRowCache = nil
 	m.infoBody = "" // restyle the Info page on the next render
 }
 
@@ -307,6 +308,7 @@ type libsState struct {
 	relocSecOn    bool           // section facet filter active
 	relocSec      string         // the section it restricts to
 	relocSecs     []string       // distinct sections, for cycling
+	relocRowCache map[rowCacheKey]string
 }
 
 // stringsState stores list, filter and cache state for printable strings.

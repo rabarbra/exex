@@ -464,3 +464,27 @@ Extract all the pathes from strings
 ## 32. Search
 
 0x000106b6 should match with $0x106b6
+
+## 33. dyld shared cache resolution
+
+On macOS the system libraries (libsystem_kernel, libc++, the frameworks, the
+Swift runtime, …) are not standalone files — they live in the dyld shared cache
+(`/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/`, split into a main
+cache plus `.1/.2/…` sub-caches). Today that means:
+
+- **Syscalls (#30):** `-o syscalls-full` can't scan the libraries that actually
+  contain the `svc` instructions (the app's own code makes no direct syscalls),
+  so macOS apps report nothing. The unresolved libraries are currently collapsed
+  into a single "in the dyld shared cache — can't be scanned" note.
+- **Libs (#29):** cache-resident libraries are tagged `·cache` and can't be
+  opened.
+
+Add a reader for the dyld shared cache format — parse its header, mappings (each
+maps an address range to a file offset across the cache + sub-caches), and image
+list (address → install path) — so a cache-resident dylib can be extracted (its
+split segments stitched back via the mappings into a scannable Mach-O image).
+Then:
+
+- resolve cache-resident lib paths for `syscalls-full` and scan their `svc`
+  sites (giving macOS a real syscall surface);
+- let the Libs view open a `·cache` library as primary (its symbols/disasm).

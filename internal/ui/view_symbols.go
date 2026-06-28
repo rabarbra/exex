@@ -911,6 +911,14 @@ func (m *Model) renderSymbols() string {
 	m.renderedSymbolsTop = top
 	m.pageRows = pageStep(top, len(m.symbolsRows), visible, rowHeight)
 
+	if len(m.symbolsRows) == 0 {
+		msg := "no symbols in this binary"
+		if m.symbolsFilter.Value() != "" || m.symbolsKindOn || m.symbolsBindOn ||
+			m.symbolsScope != scopeAll || m.symbolsLib != "" {
+			msg = "no matching symbols  ·  Esc clears filters"
+		}
+		return m.emptyList(msg, filterRow, header)
+	}
 	rows := []string{filterRow, header}
 	for i := top; i < len(m.symbolsRows); i++ {
 		node := m.symbolsRows[i].node

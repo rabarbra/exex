@@ -93,14 +93,34 @@ func (m *Model) rebuildSyscallRows() {
 		}
 	case sysScopeUnique:
 		rows = uniqueSyscallRows(m.syscallResults, rows)
+		sortSyscallRows(rows)
 	case sysScopeFull:
 		rows = uniqueSyscallRows(m.syscallFull, rows)
+		sortSyscallRows(rows)
 	default: // sysScopeAll
 		for _, s := range m.syscallResults {
 			rows = append(rows, syscallRow{site: s, count: 1})
 		}
 	}
 	m.syscallShown = rows
+}
+
+// sortSyscallRows orders aggregated rows like the dump: numbered first (ascending
+// by number), then vDSO calls, then unresolved sites.
+func sortSyscallRows(rows []syscallRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i].site, rows[j].site
+		if a.HasNum != b.HasNum {
+			return a.HasNum
+		}
+		if a.HasNum {
+			return a.Num < b.Num
+		}
+		if a.VDSO != b.VDSO {
+			return a.VDSO
+		}
+		return a.Text < b.Text
+	})
 }
 
 // uniqueSyscallRows aggregates sites into one row per distinct syscall (number,
@@ -262,6 +282,14 @@ func (m *Model) syscallScanCmd(seq int) tea.Cmd {
 		if len(sites) > syscallMaxHits {
 			sites = sites[:syscallMaxHits]
 		}
+		// Resolve names the same way the dump does (the modal runs its own scan).
+		for i := range sites {
+			if sites[i].HasNum {
+				if name, ok := dump.SyscallName(file, sites[i].Num); ok {
+					sites[i].Name = name
+				}
+			}
+		}
 		return syscallDoneMsg{seq: seq, sites: sites}
 	}
 }
@@ -408,8 +436,9 @@ func (m *Model) renderSyscallModal() string {
 	full := m.syscallScope == sysScopeFull
 	aggregated := m.syscallScope == sysScopeUnique || full
 
-	// Column budget: "● <addr|count>  #num  <sym|origin>  <text>".
-	avail := rowW - len("● ") - (2 + addrW) - len("  ") - 4 - len("  ") - len("  ") - 6
+	// Column budget: "● <addr|count>  <name|#num>  <sym|origin>  <text>".
+	const sysNameW = 16
+	avail := rowW - len("● ") - (2 + addrW) - len("  ") - sysNameW - len("  ") - len("  ") - 6
 	textW := clamp(avail/3, 10, 32)
 	symW := max(8, avail-textW)
 
@@ -439,12 +468,18 @@ func (m *Model) renderSyscallModal() string {
 		if h.VDSO {
 			text += " ·vdso"
 		}
-		num := "    "
-		if h.HasNum {
-			num = padVisual(fmt.Sprintf("#%d", h.Num), 4)
-		} else if h.VDSO {
-			num = "vdso"
+		label := ""
+		switch {
+		case h.Name != "" && h.HasNum:
+			label = fmt.Sprintf("#%d %s", h.Num, h.Name)
+		case h.Name != "":
+			label = h.Name
+		case h.HasNum:
+			label = fmt.Sprintf("#%d", h.Num)
+		case h.VDSO:
+			label = "vdso"
 		}
+		num := padVisual(truncateMiddle(label, sysNameW), sysNameW)
 		// In aggregated scopes (unique / full) show a use count instead of an address.
 		first := fmt.Sprintf("0x%0*x", addrW, h.Addr)
 		if aggregated {

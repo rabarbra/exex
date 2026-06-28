@@ -610,7 +610,7 @@ func (m *Model) renderSources() string {
 	bodyH := m.bodyHeight()
 	m.ensureSources()
 	if !m.file.HasDWARF() {
-		return padBody("no debug info — the Sources view needs DWARF (build with -g, or place a .dSYM / .debug sidecar next to the binary)\n", m.width, bodyH)
+		return m.emptyBody("no debug info — the Sources view needs DWARF (build with -g, or place a .dSYM / .debug sidecar next to the binary)")
 	}
 	// The Sources view is only ever the file list; opening a file switches to the
 	// disasm view (source-first), which owns the split panes.
@@ -660,13 +660,16 @@ func (m *Model) renderSourceList(bodyH int) string {
 		end = len(m.sourcesRows)
 	}
 
+	if len(m.sourcesRows) == 0 {
+		msg := "no source files"
+		if m.sourcesFilter.Value() != "" || m.sourcesAvail != availAll {
+			msg = "no matching source files  ·  Esc clears filters"
+		}
+		return m.emptyList(msg, filterRow)
+	}
 	var b strings.Builder
 	b.WriteString(filterRow)
 	b.WriteString("\n")
-	if len(m.sourcesRows) == 0 {
-		b.WriteString(m.theme.footerStyle.Render(" (no source files)"))
-		return padBody(b.String(), m.width, bodyH)
-	}
 	for i := top; i < end; i++ {
 		row := m.sourcesRows[i]
 		n := row.node

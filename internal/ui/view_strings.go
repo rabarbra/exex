@@ -310,7 +310,7 @@ func (m *Model) renderStrings() string {
 	}
 	m.ensureStrings()
 	if len(m.stringsList) == 0 {
-		return padBody("no printable strings found\n", m.width, bodyH)
+		return m.emptyBody("no printable strings found")
 	}
 
 	filterRow := m.stringsFilter.View()
@@ -357,6 +357,9 @@ func (m *Model) renderStrings() string {
 	m.renderedStringsTop = top
 	m.pageRows = pageStep(top, len(m.stringsFiltered), visible, rowHeight)
 
+	if len(m.stringsFiltered) == 0 {
+		return m.emptyList("no matching strings  ·  Esc clears filters", filterRow, header)
+	}
 	rows := []string{filterRow, header}
 	for i := top; i < len(m.stringsFiltered); i++ {
 		line := m.stringRow(i, addrW)

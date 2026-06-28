@@ -839,14 +839,22 @@ func (m *Model) renderSymbols() string {
 		}
 		var b strings.Builder
 		col := 0
-		plain := func(s string) { b.WriteString(m.theme.footerStyle.Render(s)); col += lipgloss.Width(s) }
+		// footerStyle adds left/right padding, so count the *rendered* width — not
+		// the raw string — or the clickable facet ranges drift right of the chips.
+		plain := func(s string) {
+			r := m.theme.footerStyle.Render(s)
+			b.WriteString(r)
+			col += lipgloss.Width(r)
+		}
 		// Each chip is a clickable toggle: the bound key in the accent colour (like
 		// the footer hints) followed by the current value.
 		button := func(key, label string, k facetKind) {
 			start := col
-			b.WriteString(m.theme.helpKeyStyle.Render(key))
-			b.WriteString(m.theme.footerStyle.Render(" " + label))
-			col += lipgloss.Width(key + " " + label)
+			kr := m.theme.helpKeyStyle.Render(key)
+			lr := m.theme.footerStyle.Render(" " + label)
+			b.WriteString(kr)
+			b.WriteString(lr)
+			col += lipgloss.Width(kr) + lipgloss.Width(lr)
 			m.symbolFacets = append(m.symbolFacets, facetHit{start, col, k})
 			plain("   ")
 		}

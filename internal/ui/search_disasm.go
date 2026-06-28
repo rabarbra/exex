@@ -8,6 +8,7 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -220,7 +221,7 @@ func (m *Model) startDisasmSearch(forward, inclusive, fromCursor bool) tea.Cmd {
 	step := disasmSearchStep{
 		seq:       m.searchSeq,
 		label:     m.searchQuery,
-		query:     strings.ToLower(m.searchQuery),
+		query:     canonicalSearchQuery(m.searchQuery),
 		forward:   forward,
 		inclusive: inclusive,
 		total:     img.Len(),
@@ -321,6 +322,33 @@ func (m *Model) disasmSearchStatus(step disasmSearchStep) string {
 		}
 	}
 	return fmt.Sprintf("searching disasm for %q (%d%%, Esc cancels)", step.label, progress)
+}
+
+// canonicalSearchQuery lowercases a disasm query and, when it is a hex literal
+// ("0x…" or AT&T "$0x…"), reduces it to "0x" + value with no leading zeros — so
+// "0x000106b6", "$0x106b6" and "0x106B6" all match the decoder's canonical
+// "0x106b6" in the instruction text. Bare words (including all-hex mnemonics like
+// "add") are left as a literal substring.
+func canonicalSearchQuery(q string) string {
+	q = strings.ToLower(strings.TrimSpace(q))
+	s := strings.TrimPrefix(q, "$") // AT&T immediate marker
+	if hex, ok := strings.CutPrefix(s, "0x"); ok && hex != "" && len(hex) <= 16 && isAllHexDigits(hex) {
+		if v, err := strconv.ParseUint(hex, 16, 64); err == nil {
+			return "0x" + strconv.FormatUint(v, 16)
+		}
+	}
+	return q
+}
+
+// isAllHexDigits reports whether s is non-empty and entirely ASCII hex digits.
+func isAllHexDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return len(s) > 0
 }
 
 func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {

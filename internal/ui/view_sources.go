@@ -16,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/rabarbra/exex/internal/dump"
 	sourceutil "github.com/rabarbra/exex/internal/sourcefiles"
 )
 
@@ -632,7 +633,7 @@ func (m *Model) renderSourceList(bodyH int) string {
 			facet = "  tree"
 		}
 		if m.sourcesAvail != availAll {
-			facet += "  " + m.theme.helpKeyStyle.Render("⌥a") + " " + availLabel(m.sourcesAvail)
+			facet += "  " + m.theme.helpKeyStyle.Render(altKeys("a")) + " " + availLabel(m.sourcesAvail)
 		}
 		if !m.sourcesTree {
 			dir := "↑"
@@ -940,10 +941,14 @@ func (m *Model) sourceAsmRow(i, addrW, w int) string {
 	// instruction text keeps its normal class colours so the pane reads like
 	// real disassembly.
 	addrText := fmt.Sprintf("0x%0*x", addrW, inst.Addr)
-	line := fmt.Sprintf(" %s  %s  %s",
-		m.addrMapStyle(inst.Addr, m.srcFile, m.srcCur).Render(addrText),
-		bytesHex(inst.Bytes, 6),
-		m.renderInstText(inst.Text, inst.Class, inst.Addr))
+	addr := m.addrMapStyle(inst.Addr, m.srcFile, m.srcCur).Render(addrText)
+	asm := m.renderInstText(dump.AlignAsm(inst.Text), inst.Class, inst.Addr)
+	var line string
+	if m.disasmByteColWidth() > 0 {
+		line = fmt.Sprintf(" %s  %s  %s", addr, m.disasmBytes(inst.Bytes), asm)
+	} else {
+		line = fmt.Sprintf(" %s  %s", addr, asm)
+	}
 	row := fitANSIWidth(line, w)
 	if m.sourceAsmRowCache == nil {
 		m.sourceAsmRowCache = make(map[sourceAsmRowCacheKey]string)

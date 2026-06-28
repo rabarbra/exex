@@ -16,7 +16,7 @@ import (
 	"github.com/rabarbra/exex/internal/theme"
 )
 
-const settingsFieldCount = 9
+const settingsFieldCount = 12
 
 // settingsViewNames is the cycle for the "default view" setting.
 var settingsViewNames = []string{
@@ -43,6 +43,7 @@ func settingsThemeList() []string {
 func (m *Model) openSettings() {
 	m.settingsActive = true
 	m.settingsCur = 0
+	m.settingsTop = 0
 }
 
 func (m *Model) closeSettings() { m.settingsActive = false }
@@ -107,7 +108,24 @@ func (m *Model) cycleSetting(dir int) {
 		m.symbolsAbbrevExcept = nil
 		m.clearSymbolCaches()
 		m.clearSymbolNameCaches()
+	case 9:
+		m.cfg.Behavior.HideDisasmBytes = !m.cfg.Behavior.HideDisasmBytes
+		m.clearDisasmDisplayCaches()
+	case 10:
+		m.cfg.Behavior.HideAnnotations = !m.cfg.Behavior.HideAnnotations
+		m.clearDisasmDisplayCaches()
+	case 11:
+		m.cfg.Behavior.SpacedDisasmBytes = !m.cfg.Behavior.SpacedDisasmBytes
+		m.clearDisasmDisplayCaches()
 	}
+}
+
+// clearDisasmDisplayCaches drops the caches whose geometry/content depends on the
+// disasm byte-column and annotation settings, so a toggle shows immediately. The
+// hex view is rendered uncached, so it needs no clear.
+func (m *Model) clearDisasmDisplayCaches() {
+	m.disasmHeightCache = nil
+	m.sourceAsmRowCache = nil
 }
 
 // cycleIndex returns the index of cur in list stepped by dir (wrapping); a value
@@ -165,6 +183,10 @@ func (m *Model) renderSettingsModal() string {
 		}
 		return "off"
 	}
+	byteSpacing := "compact"
+	if m.cfg.Behavior.SpacedDisasmBytes {
+		byteSpacing = "spaced"
+	}
 	fields := [settingsFieldCount]struct{ label, val string }{
 		{"Theme", themeVal},
 		{"Background", bgVal},
@@ -175,13 +197,25 @@ func (m *Model) renderSettingsModal() string {
 		{"Tree: libs", onOff(m.cfg.Behavior.TreeLibs)},
 		{"Tree collapsed", onOff(m.cfg.Behavior.TreeCollapsed)},
 		{"Abbrev args", onOff(m.cfg.Behavior.AbbrevArgs)},
+		{"Disasm bytes", onOff(!m.cfg.Behavior.HideDisasmBytes)},
+		{"Annotations", onOff(!m.cfg.Behavior.HideAnnotations)},
+		{"Byte spacing", byteSpacing},
 	}
 
 	const rowW = 44
+	// Window the field list to the terminal height (title/hint/border cost ~8
+	// rows) so the popup never overruns a short window; the selection stays
+	// visible as it scrolls.
+	visible := clamp(m.height-8, 3, settingsFieldCount)
+	top := visualTop(m.settingsCur, m.settingsTop, settingsFieldCount, visible, func(int) int { return 1 })
+	m.settingsTop = top
+	end := min(top+visible, settingsFieldCount)
+
 	var b strings.Builder
 	b.WriteString(m.theme.modalTitle("Settings"))
 	b.WriteString("\n\n")
-	for i, f := range fields {
+	for i := top; i < end; i++ {
+		f := fields[i]
 		row := fmt.Sprintf(" %-13s ‹ %s ›", f.label+":", f.val)
 		if i == m.settingsCur {
 			row = m.theme.tableSelStyle.Render(padRight(row, rowW))
@@ -192,6 +226,10 @@ func (m *Model) renderSettingsModal() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(m.theme.modalHint("↑/↓ field · ←/→ change · Enter save · Esc cancel"))
+	hint := "↑/↓ field · ←/→ change · Enter save · Esc cancel"
+	if visible < settingsFieldCount {
+		hint = fmt.Sprintf("↑/↓ field · ←/→ change · Enter save · Esc cancel   (%d/%d)", m.settingsCur+1, settingsFieldCount)
+	}
+	b.WriteString(m.theme.modalHint(hint))
 	return m.theme.modalStyle.Render(b.String())
 }

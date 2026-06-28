@@ -185,6 +185,7 @@ func (m *Model) clearColorCaches() {
 	m.disasmAsmCache = nil
 	m.disasmTokenStyles = nil
 	m.sourceAsmRowCache = nil
+	m.infoBody = "" // restyle the Info page on the next render
 }
 
 // disasmState holds the currently loaded decode window only. The first window
@@ -409,8 +410,15 @@ type interactionState struct {
 	// of overshooting on chrome rows or wrapped multi-line entries.
 	pageRows int
 
-	// helpActive toggles the keybinding cheat-sheet overlay.
+	// helpActive toggles the keybinding cheat-sheet overlay; helpScroll is its
+	// vertical scroll offset when it is taller than the terminal.
 	helpActive bool
+	helpScroll int
+
+	// infoBody caches the Info view's styled body (static per width/theme/arch);
+	// infoBodyW is the width it was built for. Cleared on a theme change.
+	infoBody  string
+	infoBodyW int
 
 	// View output memoization. Bubble Tea calls View() after every message, so a
 	// burst of wheel events that only accumulate (without changing what's shown)
@@ -462,6 +470,7 @@ type searchState struct {
 type settingsState struct {
 	settingsActive bool
 	settingsCur    int // selected field (theme, background, default wrap, default view)
+	settingsTop    int // first visible field when the list is taller than the window
 }
 
 // statusState stores the footer status message.

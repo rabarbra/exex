@@ -175,6 +175,20 @@ type Disassembler interface {
 	Name() string
 }
 
+// MaxInstLen returns the longest instruction encoding (in bytes) for an
+// architecture, used to size the byte column in disassembly views. Fixed-length
+// RISC ISAs need only their word size, so their column is much narrower than the
+// variable-length x86 cap; an unknown arch falls back to the x86 cap.
+func MaxInstLen(a Arch) int {
+	switch a {
+	case ArchARM64, ArchARM, ArchPPC64, ArchPPC64LE, ArchPPC, ArchPPCLE, ArchLoong64, ArchRISCV64:
+		return 4 // fixed 4 bytes (RISC-V's compressed forms are 2, still ≤ 4)
+	case ArchS390X:
+		return 6 // 2, 4 or 6
+	}
+	return 8 // x86/x86-64 are variable-length; cap the column as before
+}
+
 // For returns a single-instruction decoder for a supported architecture.
 func For(a Arch) (Disassembler, error) {
 	switch a {
@@ -271,7 +285,7 @@ func (arm64d) Decode(code []byte, addr uint64) (Inst, error) {
 	if err != nil {
 		return Inst{}, err
 	}
-	text := resolveRelTargets(arm64asm.GNUSyntax(inst), addr)
+	text := hexImmediates(resolveRelTargets(arm64asm.GNUSyntax(inst), addr))
 	return Inst{Addr: addr, Bytes: code[:4], Text: text, Class: Classify(text)}, nil
 }
 
@@ -373,7 +387,7 @@ func (armd) Decode(code []byte, addr uint64) (out Inst, err error) {
 	if n == 0 || n > len(code) {
 		n = 4
 	}
-	text := resolveRelTargets(armasm.GNUSyntax(inst), addr)
+	text := hexImmediates(resolveRelTargets(armasm.GNUSyntax(inst), addr))
 	return Inst{Addr: addr, Bytes: code[:n], Text: text, Class: Classify(text)}, nil
 }
 
@@ -478,6 +492,12 @@ func (loong64d) Decode(code []byte, addr uint64) (out Inst, err error) {
 // signed displacement (e.g. ".+0xfffffffffffffc58" is a negative jump); uint64
 // wraparound makes "addr + value" land on the right byte either way.
 func resolveRelTargets(text string, addr uint64) string {
+	// Fast path: only branch/PC-relative operands carry the ".+0x"/".-0x" form, so
+	// the vast majority of instructions need no rewrite — skip the allocation.
+	if !strings.Contains(text, ".+0x") && !strings.Contains(text, ".-0x") &&
+		!strings.Contains(text, ".+0X") && !strings.Contains(text, ".-0X") {
+		return text
+	}
 	var b strings.Builder
 	for i := 0; i < len(text); {
 		if text[i] == '.' && i+3 < len(text) &&
@@ -494,7 +514,7 @@ func resolveRelTargets(text string, addr uint64) string {
 					if text[i+1] == '-' {
 						target = addr - v
 					}
-					fmt.Fprintf(&b, "0x%x", target)
+					appendHexTo(&b, target)
 					i = j
 					continue
 				}
@@ -504,6 +524,66 @@ func resolveRelTargets(text string, addr uint64) string {
 		i++
 	}
 	return b.String()
+}
+
+// hexImmediates rewrites the decimal immediates the ARM/ARM64 GNU syntaxers print
+// (e.g. memory offsets "[sp,#8]", "[sp,#-16]") into hex, so they read like objdump
+// ("[sp,#0x8]", "[sp,#-0x10]"). Immediates already in hex ("#0x40"), floats
+// ("#1.0") and any non-"#" use are left untouched; x86 immediates use "$" and are
+// already hex, so only the ARM-family decoders call this. The fast path returns
+// the input unchanged (no allocation) when there is no "#" to rewrite.
+func hexImmediates(s string) string {
+	if strings.IndexByte(s, '#') < 0 {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); {
+		if s[i] != '#' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		j := i + 1
+		neg := false
+		if j < len(s) && (s[j] == '-' || s[j] == '+') {
+			neg = s[j] == '-'
+			j++
+		}
+		start := j
+		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			j++
+		}
+		// Leave it alone unless this is a plain decimal: no digits, an "0x" hex
+		// prefix, or a "." float suffix all mean "not a decimal immediate".
+		if start == j || (j < len(s) && (s[j] == 'x' || s[j] == 'X' || s[j] == '.')) {
+			b.WriteByte('#')
+			i++
+			continue
+		}
+		v, err := strconv.ParseUint(s[start:j], 10, 64)
+		if err != nil {
+			b.WriteByte('#')
+			i++
+			continue
+		}
+		b.WriteByte('#')
+		if neg {
+			b.WriteByte('-')
+		}
+		appendHexTo(&b, v)
+		i = j
+	}
+	return b.String()
+}
+
+// appendHexTo writes "0x" + v in lowercase hex to b without fmt's interface
+// boxing — these decoders run on every instruction, so the dump/TUI decode paths
+// are allocation-sensitive. The scratch array stays on the stack.
+func appendHexTo(b *strings.Builder, v uint64) {
+	b.WriteString("0x")
+	var tmp [16]byte
+	b.Write(strconv.AppendUint(tmp[:0], v, 16))
 }
 
 // isHexDigit reports whether c is an ASCII hex digit.

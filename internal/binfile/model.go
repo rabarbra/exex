@@ -182,6 +182,7 @@ type File struct {
 	dwarf        *dwarf.Data
 	dwarfAvail   bool               // DWARF is present (cheap check); HasDWARF without parsing
 	dwarfBuild   func() *dwarf.Data // builds dwarf lazily on first line/source lookup
+	compilerOnce sync.Once          // guards the lazy compiler-banner scan (Mach-O)
 	dwarfOnce    sync.Once          // guards the lazy DWARF decode
 	lines        []lineEntry        // sorted by Addr (loaded lazily from dwarf)
 	lineFiles    []string           // file-name table; lineEntry.File indexes into this

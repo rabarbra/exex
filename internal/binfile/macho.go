@@ -590,7 +590,8 @@ func (f *File) loadMachOInfo(mf *macho.File) {
 	}
 
 	f.machoLoadInfo(mf, in)
-	in.Compiler = f.scanCompilerString()
+	// The compiler banner scan pages through __cstring/__const, which is costly on
+	// a cold open of a large Mach-O; defer it to f.Compiler() (first Info access).
 	f.Info = in
 }
 
@@ -825,6 +826,22 @@ func cstr(b []byte) string {
 		return string(b[:i])
 	}
 	return string(b)
+}
+
+// Compiler returns the compiler banner ("Apple clang …", "GCC …", "rustc …"),
+// computed lazily on first call and cached. ELF fills Info.Compiler eagerly from
+// .comment during Open (cheap); Mach-O defers the section scan to here so a cold
+// Open doesn't page through __cstring/__const just to populate the Info view.
+func (f *File) Compiler() string {
+	if f.Info == nil {
+		return ""
+	}
+	f.compilerOnce.Do(func() {
+		if f.Info.Compiler == "" {
+			f.Info.Compiler = f.scanCompilerString()
+		}
+	})
+	return f.Info.Compiler
 }
 
 // scanCompilerString pulls a compiler banner out of likely string/comment

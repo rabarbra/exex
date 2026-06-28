@@ -362,7 +362,7 @@ func (m *Model) renderLibsHeader() string {
 func (m *Model) libsHeaderSuffix() string {
 	suffix := ""
 	if m.libsAvail != availAll {
-		suffix += "  " + m.theme.helpKeyStyle.Render("⌥a") + m.theme.footerStyle.Render(" "+availLabel(m.libsAvail))
+		suffix += "  " + m.theme.helpKeyStyle.Render(altKeys("a")) + m.theme.footerStyle.Render(" "+availLabel(m.libsAvail))
 	}
 	if m.libsTree {
 		suffix += "  " + m.theme.footerStyle.Render("(tree · ←/→ fold · ↵ all below · +/− all · t flat)")

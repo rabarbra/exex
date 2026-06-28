@@ -88,6 +88,24 @@ func (m *Model) renderInfo() string {
 	bodyH := m.bodyHeight()
 	innerW := max(1, m.width-4) // panel border (2) + padding (2)
 
+	// The styled content is static per (width, theme, arch slice) — only the
+	// viewport scroll changes per frame — so build it once and cache by width. A
+	// theme change clears it via clearColorCaches; an arch switch builds a fresh
+	// model. (Compiler() is scanned lazily during this first build, then cached.)
+	if m.infoBody == "" || m.infoBodyW != innerW {
+		m.infoBody = m.buildInfoContent(innerW)
+		m.infoBodyW = innerW
+	}
+	m.headerVP.SetWidth(innerW)
+	m.headerVP.SetHeight(max(1, bodyH-2))
+	m.headerVP.SetContent(m.infoBody)
+	panel := m.theme.panelStyle.Render(m.headerVP.View())
+	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Top, panel)
+}
+
+// buildInfoContent renders the Info page's single-column body to width innerW
+// (padded lines ready for the viewport). Cached by renderInfo.
+func (m *Model) buildInfoContent(innerW int) string {
 	num := func(s string) string { return m.theme.asmNumberStyle.Render(s) }
 	addrc := func(s string) string { return m.theme.addrStyle.Render(s) }
 	dim := func(s string) string { return m.theme.srcShadowStyle.Render(s) }
@@ -191,7 +209,7 @@ func (m *Model) renderInfo() string {
 			}
 			b.WriteString(row + "\n")
 		}
-		b.WriteString("    " + dim("press a to switch slice") + "\n")
+		b.WriteString("    " + dim("press Tab to switch slice") + "\n")
 	}
 
 	if info != nil {
@@ -266,16 +284,17 @@ func (m *Model) renderInfo() string {
 			kv("Needed libs", num(fmt.Sprintf("%d", len(info.DynamicLibs)))+"  "+dim("(press 8 to view)"))
 		}
 
-		// Toolchain / provenance.
-		if info.SourceLang != "" || info.Compiler != "" || info.GoVersion != "" || info.MinOS != "" {
+		// Toolchain / provenance. Compiler() scans lazily (Mach-O) and caches.
+		compiler := m.file.Compiler()
+		if info.SourceLang != "" || compiler != "" || info.GoVersion != "" || info.MinOS != "" {
 			head("Toolchain")
 			if info.SourceLang != "" {
 				kvText("Language", info.SourceLang)
 			}
 			// For Go binaries the toolchain is shown as "Go:" below; a stray
 			// clang banner from cgo/deps would only mislead.
-			if info.Compiler != "" && info.GoVersion == "" {
-				kvText("Compiler", info.Compiler)
+			if compiler != "" && info.GoVersion == "" {
+				kvText("Compiler", compiler)
 			}
 			if info.GoVersion != "" {
 				kvText("Go", info.GoVersion)
@@ -303,13 +322,7 @@ func (m *Model) renderInfo() string {
 	for i := range lines {
 		lines[i] = padRight(lines[i], innerW)
 	}
-
-	m.headerVP.SetWidth(innerW)
-	m.headerVP.SetHeight(max(1, bodyH-2))
-	m.headerVP.SetContent(strings.Join(lines, "\n"))
-
-	panel := m.theme.panelStyle.Render(m.headerVP.View())
-	return lipgloss.Place(m.width, bodyH, lipgloss.Center, lipgloss.Top, panel)
+	return strings.Join(lines, "\n")
 }
 
 // headerField returns the value of a "Key: value" line from a HeaderInfo slice.

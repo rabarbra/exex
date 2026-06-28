@@ -846,9 +846,9 @@ func (m *Model) renderSymbols() string {
 			treeLabel = "view:tree"
 		}
 		plain("/ " + m.symbolsFilter.Value() + "   ")
-		button("⌥t", "type:"+kind, facetType)
-		button("⌥s", "scope:"+m.symbolsScope.String(), facetScope)
-		button("⌥b", "bind:"+bind, facetBind)
+		button(altKeys("t"), "type:"+kind, facetType)
+		button(altKeys("s"), "scope:"+m.symbolsScope.String(), facetScope)
+		button(altKeys("b"), "bind:"+bind, facetBind)
 		button("s", "sort:"+m.symbolsSort.String(), facetSort)
 		dir := "↑asc"
 		if m.symbolsSortDesc {

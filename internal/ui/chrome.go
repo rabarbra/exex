@@ -281,6 +281,7 @@ func (m *Model) renderGotoModal() string {
 	} else {
 		sb.WriteString("\n")
 		addrW := m.file.AddrHexWidth()
+		m.modalListRow = 4 // title(0) + blank(1) + input(2) + blank(3) → list at row 4
 		// Window the results to the terminal height (title/input/hint/border cost
 		// ~10 rows) so the modal never overruns a short window; the selection stays
 		// visible as it scrolls.

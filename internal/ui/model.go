@@ -476,6 +476,10 @@ type settingsState struct {
 	settingsActive bool
 	settingsCur    int // selected field (theme, background, default wrap, default view)
 	settingsTop    int // first visible field when the list is taller than the window
+	// modalListRow is the content row (within whichever overlay modal is open)
+	// where its scrollable list/fields begin, set by that modal's render so a mouse
+	// click can be mapped to an item. Only one modal is open at a time.
+	modalListRow int
 }
 
 // statusState stores the footer status message.

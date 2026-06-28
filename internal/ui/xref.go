@@ -241,11 +241,13 @@ func (m *Model) renderXrefModal() string {
 	// own line(s), wrapped to the modal width so it never widens past the view.
 	sb.WriteString(m.theme.modalTitle("Cross-references"))
 	sb.WriteString("\n")
-	for _, r := range renderLineRowsIndented(m.theme.symbolNameStyle.Render(m.xrefLabel), rowW, true, 0) {
+	targetRows := renderLineRowsIndented(m.theme.symbolNameStyle.Render(m.xrefLabel), rowW, true, 0)
+	for _, r := range targetRows {
 		sb.WriteString(r)
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
+	m.modalListRow = 1 + len(targetRows) + 1 // title + target line(s) + blank
 	top := visualTop(m.xrefSel, m.xrefTop, len(m.xrefResults), visible, func(int) int { return 1 })
 	m.xrefTop = top
 	end := min(top+visible, len(m.xrefResults))

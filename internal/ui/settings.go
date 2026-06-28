@@ -209,6 +209,7 @@ func (m *Model) renderSettingsModal() string {
 	visible := clamp(m.height-8, 3, settingsFieldCount)
 	top := visualTop(m.settingsCur, m.settingsTop, settingsFieldCount, visible, func(int) int { return 1 })
 	m.settingsTop = top
+	m.modalListRow = 2 // title(0) + blank(1) → fields start at content row 2
 	end := min(top+visible, settingsFieldCount)
 
 	var b strings.Builder

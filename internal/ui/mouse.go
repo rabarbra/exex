@@ -37,6 +37,29 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.handleSearchPopupClick(ms.X, ms.Y)
 		return m, nil
 	}
+	// A list/field overlay modal (xref, goto, settings) captures the mouse so it
+	// drives the modal, not the view behind it: wheel moves the selection, a click
+	// selects an item, a double-click activates it.
+	if m.modalActive() {
+		if _, ok := msg.(tea.MouseWheelMsg); ok {
+			switch ms.Button {
+			case tea.MouseWheelUp:
+				m.modalScrollSel(-1)
+			case tea.MouseWheelDown:
+				m.modalScrollSel(1)
+			}
+			return m, nil
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok && ms.Button == tea.MouseLeft {
+			now := time.Now()
+			isDouble := ms.Y == m.lastClickY && now.Sub(m.lastClickAt) < doubleClickWindow
+			m.lastClickY, m.lastClickAt = ms.Y, now
+			if m.modalClick(ms.X, ms.Y) && isDouble {
+				return m.modalActivate()
+			}
+		}
+		return m, nil
+	}
 	if _, ok := msg.(tea.MouseWheelMsg); ok {
 		switch ms.Button {
 		case tea.MouseWheelUp:
@@ -81,6 +104,88 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) mouseOverRightPane(x int) bool {
 	return m.rightPaneActive() && x >= m.width/2
+}
+
+// modalActive reports whether a list/field overlay modal (not the search prompt,
+// which handles its own clicks) is open.
+func (m *Model) modalActive() bool {
+	return m.xrefActive || m.gotoActive || m.settingsActive
+}
+
+// modalList returns the open modal's selection pointer, rendered scroll top, item
+// count and whether the selection wraps (settings cycles).
+func (m *Model) modalList() (sel *int, top, n int, wrap, ok bool) {
+	switch {
+	case m.xrefActive:
+		return &m.xrefSel, m.xrefTop, len(m.xrefResults), false, true
+	case m.gotoActive:
+		return &m.gotoSel, m.gotoTop, len(m.gotoResults), false, true
+	case m.settingsActive:
+		return &m.settingsCur, m.settingsTop, settingsFieldCount, true, true
+	}
+	return nil, 0, 0, false, false
+}
+
+// modalScrollSel moves the open modal's selection by d (wheel scrolling).
+func (m *Model) modalScrollSel(d int) {
+	sel, _, n, wrap, ok := m.modalList()
+	if !ok || n == 0 {
+		return
+	}
+	if wrap {
+		*sel = (*sel + d%n + n) % n
+	} else {
+		*sel = clamp(*sel+d, 0, n-1)
+	}
+}
+
+// modalClick maps a click to an item in the open modal's list and selects it,
+// returning whether it hit one. It re-renders the modal to recompute its centred
+// geometry and the list's starting row (modalListRow).
+func (m *Model) modalClick(x, y int) bool {
+	var modal string
+	switch {
+	case m.xrefActive:
+		modal = m.renderXrefModal()
+	case m.gotoActive:
+		modal = m.renderGotoModal()
+	case m.settingsActive:
+		modal = m.renderSettingsModal()
+	default:
+		return false
+	}
+	mtop := (m.height - lipgloss.Height(modal)) / 2
+	// content row = y - modalTop - border(1) - padding-top(1), then minus where the
+	// list begins within the modal content.
+	listRow := (y - mtop - 2) - m.modalListRow
+	if listRow < 0 {
+		return false
+	}
+	sel, top, n, _, ok := m.modalList()
+	if !ok {
+		return false
+	}
+	if idx := top + listRow; idx >= 0 && idx < n {
+		*sel = idx
+		return true
+	}
+	return false
+}
+
+// modalActivate runs the open modal's Enter action (mouse double-click).
+func (m *Model) modalActivate() (tea.Model, tea.Cmd) {
+	switch {
+	case m.xrefActive:
+		return m.updateXrefModal("enter")
+	case m.gotoActive:
+		m.activateGoto()
+		m.closeGoto()
+		return m, nil
+	case m.settingsActive:
+		m.cycleSetting(1)
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m *Model) enqueueWheel(delta int) (tea.Model, tea.Cmd) {

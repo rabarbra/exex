@@ -211,8 +211,8 @@ func Info(f *binfile.File) string {
 	if in.SourceLang != "" {
 		kv("Language:", in.SourceLang)
 	}
-	if in.Compiler != "" {
-		kv("Compiler:", in.Compiler)
+	if c := f.Compiler(); c != "" {
+		kv("Compiler:", c)
 	}
 	if in.GoVersion != "" {
 		kv("Go:", in.GoVersion)

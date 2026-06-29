@@ -126,15 +126,16 @@ func (m *Model) renderHelpModal() string {
 		head("Sections"),
 		row(altKeys("t", "f"), "filter by type / flags"),
 		row("t / ⇥", "cycle sections / segments / header"),
-	}
-	right := []helpEntry{
+		blank,
 		head("Symbols"),
 		row(altKeys("t", "b", "s"), "filter by type / bind / scope"),
 		row("e / .", "collapse (…)/<…> to ... · all / current"),
-		blank,
+	}
+	right := []helpEntry{
 		head("Disassembly"),
-		row("←/→", "history back / forward"),
+		row("↵ Enter", "follow address"),
 		row("[ ]", "previous / next symbol"),
+		row("←/→", "history back / forward"),
 		row("x", "find references (xrefs)"),
 		row("y", "list system calls"),
 		row("a", "disassemble all sections / exec-only (object files, data)"),
@@ -142,7 +143,7 @@ func (m *Model) renderHelpModal() string {
 		row("Tab", "show / hide right pane"),
 		row("⇧Tab", "swap source / disasm"),
 		row("⇧↑/⇧↓", "scroll right pane"),
-		row("↵ Enter", "follow address"),
+		row("", "modals (xrefs / syscalls): / filter · s/r sort"),
 		blank,
 		head("Hex / Raw"),
 		row("[ ]", "prev / next section"),
@@ -298,10 +299,18 @@ func (m *Model) renderGotoModal() string {
 		labelW := rowW - addrW - 6
 		for i := gotoTop; i < end; i++ {
 			t := m.gotoResults[i]
-			line := fmt.Sprintf(" 0x%0*x  %s", addrW, t.addr, truncateMiddle(t.label, labelW))
+			// Colour the label by kind so results read consistently with the Symbols
+			// view: a symbol uses its kind/bind colour, a raw-address target is blue.
+			label := truncateMiddle(t.label, labelW)
+			if t.isSym {
+				label = m.theme.styleForSymbol(t.sym.Kind, t.sym.Bind).Render(label)
+			} else {
+				label = m.theme.headerKey.Render(label)
+			}
+			line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, t.addr)), label)
 			line = padRight(line, rowW)
 			if i == m.gotoSel {
-				line = m.theme.tableSelStyle.Render(line)
+				line = m.theme.tableSelStyle.Render(ansi.Strip(line))
 			}
 			sb.WriteString(line + "\n")
 		}

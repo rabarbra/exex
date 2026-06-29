@@ -545,7 +545,7 @@ func (m *Model) lmaNote(phys uint64) string {
 	if phys == 0 {
 		return ""
 	}
-	return fmt.Sprintf("   load 0x%0*x", m.file.AddrHexWidth(), phys)
+	return fmt.Sprintf("   LMA 0x%0*x", m.file.AddrHexWidth(), phys)
 }
 
 // disasmSectionBanner renders the centred section separator row (matching the

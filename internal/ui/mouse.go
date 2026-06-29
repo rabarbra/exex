@@ -121,7 +121,7 @@ func (m *Model) modalActive() bool {
 func (m *Model) modalList() (sel *int, top, n int, wrap, ok bool) {
 	switch {
 	case m.xrefActive:
-		return &m.xrefSel, m.xrefTop, len(m.xrefResults), false, true
+		return &m.xrefSel, m.xrefTop, len(m.xrefShown), false, true
 	case m.syscallActive:
 		return &m.syscallSel, m.syscallTop, len(m.syscallShown), false, true
 	case m.gotoActive:
@@ -184,7 +184,7 @@ func (m *Model) modalClick(x, y int) bool {
 func (m *Model) modalActivate() (tea.Model, tea.Cmd) {
 	switch {
 	case m.xrefActive:
-		return m.updateXrefModal("enter")
+		return m.xrefJump()
 	case m.syscallActive:
 		return m.syscallJump()
 	case m.gotoActive:

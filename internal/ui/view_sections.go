@@ -422,7 +422,7 @@ func (m *Model) renderSections() string {
 	switch {
 	case m.showSegments && phys:
 		hdr = fmt.Sprintf(" %3s  %-16s %-5s %-*s %-*s %-12s %-12s  %s",
-			idxLabel, nameLabel, "Perms", addrCol, addrLabel, addrCol, "PAddr", sizeLabel, "FileSize", "Align")
+			idxLabel, nameLabel, "Perms", addrCol, addrLabel, addrCol, "LMA", sizeLabel, "FileSize", "Align")
 	case m.showSegments:
 		hdr = fmt.Sprintf(" %3s  %-16s %-5s %-*s %-12s %-12s  %s",
 			idxLabel, nameLabel, "Perms", addrCol, addrLabel, sizeLabel, "FileSize", "Align")

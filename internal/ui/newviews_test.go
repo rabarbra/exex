@@ -13,21 +13,19 @@ import (
 func TestSectionsHeaderMode(t *testing.T) {
 	h := newKeyHarness(t, systemBinary(t))
 	h.goView(modeSections, "2")
-	// sections -> segments -> header (segments present on a system ELF).
-	h.press("t")
-	h.press("t")
-	if !h.m().showHeader {
-		t.Fatalf("two t presses did not reach header mode (showSegments=%v showHeader=%v)",
-			h.m().showSegments, h.m().showHeader)
+	// The raw header is now a ⇧H overlay (not a Sections sub-mode).
+	h.press("H")
+	if !h.m().headerActive {
+		t.Fatalf("H did not open the raw-header overlay")
 	}
-	out := h.m().renderSections()
+	out := h.m().renderHeaderModal()
 	if h.m().file.Format == binfile.FormatELF && !strings.Contains(out, "Machine") {
-		t.Errorf("ELF header mode missing Machine field:\n%s", out)
+		t.Errorf("ELF header overlay missing Machine field:\n%s", out)
 	}
-	// A third t returns to the section table.
-	h.press("t")
-	if h.m().showHeader || h.m().showSegments {
-		t.Fatal("third t did not return to sections")
+	// Any non-scroll key closes it.
+	h.press("esc")
+	if h.m().headerActive {
+		t.Fatal("esc did not close the header overlay")
 	}
 }
 
@@ -35,14 +33,8 @@ func TestSectionsHeaderMode(t *testing.T) {
 // table and exercises filter + navigation without panicking (pump renders).
 func TestLibsRelocsMode(t *testing.T) {
 	h := newKeyHarness(t, systemBinary(t))
-	h.goView(modeLibs, "8")
-	// flat -> tree -> relocations (a dynamically linked system binary has libs).
-	for i := 0; i < 3 && !h.m().libsRelocs; i++ {
-		h.press("t")
-	}
-	if !h.m().libsRelocs {
-		t.Skip("could not reach relocations mode (no libraries?)")
-	}
+	// Relocations are now their own top-level view (key 0).
+	h.goView(modeRelocs, "0")
 	out := h.m().renderRelocs()
 	if !strings.Contains(out, "Offset") {
 		t.Errorf("relocs view missing header:\n%s", out)

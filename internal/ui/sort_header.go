@@ -79,10 +79,9 @@ func (m *Model) handleSortableHeaderClick(x, bodyRow int) bool {
 		return bodyRow == 1 && m.clickSymbolsHeader(x)
 	case modeStrings:
 		return bodyRow == 1 && m.clickStringsHeader(x)
+	case modeRelocs:
+		return bodyRow == 1 && m.clickRelocsHeader(x)
 	case modeLibs:
-		if m.libsRelocs {
-			return bodyRow == 1 && m.clickRelocsHeader(x)
-		}
 		return bodyRow == m.libsTitleRow() && m.clickLibsHeader(x)
 	}
 	return false
@@ -95,10 +94,9 @@ func (m *Model) isTableHeaderRow(bodyRow int) bool {
 	case modeStrings:
 		m.ensureStrings()
 		return len(m.stringsList) > 0 && bodyRow == 1
+	case modeRelocs:
+		return bodyRow == 1
 	case modeLibs:
-		if m.libsRelocs {
-			return bodyRow == 1
-		}
 		return bodyRow == m.libsTitleRow()
 	}
 	return false

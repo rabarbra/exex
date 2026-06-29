@@ -41,40 +41,16 @@ func (s relocSortField) String() string {
 	return "offset"
 }
 
-// cycleLibsMode advances the Libraries view's `t` toggle through
-// libraries-flat → libraries-tree → relocations → libraries-flat, returning a
-// status label. Relocations are reachable even when there are no needed
-// libraries (e.g. a static-PIE binary still has RELATIVE relocations).
+// cycleLibsMode toggles the Libraries view between the flat list and the path
+// tree (relocations moved to their own top-level view, key 0).
 func (m *Model) cycleLibsMode() string {
-	switch {
-	case m.libsRelocs:
-		m.libsRelocs = false // → libraries (flat)
-		m.libsTree = false
-		m.libsFilter.SetValue("")
-		m.libsFilter.Blur()
-		m.libsCur, m.libsTop = 0, 0
-		return "libs view: flat list"
-	case m.libsTree:
-		m.libsTree = false
-		m.enterRelocs()
-		return "showing relocations (t for libraries)"
-	default:
-		m.libsTree = true
-		m.libsCur, m.libsTop = 0, 0
-		m.buildLibRows()
+	m.libsTree = !m.libsTree
+	m.libsCur, m.libsTop = 0, 0
+	m.buildLibRows()
+	if m.libsTree {
 		return "libs view: tree"
 	}
-}
-
-// enterRelocs switches the view into relocation mode, building the facet lists
-// and the filtered list.
-func (m *Model) enterRelocs() {
-	m.libsRelocs = true
-	m.libsFilter.SetValue("")
-	m.libsFilter.Blur()
-	m.relocCur, m.relocTop = 0, 0
-	m.buildRelocFacets()
-	m.recomputeRelocs()
+	return "libs view: flat list"
 }
 
 // recomputeRelocs rebuilds relocFiltered from the active facet filters (type /
@@ -169,8 +145,6 @@ func (m *Model) updateRelocs(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key {
-	case "t":
-		m.setStatus(m.cycleLibsMode(), false)
 	case "s":
 		m.relocSort = (m.relocSort + 1) % 4
 		m.relocCur, m.relocTop = 0, 0
@@ -216,8 +190,6 @@ func (m *Model) updateRelocs(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("filters cleared", false)
 			return m, nil
 		}
-		m.libsRelocs = false
-		m.setStatus("showing libraries", false)
 	case "w":
 		m.toggleWrap()
 	case "enter", "h":
@@ -253,6 +225,11 @@ func (m *Model) renderRelocs() string {
 	// (enterRelocs, captureActiveFilter, updateRelocs) — not here, so a reloc-heavy
 	// object isn't re-filtered and re-sorted on every frame.
 	rels := m.file.Relocations()
+	// No relocations at all → a clean centred message with no table chrome, like
+	// the other views' empty state (the header/filter row would just be noise).
+	if len(rels) == 0 {
+		return m.emptyBody(relocsEmptyHint(m.file.Format))
+	}
 	addrW := m.file.AddrHexWidth()
 
 	var filterRow string
@@ -271,7 +248,7 @@ func (m *Model) renderRelocs() string {
 			sf = m.relocSec
 		}
 		filterRow = m.theme.footerStyle.Render(fmt.Sprintf(
-			"/ %s   relocations (%d / %d)   s: sort:%s   t: libraries   %s type:%s   %s sec:%s%s",
+			"/ %s   relocations (%d / %d)   s: sort:%s   %s type:%s   %s sec:%s%s",
 			m.libsFilter.Value(), len(m.relocFiltered), len(rels), m.relocSort.String(),
 			altKeys("t"), tf, altKeys("s"), sf, note))
 	}

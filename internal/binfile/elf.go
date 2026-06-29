@@ -115,6 +115,7 @@ func (f *File) loadELF() error {
 	// so each is distinct and navigable; the real position stays section-relative.
 	// synthBase[i] is section i's assigned base (0 for sections left at address 0).
 	synthBase := make([]uint64, len(f.Sections))
+	f.relocatable = ef.Type == elf.ET_REL
 	if ef.Type == elf.ET_REL {
 		var base uint64
 		for i := range f.Sections {

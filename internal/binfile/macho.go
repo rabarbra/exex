@@ -142,6 +142,7 @@ func (f *File) loadMachO() error {
 	f.FatArch = chosen
 
 	f.Format = FormatMachO
+	f.relocatable = mf.Type == macho.TypeObj
 	f.arch = machoArch(mf.Cpu)
 	if mf.Magic == macho.Magic64 {
 		f.addrWidth = 16

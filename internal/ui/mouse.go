@@ -113,7 +113,7 @@ func (m *Model) mouseOverRightPane(x int) bool {
 // modalActive reports whether a list/field overlay modal (not the search prompt,
 // which handles its own clicks) is open.
 func (m *Model) modalActive() bool {
-	return m.xrefActive || m.syscallActive || m.gotoActive || m.settingsActive
+	return m.xrefActive || m.syscallActive || m.cpufeatActive || m.gotoActive || m.settingsActive
 }
 
 // modalList returns the open modal's selection pointer, rendered scroll top, item
@@ -124,6 +124,8 @@ func (m *Model) modalList() (sel *int, top, n int, wrap, ok bool) {
 		return &m.xrefSel, m.xrefTop, len(m.xrefShown), false, true
 	case m.syscallActive:
 		return &m.syscallSel, m.syscallTop, len(m.syscallShown), false, true
+	case m.cpufeatActive:
+		return &m.cpufeatSel, m.cpufeatTop, len(m.cpufeatFeats), false, true
 	case m.gotoActive:
 		return &m.gotoSel, m.gotoTop, len(m.gotoResults), false, true
 	case m.settingsActive:
@@ -155,6 +157,8 @@ func (m *Model) modalClick(x, y int) bool {
 		modal = m.renderXrefModal()
 	case m.syscallActive:
 		modal = m.renderSyscallModal()
+	case m.cpufeatActive:
+		modal = m.renderCPUFeatModal()
 	case m.gotoActive:
 		modal = m.renderGotoModal()
 	case m.settingsActive:
@@ -187,6 +191,8 @@ func (m *Model) modalActivate() (tea.Model, tea.Cmd) {
 		return m.xrefJump()
 	case m.syscallActive:
 		return m.syscallJump()
+	case m.cpufeatActive:
+		return m.cpufeatJump()
 	case m.gotoActive:
 		m.activateGoto()
 		m.closeGoto()
@@ -284,11 +290,10 @@ func (m *Model) listGeometryFor() (listGeometry, bool) {
 	case modeSources:
 		m.ensureSources()
 		return listGeometry{len(m.sourcesRows), 1, oneRow, &m.sourcesCur, &m.sourcesTop, m.renderedSourcesTop}, true
+	case modeRelocs:
+		m.recomputeRelocs()
+		return listGeometry{len(m.relocFiltered), 2, oneRow, &m.relocCur, &m.relocTop, m.relocTop}, true
 	case modeLibs:
-		if m.libsRelocs {
-			m.recomputeRelocs()
-			return listGeometry{len(m.relocFiltered), 2, oneRow, &m.relocCur, &m.relocTop, m.relocTop}, true
-		}
 		if m.file.Info == nil {
 			return listGeometry{}, false
 		}
@@ -527,7 +532,7 @@ func (m *Model) handleClick(x, y int) bool {
 				m.toggleSymbolNode()
 			case m.mode == modeSources && idx < len(m.sourcesRows) && m.sourcesRows[idx].node.leaf < 0:
 				m.toggleSourceNode()
-			case m.mode == modeLibs && !m.libsRelocs && idx < len(m.libsRows) && m.libsRows[idx].node.leaf < 0:
+			case m.mode == modeLibs && idx < len(m.libsRows) && m.libsRows[idx].node.leaf < 0:
 				m.toggleLibNode()
 			}
 		}

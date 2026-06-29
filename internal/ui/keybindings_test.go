@@ -213,14 +213,19 @@ func TestKeysSections(t *testing.T) {
 		if h.m().showSegments == seg0 {
 			t.Fatal("t did not toggle sections/segments")
 		}
-		h.press("t") // -> header
-		if !h.m().showHeader {
-			t.Fatal("second t did not reach the header mode")
+		h.press("t") // -> back to sections (2-state cycle now)
+		if h.m().showSegments {
+			t.Fatal("second t did not return to the section table")
 		}
-		h.press("t") // -> back to sections
-		if h.m().showSegments || h.m().showHeader {
-			t.Fatal("third t did not return to the section table")
-		}
+	}
+	// The raw header moved from a Sections sub-mode to the ⇧H overlay.
+	h.press("H")
+	if !h.m().headerActive {
+		t.Fatal("H did not open the raw-header overlay")
+	}
+	h.press("esc") // close it so the rest of the section-key checks run on the table
+	if h.m().headerActive {
+		t.Fatal("esc did not close the raw-header overlay")
 	}
 
 	// Select an executable section, then d/h/m jump to disasm/hex/raw.

@@ -13,6 +13,7 @@ import (
 	"debug/pe"
 	"encoding/binary"
 	"fmt"
+	"sort"
 )
 
 // Reloc is one relocation entry, normalised across container formats.
@@ -39,6 +40,35 @@ func (f *File) Relocations() []Reloc {
 	return f.relocs
 }
 
+// HasRelocs reports whether the binary has any relocation entries (cheap after
+// the first Relocations() build; triggers it otherwise).
+func (f *File) HasRelocs() bool { return len(f.Relocations()) > 0 }
+
+// IsRelocatable reports whether the file is a relocatable object (ELF ET_REL /
+// Mach-O MH_OBJECT) — a cheap flag set at load. Only such files carry relocations
+// against code operands (a linked image's dynamic relocs patch GOT/data, never
+// instructions), so the disasm reloc annotation is gated on this to avoid forcing
+// the (potentially large) reloc build on a linked binary that never needs it.
+func (f *File) IsRelocatable() bool { return f.relocatable }
+
+// RelocsInRange returns the relocations whose patched address falls in [lo, hi),
+// via a lazily-built address-sorted index — so the disasm/hex views can annotate
+// the instruction or byte a relocation lands on without scanning the whole list.
+func (f *File) RelocsInRange(lo, hi uint64) []Reloc {
+	f.relocSortOnce.Do(func() {
+		rs := append([]Reloc(nil), f.Relocations()...)
+		sort.Slice(rs, func(i, j int) bool { return rs[i].Offset < rs[j].Offset })
+		f.relocsByAddr = rs
+	})
+	rs := f.relocsByAddr
+	i := sort.Search(len(rs), func(i int) bool { return rs[i].Offset >= lo })
+	var out []Reloc
+	for ; i < len(rs) && rs[i].Offset < hi; i++ {
+		out = append(out, rs[i])
+	}
+	return out
+}
+
 // elfRelocs decodes every SHT_REL / SHT_RELA section into the neutral model,
 // resolving each entry's type name (per machine) and target symbol (via the
 // reloc section's linked symbol table).
@@ -59,12 +89,22 @@ func (f *File) elfRelocs(ef *elf.File) []Reloc {
 		syms, libOf := elfRelocSymbols(ef, s)
 		rela := s.Type == elf.SHT_RELA
 		entSize := elfRelocEntSize(is64, rela)
+		// In a relocatable object r_offset is relative to the section the relocs
+		// apply to (sh_info); add that section's (possibly synthetic) base so Offset
+		// is always an absolute address that matches the disasm/hex/symbol views. In
+		// a linked image r_offset is already a virtual address.
+		var targetBase uint64
+		targetName := s.Name
+		if ef.Type == elf.ET_REL && int(s.Info) < len(f.Sections) {
+			targetBase = f.Sections[s.Info].Addr
+			targetName = f.Sections[s.Info].Name
+		}
 		for off := 0; off+entSize <= len(data); off += entSize {
 			roff, sym, rtype := decodeReloc(data, off, is64, bo)
 			r := Reloc{
-				Offset:  roff,
+				Offset:  targetBase + roff,
 				Type:    typeName(rtype),
-				Section: s.Name,
+				Section: targetName,
 			}
 			if rela {
 				r.HasAddend = true

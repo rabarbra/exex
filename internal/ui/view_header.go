@@ -1,86 +1,71 @@
 package ui
 
-// The Sections view's third mode: the raw container header (ELF e_*, Mach-O
-// mach_header, PE COFF/optional header) as an aligned field table. It reuses the
-// Sections view's `t` toggle (sections → segments → header) and its scroll
-// cursor, but is a static key/value list, so filters, sort and row actions are
-// inert here.
+// The raw container header (ELF e_*, Mach-O mach_header + load commands, PE
+// COFF/optional header) as an aligned field table, shown in a scrollable overlay
+// (toggled with ⇧H) rather than as a hidden Sections sub-mode — the header is a
+// property of the whole file, so it belongs with the Info-level overlays.
+
+import (
+	"fmt"
+	"strings"
+)
 
 // headerFieldKeyWidth is the aligned width of the field-name column.
 const headerFieldKeyWidth = 20
 
-// renderHeaderFields renders the raw header field table for the Sections view's
-// header mode, scrolled by the shared section cursor.
-func (m *Model) renderHeaderFields(bodyH int) string {
-	if bodyH < 3 {
-		bodyH = 3
-	}
+// headerPageStep is the scroll distance for PgUp/PgDn in the header overlay.
+const headerPageStep = 10
+
+// renderHeaderModal renders the raw header field table as a centred, scrollable
+// overlay.
+func (m *Model) renderHeaderModal() string {
 	fields := m.file.RawHeader()
-	hint := m.theme.footerStyle.Render(
-		string(m.file.Format) + " header   t: toggle (sections · segments · header)")
-	header := m.tableHeader(" Field                Value")
+	rowW := modalListWidth(m.width)
+	var sb strings.Builder
+	sb.WriteString(m.theme.modalTitle(string(m.file.Format) + " header"))
+	sb.WriteString("\n\n")
 	if len(fields) == 0 {
-		rows := []string{hint, header, " " + m.theme.srcShadowStyle.Render("no raw header fields for this format")}
-		return padBodyRows(rows, m.width, bodyH)
+		sb.WriteString(" " + m.theme.srcShadowStyle.Render("no raw header fields for this format") + "\n")
+		return m.theme.modalStyle.Render(sb.String())
 	}
 
-	visible := bodyH - 2 // hint row + header
-	if visible < 1 {
-		visible = 1
-	}
-	if m.sectionsCur >= len(fields) {
-		m.sectionsCur = len(fields) - 1
-	}
-	if m.sectionsCur < 0 {
-		m.sectionsCur = 0
-	}
-	top := m.visualTopForView(m.sectionsCur, m.sectionsTop, len(fields), visible, func(int) int { return 1 })
-	m.sectionsTop = top
-	m.pageRows = pageStep(top, len(fields), visible, func(int) int { return 1 })
-
-	rows := []string{hint, header}
-	for i := top; i < len(fields); i++ {
-		f := fields[i]
-		line := " " + m.theme.headerKey.Render(padVisual(f.Name, headerFieldKeyWidth)) + " " +
+	// Build every row, then window vertically to the terminal height.
+	rows := make([]string, 0, len(fields))
+	for _, f := range fields {
+		row := " " + m.theme.headerKey.Render(padVisual(f.Name, headerFieldKeyWidth)) + " " +
 			m.theme.tableRowStyle.Render(f.Value)
-		if i == m.sectionsCur {
-			line = m.theme.tableSelStyle.Render(padVisual(f.Name, headerFieldKeyWidth+1) + " " + f.Value)
-		}
-		if !appendRenderedRowsIndented(&rows, line, m.width, m.wrap, 6, bodyH) {
-			break
-		}
+		rows = append(rows, fitANSIWidth(row, rowW))
 	}
-	return padBodyRows(rows, m.width, bodyH)
+	maxRows := max(1, m.height-8)
+	hint := "↑/↓ scroll · Esc/⇧H close"
+	if len(rows) > maxRows {
+		m.headerScroll = clamp(m.headerScroll, 0, len(rows)-maxRows)
+		hint = fmt.Sprintf("↑/↓ scroll · %d–%d of %d · Esc closes",
+			m.headerScroll+1, m.headerScroll+maxRows, len(rows))
+		rows = rows[m.headerScroll : m.headerScroll+maxRows]
+	} else {
+		m.headerScroll = 0
+	}
+	sb.WriteString(strings.Join(rows, "\n"))
+	sb.WriteString("\n\n")
+	sb.WriteString(m.theme.modalHint(hint))
+	return m.theme.modalStyle.Render(sb.String())
 }
 
-// cycleSectionsMode advances the Sections view's `t` toggle through
-// sections → segments → header → sections, skipping the segment table when the
-// binary has none (e.g. PE). It returns a status label for the new mode.
+// cycleSectionsMode advances the Sections view's `t` toggle between the section
+// and segment tables (the raw header moved to the ⇧H overlay), skipping segments
+// when the binary has none (e.g. PE). It returns a status label for the new mode.
 func (m *Model) cycleSectionsMode() string {
-	switch {
-	case m.showHeader:
-		m.showHeader = false // → sections
-	case m.showSegments:
+	if m.showSegments {
 		m.showSegments = false
-		m.showHeader = true // → header
-	default:
-		if len(m.segments) > 0 {
-			m.showSegments = true // → segments
-		} else {
-			m.showHeader = true // no segments: sections → header
-		}
+	} else if len(m.segments) > 0 {
+		m.showSegments = true
 	}
 	m.sectionsCur, m.sectionsTop = 0, 0
 	m.sectionsFilter.SetValue("")
-	if !m.showHeader {
-		m.recomputeSections()
+	m.recomputeSections()
+	if m.showSegments {
+		return "showing segments (t for sections)"
 	}
-	switch {
-	case m.showHeader:
-		return "showing header (t for sections)"
-	case m.showSegments:
-		return "showing segments (t for header)"
-	default:
-		return "showing sections (t for segments)"
-	}
+	return "showing sections (t for segments)"
 }

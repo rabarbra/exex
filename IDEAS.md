@@ -13,7 +13,12 @@ requirements panel, dyld cache — lives in `docs/ROADMAP.md` #34–#37.)
 
 ## Tier 1 — biggest clarity wins
 
-### 1. Universal "jump to anything" palette  ⭐ (in progress)
+### 1. Universal "jump to anything" palette  ✅ (done)
+
+Built on the `g` modal: scopes (All / Symbols / Sections / Strings / Libraries /
+Address) cycled with ⇥, an ⌥p virtual↔physical address toggle (when LMAs differ),
+kind-tagged colour-coded results, and smart routing per kind. Remaining polish:
+optional "go to in <view>" picking; include strings in All behind a length guard.
 
 Today finding things is split across `g` (goto: symbol/addr), `/` (in-view
 search) and five per-view filters — the user must know which to use. One key
@@ -37,26 +42,23 @@ should open a fuzzy palette over **everything** and jump on Enter.
 - **Results coloured by kind** (matching the Symbols view + the xref/syscall
   modal vocabulary), with a kind tag.
 
-### 2. Cross-file back-stack + breadcrumb
+### 2. Cross-file back-stack + breadcrumb  ✅ (done)
 
-`openLibAsPrimary` / `loadArchiveMember` / `switchFatArch` return fresh models
-with **no way back** — opening a dependency is a one-way trip, which makes
-"explore dependencies" disorienting.
+Opening a dependency (`openLibAsPrimary`) now pushes the model we came from onto a
+stack and carries it into the new model; **Ctrl+O** pops back to it with its view
+and cursor exactly as left. A breadcrumb (`app ▸ libfoo.so ▸ libbar.so  ^O`) is
+right-aligned in the tab strip while descended. (Archive members and fat-arch
+slices stay lateral — they already have the member list / arch cycle via `t`.)
 
-- Keep a small stack of opened files (path + the view/cursor you left).
-- Show a breadcrumb in the header: `/bin/app ▸ libfoo.so ▸ kbd_write`.
-- Esc / a back key pops to where you came from.
+### 3. Info as a landing dashboard  ✅ (done)
 
-### 3. Info as a landing dashboard
-
-It's the first screen but a flat field list. Make it answer at a glance:
-
-- **What is this** — format / arch / type.
-- **What it needs** — arch + bits + endianness, OS/ABI, PIE/static/dynamic, CPU
-  baseline (ties to ROADMAP #34/#35).
-- **What's inside** — symbol / section / string / library counts, **each with an
-  inline "→ press N" jump hint** (today only libs has one).
-- **Entry point** and **top dependencies**.
+The Info view now leads with a **Requirements** block (CPU/arch + bits + endian,
+minimum OS, linking/PIE, and a "press F" CPU-features pointer) and a **Contents**
+table-of-contents (Sections/Symbols/Libraries counts + Disassembly/Strings/Sources,
+each with its "→ press N" jump key, plus "Find anything → press g"). The Identity
+section was trimmed so it no longer repeats those facts. CPU-feature detection
+(ROADMAP #34) and the Requirements panel (#35) shipped: `⇧F` scans and shows the
+required features + baseline (jump to first use), and `-o cpu-features` dumps it.
 
 ---
 

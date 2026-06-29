@@ -292,6 +292,34 @@ func (f *File) SetDisasmAll(on bool) { f.disasmAll = on }
 // DisasmAll reports whether disasm-all mode is active.
 func (f *File) DisasmAll() bool { return f.disasmAll }
 
+// HasPhysAddrs reports whether any section carries a distinct load/physical
+// address (a higher-half kernel, say) — so a caller can offer to interpret a
+// typed address as physical.
+func (f *File) HasPhysAddrs() bool {
+	for i := range f.Sections {
+		if f.Sections[i].PhysAddr != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// PhysToVirtual maps a physical/load (LMA) address to its virtual address via the
+// section whose load range contains it; ok is false when none does. Used to jump
+// to a physical address in a binary whose VMA differs from its LMA.
+func (f *File) PhysToVirtual(phys uint64) (uint64, bool) {
+	for i := range f.Sections {
+		s := &f.Sections[i]
+		if s.PhysAddr == 0 || s.Size == 0 {
+			continue
+		}
+		if phys >= s.PhysAddr && phys < s.PhysAddr+s.Size {
+			return s.Addr + (phys - s.PhysAddr), true
+		}
+	}
+	return 0, false
+}
+
 // SyntheticAddrs reports whether section/symbol addresses are a synthetic layout
 // exex assigned because the file is a relocatable object whose sections all load
 // at address 0 (so they'd otherwise collide). The real position of any address is

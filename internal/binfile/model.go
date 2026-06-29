@@ -181,9 +181,11 @@ type File struct {
 	header    []string
 	rawHeader []HeaderField // raw container-header fields (Header sub-view)
 
-	relocs     []Reloc        // relocation entries (built lazily)
-	relocBuild func() []Reloc // builds relocs on first Relocations() call
-	relocOnce  sync.Once      // guards the lazy relocation build
+	relocs        []Reloc        // relocation entries (built lazily)
+	relocBuild    func() []Reloc // builds relocs on first Relocations() call
+	relocOnce     sync.Once      // guards the lazy relocation build
+	relocsByAddr  []Reloc        // relocs sorted by Offset, for address lookup (lazy)
+	relocSortOnce sync.Once      // guards the sorted-reloc build
 
 	symByAddr      []Symbol // sorted by Addr
 	lowerName      []string // lazily-built lowercased Symbols[i].Name (for filtering)
@@ -210,6 +212,7 @@ type File struct {
 	allImage  *Image        // every section with file content (disasm-all), lazy
 	disasmAll bool          // ExecImage returns allImage (disassemble all sections)
 	synthetic bool          // section/symbol addresses are a synthetic layout (relocatable object)
+	relocatable bool        // a relocatable object (ELF ET_REL / Mach-O MH_OBJECT)
 	strings   []StringEntry // printable strings, extracted lazily
 }
 

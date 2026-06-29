@@ -87,6 +87,38 @@ func (m *Model) instAnnotation(text string, class disasm.InstClass) string {
 	return strings.Join(notes, ", ")
 }
 
+// relocNote describes any relocation whose patched address lies within the
+// instruction's bytes [addr, addr+n) — the resolved target of a placeholder
+// operand. "" when the instruction carries no relocation.
+func (m *Model) relocNote(addr uint64, n int) string {
+	// Only relocatable objects have relocs against code operands; gating on this
+	// (a cheap flag) keeps the lazy reloc build from ever firing for a linked
+	// binary that never needs it.
+	if n <= 0 || !m.file.IsRelocatable() || !m.file.HasRelocs() {
+		return ""
+	}
+	rs := m.file.RelocsInRange(addr, addr+uint64(n))
+	if len(rs) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, r := range rs {
+		target := r.Sym
+		if target == "" {
+			target = r.Type // no symbol (e.g. a section-relative reloc): name the type
+		}
+		if r.HasAddend && r.Addend != 0 {
+			if r.Addend > 0 {
+				target += fmt.Sprintf("+0x%x", r.Addend)
+			} else {
+				target += fmt.Sprintf("-0x%x", -r.Addend)
+			}
+		}
+		parts = append(parts, "→ "+target)
+	}
+	return strings.Join(parts, ", ")
+}
+
 // firstToken returns the mnemonic (first whitespace-delimited token), lowered.
 func firstToken(text string) string {
 	text = strings.TrimSpace(text)
@@ -366,6 +398,15 @@ func (m *Model) disasmInstRows(inst disasm.Inst, w int, selected bool, targetSty
 	note := ""
 	if !m.cfg.Behavior.HideAnnotations {
 		note = m.instAnnotation(inst.Text, inst.Class)
+		// A relocation landing in this instruction resolves a placeholder operand
+		// (`call 0x0` → printf) — the key context for object files. Show it first.
+		if rn := m.relocNote(inst.Addr, len(inst.Bytes)); rn != "" {
+			if note != "" {
+				note = rn + ", " + note
+			} else {
+				note = rn
+			}
+		}
 	}
 
 	asmFit := fitANSIWidth(asm, max(1, w-asmCol))

@@ -42,11 +42,15 @@ func (m *Model) View() tea.View {
 		body = m.renderSources()
 	case modeLibs:
 		body = m.renderLibs()
+	case modeRelocs:
+		body = m.renderRelocs()
 	}
 	body = m.theme.renderViewBackground(body, m.width)
 	parts = append(parts, body, m.renderFooter())
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	switch {
+	case m.headerActive:
+		out = m.overlayCenter(out, m.renderHeaderModal())
 	case m.helpActive:
 		out = m.overlayCenter(out, m.renderHelpModal())
 	case m.settingsActive:
@@ -59,6 +63,8 @@ func (m *Model) View() tea.View {
 		out = m.overlayCenter(out, m.renderXrefModal())
 	case m.syscallActive:
 		out = m.overlayCenter(out, m.renderSyscallModal())
+	case m.cpufeatActive:
+		out = m.overlayCenter(out, m.renderCPUFeatModal())
 	}
 	m.viewCache = out
 	m.viewDirty = false
@@ -94,8 +100,8 @@ func (m *Model) renderHelpModal() string {
 
 	left := []helpEntry{
 		head("Global"),
-		row("1–9", "switch view"),
-		row("g", "go to address / symbol"),
+		row("1–9 · 0", "switch view (0 = relocations)"),
+		row("g", "jump to anything (symbol/section/string/lib/addr · ⇥ scope)"),
 		row(",", "settings (theme, wrap, …)"),
 		row("?", "this help"),
 		row("w", "toggle long-line wrap"),
@@ -103,6 +109,9 @@ func (m *Model) renderHelpModal() string {
 		row("⇧a/⇧s/⇧l", "copy address / name / line"),
 		row("t / ⇥", "switch view"),
 		row("/  n/N", "search · next/prev"),
+		row("^O", "back (return from an opened dependency)"),
+		row("⇧F", "CPU features required (SSE/AVX/NEON · baseline)"),
+		row("⇧H", "raw file header (ELF e_* / Mach-O load cmds / PE)"),
 		row("q / ^C", "quit"),
 		row("↵ Enter", "open / jump"),
 		blank,
@@ -160,11 +169,13 @@ func (m *Model) renderHelpModal() string {
 		row("t / ⇥", "toggle directory tree / flat list"),
 		row("↵ Enter / o", "open in disasm source-first view"),
 		blank,
-		head("Libraries"),
-		row("o", "open as primary"),
-		row(altKeys("a"), "filter all/on-disk/cache"),
-		row("t / ⇥", "cycle flat / tree / relocations"),
-		row("↵ Enter", "imported symbols · (relocs) hex"),
+		head("Libraries / Relocations"),
+		row("8 / 0", "libraries view / relocations view"),
+		row("o", "(libs) open as primary"),
+		row(altKeys("a"), "(libs) filter all/on-disk/cache"),
+		row("t / ⇥", "(libs) flat ↔ tree"),
+		row("↵", "libs: imported symbols · relocs: go to patched addr"),
+		row("s/r  "+altKeys("t", "s"), "(relocs) sort/rev · type/section filter"),
 		blank,
 		head("Strings"),
 		row(altKeys("s"), "filter by section"),
@@ -277,37 +288,39 @@ func (m *Model) overlayCenter(bg, modal string) string {
 
 func (m *Model) renderGotoModal() string {
 	var sb strings.Builder
-	sb.WriteString(m.theme.modalTitle("Go to"))
-	sb.WriteString("\n\n")
+	rowW := modalListWidth(m.width)
+	sb.WriteString(m.theme.modalTitle("Jump to"))
+	sb.WriteString("\n")
+	sb.WriteString(fitANSIWidth(m.gotoScopeBar(), rowW))
+	sb.WriteString("\n")
 	sb.WriteString(m.gotoInput.View())
 	sb.WriteString("\n")
+	m.modalListRow = 4 // title + scope bar + input + blank → list at row 4
 	if len(m.gotoResults) == 0 {
 		sb.WriteString("\n")
-		sb.WriteString(m.theme.modalHint("type an address or symbol name"))
+		sb.WriteString(m.theme.modalHint("type to search · ⇥ scope · " + m.gotoEmptyHint()))
 		sb.WriteString("\n")
 	} else {
 		sb.WriteString("\n")
 		addrW := m.file.AddrHexWidth()
-		m.modalListRow = 4 // title(0) + blank(1) + input(2) + blank(3) → list at row 4
-		// Window the results to the terminal height (title/input/hint/border cost
-		// ~10 rows) so the modal never overruns a short window; the selection stays
-		// visible as it scrolls.
-		visible := clamp(m.height-10, 3, 40)
+		visible := clamp(m.height-11, 3, 40)
 		gotoTop := visualTop(m.gotoSel, m.gotoTop, len(m.gotoResults), visible, func(int) int { return 1 })
+		m.gotoTop = gotoTop
 		end := min(gotoTop+visible, len(m.gotoResults))
-		rowW := modalListWidth(m.width)
-		labelW := rowW - addrW - 6
+		labelW := rowW - addrW - 9
 		for i := gotoTop; i < end; i++ {
 			t := m.gotoResults[i]
-			// Colour the label by kind so results read consistently with the Symbols
-			// view: a symbol uses its kind/bind colour, a raw-address target is blue.
-			label := truncateMiddle(t.label, labelW)
-			if t.isSym {
-				label = m.theme.styleForSymbol(t.sym.Kind, t.sym.Bind).Render(label)
-			} else {
-				label = m.theme.headerKey.Render(label)
+			loc := strings.Repeat(" ", 2+addrW)
+			if t.hasAddr || t.kind == gkAddr {
+				loc = m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, t.addr))
+			} else if t.kind == gkLib {
+				loc = padVisual("", 2+addrW)
 			}
-			line := fmt.Sprintf(" %s  %s", m.theme.addrStyle.Render(fmt.Sprintf("0x%0*x", addrW, t.addr)), label)
+			// Colour the kind tag and label by kind so mixed results (the All scope)
+			// are distinguishable at a glance.
+			label := m.gotoKindStyle(t).Render(truncateMiddle(t.label, labelW))
+			line := fmt.Sprintf(" %s  %s %s",
+				m.gotoTagStyle(t.kind).Render(t.kind.tag()), loc, label)
 			line = padRight(line, rowW)
 			if i == m.gotoSel {
 				line = m.theme.tableSelStyle.Render(ansi.Strip(line))
@@ -320,8 +333,85 @@ func (m *Model) renderGotoModal() string {
 		count = fmt.Sprintf("  (%d/%d)", m.gotoSel+1, n)
 	}
 	sb.WriteString("\n")
-	sb.WriteString(m.theme.modalHint("↑/↓ select · Enter jump · Esc cancel" + count))
+	sb.WriteString(m.theme.modalHint("↑/↓ select · ↵ jump · ⇥ scope · Esc cancel" + count))
 	return m.theme.modalStyle.Render(sb.String())
+}
+
+// gotoScopeBar renders the scope selector with the active scope highlighted, plus
+// the physical-address toggle when the binary has distinct LMAs.
+func (m *Model) gotoScopeBar() string {
+	var b strings.Builder
+	for s := gotoScope(0); s < gsScopeCount; s++ {
+		if s > 0 {
+			b.WriteString(m.theme.srcShadowStyle.Render(" "))
+		}
+		if s == m.gotoScope {
+			b.WriteString(m.theme.tableSelStyle.Render(" " + s.String() + " "))
+		} else {
+			b.WriteString(m.theme.srcShadowStyle.Render(" " + s.String() + " "))
+		}
+	}
+	if (m.gotoScope == gsAll || m.gotoScope == gsAddr) && m.file.HasPhysAddrs() {
+		tag := "virtual"
+		if m.gotoAddrPhys {
+			tag = m.theme.warnStyle.Render("physical")
+		}
+		b.WriteString(m.theme.modalHint("   addr: ") + tag + m.theme.modalHint(" (⌥p)"))
+	}
+	return b.String()
+}
+
+// gotoTagStyle colours the kind badge with a distinct hue per kind. In the All
+// scope only addr/sym/sec appear, and those three (blue/green/yellow) are clearly
+// distinct; str/lib show only in their own scopes.
+func (m *Model) gotoTagStyle(k gotoKind) lipgloss.Style {
+	switch k {
+	case gkSymbol:
+		return m.theme.infoStyle // green
+	case gkSection:
+		return m.theme.warnStyle // yellow
+	case gkString:
+		return m.theme.errorStyle // red
+	case gkLib:
+		return m.theme.srcShadowStyle // dim
+	default:
+		return m.theme.headerKey // addr — blue
+	}
+}
+
+// gotoKindStyle colours a result by kind (symbols by their own kind/bind colour,
+// like the Symbols view; other kinds by category).
+func (m *Model) gotoKindStyle(t gotoTarget) lipgloss.Style {
+	switch t.kind {
+	case gkSymbol:
+		return m.theme.styleForSymbol(t.sym.Kind, t.sym.Bind)
+	case gkSection:
+		return m.theme.infoStyle
+	case gkString:
+		return m.theme.tableRowStyle
+	case gkLib:
+		return m.theme.symbolNameStyle
+	default:
+		return m.theme.headerKey // address
+	}
+}
+
+// gotoEmptyHint names what the current scope searches.
+func (m *Model) gotoEmptyHint() string {
+	switch m.gotoScope {
+	case gsAddr:
+		return "a hex/decimal address"
+	case gsStrings:
+		return "a printable string"
+	case gsLibs:
+		return "a linked library"
+	case gsSections:
+		return "a section name"
+	case gsSymbols:
+		return "a symbol name"
+	default:
+		return "a symbol, section or address"
+	}
 }
 
 func (m *Model) renderSearchModal() string {
@@ -368,6 +458,7 @@ var tabItems = []struct {
 	{"7·Strings", modeStrings},
 	{"8·Libs", modeLibs},
 	{"9·Sources", modeSources},
+	{"0·Relocs", modeRelocs},
 }
 
 func (m *Model) tabSegment(label string, active bool) string {
@@ -421,9 +512,32 @@ func (m *Model) renderTabs() string {
 		segs = append(segs, m.tabSegment(tabLabel(t.label, active, compact), active))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Left, segs...)
+	// When we've descended into another file (a dependency), show the breadcrumb
+	// right-aligned in the tab strip so "where am I" is always visible.
+	if bc := m.breadcrumb(); bc != "" {
+		avail := m.width - lipgloss.Width(row) - 2
+		if avail >= 14 {
+			crumb := m.theme.footerStyle.Render(truncLeftWidth(bc, avail-9)) + m.theme.helpKeyStyle.Render(" ^O")
+			gap := max(1, m.width-lipgloss.Width(row)-lipgloss.Width(crumb))
+			return row + strings.Repeat(" ", gap) + crumb
+		}
+	}
 	// Clamp to width: a too-wide tab strip would wrap and push the whole body
 	// down a row (and the status line off-screen).
 	return padRight(row, m.width)
+}
+
+// truncLeftWidth trims s from the left to fit w columns, keeping the tail (the
+// current file) and prefixing "…".
+func truncLeftWidth(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 0 && lipgloss.Width(string(r))+1 > w {
+		r = r[1:]
+	}
+	return "…" + string(r)
 }
 
 // tabHitTest maps an x column on the tab row to the tab the user clicked. It must
@@ -480,6 +594,9 @@ func (m *Model) switchMode(md mode) tea.Cmd {
 		m.ensureStrings()
 	case modeSources:
 		m.ensureSources()
+	case modeRelocs:
+		m.buildRelocFacets()
+		m.recomputeRelocs()
 	}
 	m.setMode(md)
 	return nil
@@ -512,10 +629,7 @@ func (m *Model) viewHints() []footerHint {
 		}
 		return hints
 	case modeSections:
-		if m.showHeader {
-			return []footerHint{{"t", "sec/seg/hdr"}, {"↑/↓", "scroll"}, {"esc", "sections"}}
-		}
-		return []footerHint{{"↵", "open"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"t", "sec/seg/hdr"}, {"/", "filter"}, {altKeys("t", "f"), "type/flags"}, {"⇧a/⇧s", "copy"}}
+		return []footerHint{{"↵", "open"}, {"d/h/m", "go to"}, {"s/r", "sort/rev"}, {"t", "sec/seg"}, {"/", "filter"}, {altKeys("t", "f"), "type/flags"}, {"⇧H", "header"}}
 	case modeSymbols:
 		if m.symbolTreeActive() {
 			return []footerHint{{"←/→", "fold/unfold"}, {"↵", "all below"}, {"+/−", "all"}, {"t", "flat"}}
@@ -553,10 +667,9 @@ func (m *Model) viewHints() []footerHint {
 		}
 		return []footerHint{{"↵", "open"}, {"s/r", "sort/rev"}, {"t", "tree"}, {"/", "filter"}, {altKeys("a"), "present"}, {"⇧s", "copy"}}
 	case modeLibs:
-		if m.libsRelocs {
-			return []footerHint{{"↵", "hex"}, {"s/r", "sort/rev"}, {altKeys("t", "s"), "type/sec"}, {"t", "libs"}, {"/", "filter"}, {"⇧a/⇧s", "copy"}}
-		}
-		return []footerHint{{"↵", "imports"}, {"o", "open"}, {"r", "rev"}, {"t", "tree/relocs"}, {"/", "filter"}, {altKeys("a"), "avail"}, {"⇧s", "copy"}}
+		return []footerHint{{"↵", "imports"}, {"o", "open"}, {"r", "rev"}, {"t", "tree"}, {"/", "filter"}, {altKeys("a"), "avail"}, {"⇧s", "copy"}}
+	case modeRelocs:
+		return []footerHint{{"↵", "go to patched addr"}, {"s/r", "sort/rev"}, {altKeys("t", "s"), "type/section"}, {"/", "filter"}}
 	}
 	return nil
 }

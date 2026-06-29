@@ -5,6 +5,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -127,16 +128,7 @@ func (m *Model) setAllLibsCollapsed(collapsed bool) {
 }
 
 func (m *Model) updateLibs(key string) (tea.Model, tea.Cmd) {
-	if m.libsRelocs {
-		return m.updateRelocs(key)
-	}
-	// With no needed libraries the list is empty, but `t` can still reach the
-	// relocation table (a static-PIE binary has relocations but no DT_NEEDED).
 	if m.file.Info == nil || len(m.file.Info.DynamicLibs) == 0 {
-		if key == "t" {
-			m.enterRelocs()
-			m.setStatus("showing relocations (t for libraries)", false)
-		}
 		return m, nil
 	}
 	m.buildLibRows()
@@ -266,14 +258,13 @@ func (m *Model) openLibAsPrimary(lib string) (tea.Model, tea.Cmd) {
 		m.setStatus("open library: "+err.Error(), true)
 		return m, nil
 	}
-	nm.width, nm.height = m.width, m.height
+	// Descending into a dependency — remember where we came from so Back returns.
+	m.enterFile(nm, filepath.Base(path))
+	nm.setStatus("opened dependency "+filepath.Base(path)+"  (Ctrl+O: back)", false)
 	return nm, nm.switchMode(modeInfo)
 }
 
 func (m *Model) renderLibs() string {
-	if m.libsRelocs {
-		return m.renderRelocs()
-	}
 	bodyH := m.bodyHeight()
 	info := m.file.Info
 	if info == nil || len(info.DynamicLibs) == 0 {

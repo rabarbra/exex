@@ -489,7 +489,7 @@ Then:
   sites (giving macOS a real syscall surface);
 - let the Libs view open a `·cache` library as primary (its symbols/disasm).
 
-## 34. CPU-feature detection
+## 34. CPU-feature detection  ✅ (done)
 
 Scan the decoded instruction stream — reusing the syscall scan's infrastructure
 (windowed `decodeAcross` over the exec image, parallel, cancellable) — and
@@ -505,7 +505,7 @@ Output the set used and the implied baseline (e.g. x86-64-v3). A sibling to the
 syscalls feature: same scan, a per-arch mnemonic→feature table, a modal in the
 disasm view plus an `-o cpu-features` dump.
 
-## 35. Requirements panel
+## 35. Requirements panel  ✅ (done)
 
 Consolidate the scattered "what it takes to run this" facts into one block in the
 Info view: arch + bits + endianness · OS/ABI (ELF `OSABI`; Mach-O — decode

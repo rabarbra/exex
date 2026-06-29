@@ -27,6 +27,7 @@ const (
 	modeRaw
 	modeStrings
 	modeSources
+	modeRelocs
 )
 
 // defaultDisasmMaxBytes bounds each decoded disassembly window by default.
@@ -69,7 +70,6 @@ type sectionsState struct {
 	sections           []binfile.Section
 	segments           []binfile.Segment
 	showSegments       bool // the `t` toggle: list segments instead of sections
-	showHeader         bool // the `t` toggle's third state: the raw container header
 	sectionsFilter     textinput.Model
 	sectionsFiltered   []int // indices into the active slice (sections or segments)
 	sectionsCur        int
@@ -318,7 +318,6 @@ type libsState struct {
 	libsFilter    textinput.Model // name search (the `/` filter)
 	libsSortDesc  bool            // reverse the (name) sort
 
-	libsRelocs    bool           // the `t` cycle's third state: the relocation table
 	relocCur      int            // cursor in the relocation table
 	relocTop      int            // viewport top of the relocation table
 	relocFiltered []int          // indices into file.Relocations() after the filter
@@ -459,6 +458,11 @@ type interactionState struct {
 	helpActive bool
 	helpScroll int
 
+	// headerActive toggles the raw container-header overlay (ELF e_*, Mach-O
+	// mach_header + load commands, PE headers); headerScroll is its scroll offset.
+	headerActive bool
+	headerScroll int
+
 	// infoBody caches the Info view's styled body (static per width/theme/arch);
 	// infoBodyW is the width it was built for. Cleared on a theme change.
 	infoBody  string
@@ -487,11 +491,13 @@ func (m *Model) setMode(md mode) {
 
 // gotoState stores modal state for address/symbol navigation.
 type gotoState struct {
-	gotoInput   textinput.Model
-	gotoActive  bool
-	gotoResults []gotoTarget
-	gotoSel     int
-	gotoTop     int // scroll offset into gotoResults
+	gotoInput    textinput.Model
+	gotoActive   bool
+	gotoResults  []gotoTarget
+	gotoSel      int
+	gotoTop      int       // scroll offset into gotoResults
+	gotoScope    gotoScope // what the palette searches (all / symbols / sections / …)
+	gotoAddrPhys bool      // interpret a typed address as physical (LMA), resolving to virtual
 }
 
 // searchState stores modal and async state for view searches.
@@ -545,6 +551,13 @@ type Model struct {
 	cfg   config.Config
 	theme Theme
 
+	// Cross-file exploration: fileStack holds the models we opened *from* (a
+	// dependency / archive member / fat-arch slice each replace the whole model),
+	// so Back can return to them with their state intact; fileLabel is this file's
+	// breadcrumb name.
+	fileStack []*Model
+	fileLabel string
+
 	mode mode
 
 	layoutState
@@ -563,6 +576,7 @@ type Model struct {
 	settingsState
 	xrefState
 	syscallState
+	cpufeatState
 	archiveState
 	statusState
 	keyState

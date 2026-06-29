@@ -30,6 +30,7 @@ var perfViews = []struct {
 	{"disasm", modeDisasm, false}, {"disasm-all", modeDisasm, true},
 	{"hex", modeHex, false}, {"raw", modeRaw, false},
 	{"strings", modeStrings, false}, {"libs", modeLibs, false}, {"sources", modeSources, false},
+	{"relocs", modeRelocs, false},
 }
 
 // RenderViewStats builds a model at w×h on f and measures every view's

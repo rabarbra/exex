@@ -159,25 +159,6 @@ func (m *Model) recomputeSections() {
 }
 
 func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
-	// Header mode is a static field list: only navigation, the `t` toggle and
-	// wrap apply; filters, sort and row actions are inert.
-	if m.showHeader {
-		if navKey(&m.sectionsCur, len(m.file.RawHeader()), m.listPage(), key) {
-			return m, nil
-		}
-		switch key {
-		case "t":
-			m.setStatus(m.cycleSectionsMode(), false)
-		case "esc":
-			m.showHeader = false
-			m.sectionsCur, m.sectionsTop = 0, 0
-			m.recomputeSections()
-			m.setStatus("showing sections", false)
-		case "w":
-			m.toggleWrap()
-		}
-		return m, nil
-	}
 	n := len(m.sectionsFiltered)
 	if navKey(&m.sectionsCur, n, m.listPage(), key) {
 		return m, nil
@@ -365,10 +346,6 @@ func (m *Model) renderSections() string {
 	if bodyH < 3 {
 		bodyH = 3
 	}
-	if m.showHeader {
-		return m.renderHeaderFields(bodyH)
-	}
-
 	total := len(m.sections)
 	kind := "sections"
 	if m.showSegments {

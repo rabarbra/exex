@@ -88,6 +88,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syscallDoneMsg:
 		return m.handleSyscallDone(msg)
 
+	case cpufeatDoneMsg:
+		return m.handleCPUFeatDone(msg)
+
 	case syscallFullDoneMsg:
 		return m.handleSyscallFullDone(msg)
 

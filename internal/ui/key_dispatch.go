@@ -62,7 +62,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateXrefModal(key)
 	}
 	if m.syscallActive {
-		return m.updateSyscallModal(key)
+		return m.updateSyscallModal(msg, key)
 	}
 	if m.settingsActive {
 		return m.updateSettings(key)

@@ -182,7 +182,7 @@ func (m *Model) modalActivate() (tea.Model, tea.Cmd) {
 	case m.xrefActive:
 		return m.updateXrefModal("enter")
 	case m.syscallActive:
-		return m.updateSyscallModal("enter")
+		return m.syscallJump()
 	case m.gotoActive:
 		m.activateGoto()
 		m.closeGoto()

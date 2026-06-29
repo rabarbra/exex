@@ -34,6 +34,7 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 	libFilter := newPromptInput("type to filter…", "/ ")
 	gotoInput := newPromptInput("0x401000 or symbol name", "→ ")
 	searchInput := newPromptInput("hex bytes (de ad be ef) or text", "/ ")
+	sysFilter := newPromptInput("name · #num · symbol", "/ ")
 
 	m := &Model{
 		file:  f,
@@ -79,6 +80,9 @@ func New(f *binfile.File, opts ...Options) (*Model, error) {
 			searchInput:      searchInput,
 			searchForward:    true,
 			searchFromCursor: true,
+		},
+		syscallState: syscallState{
+			syscallFilter: sysFilter,
 		},
 		interactionState: interactionState{
 			wrap:                cfg.Behavior.DefaultWrap,

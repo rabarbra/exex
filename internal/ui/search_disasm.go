@@ -361,12 +361,24 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 	file := m.file
 	svc := m.disasmService()
 	query := step.query
+	queryASCII := true
+	for i := 0; i < len(query); i++ {
+		if query[i] >= 0x80 {
+			queryASCII = false
+			break
+		}
+	}
+	matchText := func(s string) bool {
+		if queryASCII {
+			return containsFold(s, query)
+		}
+		return strings.Contains(strings.ToLower(s), query)
+	}
 	match := func(instText string, addr uint64) bool {
-		if strings.Contains(strings.ToLower(instText), query) {
+		if matchText(instText) {
 			return true
 		}
-		if sym, ok := file.SymbolAt(addr); ok && sym.Addr == addr &&
-			strings.Contains(strings.ToLower(sym.Display()), query) {
+		if sym, ok := file.SymbolAt(addr); ok && sym.Addr == addr && matchText(sym.Display()) {
 			return true
 		}
 		return false

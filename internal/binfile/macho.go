@@ -253,7 +253,18 @@ func (f *File) loadMachO() error {
 	f.dwarfAvail = f.machoHasDWARF(mf)
 	f.header = f.machoHeaderInfo(mf)
 	f.rawHeader = f.machoRawHeader(mf)
-	f.relocs = machoRelocs(mf, base) // eager: needs mf.Symtab, dropped below
+	f.relocAvail = machoHasRelocs(mf)
+	f.relocAvailSet = true
+	if f.relocAvail {
+		var symNames []string
+		if mf.Symtab != nil {
+			symNames = make([]string, len(mf.Symtab.Syms))
+			for i := range mf.Symtab.Syms {
+				symNames[i] = mf.Symtab.Syms[i].Name
+			}
+		}
+		f.relocBuild = func() []Reloc { return machoRelocs(mf, base, symNames) }
+	}
 
 	// Defer the DWARF decode (abbrev/section parse — a big slice of Open for debug
 	// binaries) to the first source/line lookup. mf is retained for that, but its
@@ -518,6 +529,15 @@ func machoName(b []byte) string {
 		b = b[:i]
 	}
 	return string(b)
+}
+
+func machoHasRelocs(mf *macho.File) bool {
+	for _, s := range mf.Sections {
+		if len(s.Relocs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // machoHasDWARF reports whether DWARF is available without parsing it: an

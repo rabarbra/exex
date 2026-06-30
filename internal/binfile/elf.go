@@ -243,7 +243,11 @@ func (f *File) loadELF() error {
 	f.loadELFInfo(ef)
 	f.header = f.elfHeaderInfo(ef)
 	f.rawHeader = f.elfRawHeader(ef)
-	f.relocBuild = func() []Reloc { return f.elfRelocs(ef) }
+	f.relocAvail = elfHasRelocs(ef)
+	f.relocAvailSet = true
+	if f.relocAvail {
+		f.relocBuild = func() []Reloc { return f.elfRelocs(ef) }
+	}
 	return nil
 }
 

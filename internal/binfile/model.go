@@ -196,6 +196,8 @@ type File struct {
 	relocs        []Reloc        // relocation entries (built lazily)
 	relocBuild    func() []Reloc // builds relocs on first Relocations() call
 	relocOnce     sync.Once      // guards the lazy relocation build
+	relocAvail    bool           // cheap load-time indication that relocations exist
+	relocAvailSet bool           // relocAvail was populated by the format loader
 	relocsByAddr  []Reloc        // relocs sorted by Offset, for address lookup (lazy)
 	relocSortOnce sync.Once      // guards the sorted-reloc build
 

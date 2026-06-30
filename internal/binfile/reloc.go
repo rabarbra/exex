@@ -41,9 +41,18 @@ func (f *File) Relocations() []Reloc {
 	return f.relocs
 }
 
-// HasRelocs reports whether the binary has any relocation entries (cheap after
-// the first Relocations() build; triggers it otherwise).
-func (f *File) HasRelocs() bool { return len(f.Relocations()) > 0 }
+// HasRelocs reports whether the binary has any relocation entries. When the
+// loader could determine that no relocation data exists, this stays cheap and
+// does not force the lazy relocation build.
+func (f *File) HasRelocs() bool {
+	if len(f.relocs) > 0 {
+		return true
+	}
+	if f.relocAvailSet && !f.relocAvail {
+		return false
+	}
+	return len(f.Relocations()) > 0
+}
 
 // IsRelocatable reports whether the file is a relocatable object (ELF ET_REL /
 // Mach-O MH_OBJECT) — a cheap flag set at load. Only such files carry relocations
@@ -68,6 +77,15 @@ func (f *File) RelocsInRange(lo, hi uint64) []Reloc {
 		out = append(out, rs[i])
 	}
 	return out
+}
+
+func elfHasRelocs(ef *elf.File) bool {
+	for _, s := range ef.Sections {
+		if (s.Type == elf.SHT_RELA || s.Type == elf.SHT_REL) && s.Size > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // elfRelocs decodes every SHT_REL / SHT_RELA section into the neutral model,
@@ -197,13 +215,10 @@ func elfRelocTypeNamer(m elf.Machine) func(uint32) string {
 
 // machoRelocs collects the per-section relocations the standard library parses
 // (chiefly object files; linked images use dyld bind/rebase or chained fixups,
-// which it does not decode). Built eagerly while mf.Symtab is still live so
-// external entries can be named. base is the slice's virtual-address base.
-func machoRelocs(mf *macho.File, base uint64) []Reloc {
-	var syms []macho.Symbol
-	if mf.Symtab != nil {
-		syms = mf.Symtab.Syms
-	}
+// which it does not decode). symNames is indexed like the original Mach-O symtab;
+// only names are retained so the bulky parsed symtab can be dropped after load.
+// base is the slice's virtual-address base.
+func machoRelocs(mf *macho.File, base uint64, symNames []string) []Reloc {
 	nameType := machoRelocTypeNamer(mf.Cpu)
 	var out []Reloc
 	for _, s := range mf.Sections {
@@ -213,13 +228,18 @@ func machoRelocs(mf *macho.File, base uint64) []Reloc {
 				Type:    nameType(rl.Type),
 				Section: s.Seg + "," + s.Name,
 			}
-			if rl.Extern && int(rl.Value) < len(syms) {
-				r.Sym = syms[rl.Value].Name
+			if rl.Extern && int(rl.Value) < len(symNames) {
+				r.Sym = symNames[rl.Value]
 			}
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+func peHasRelocs(pf *pe.File) bool {
+	_, size, ok := peDataDirectory(pf, 5) // IMAGE_DIRECTORY_ENTRY_BASERELOC
+	return ok && size > 0
 }
 
 // machoRelocTypeNamer maps a Mach-O relocation type to a short name for the two

@@ -162,7 +162,7 @@ func (m *Model) updateLibs(key string) (tea.Model, tea.Cmd) {
 		m.setStatus("sort order: "+dir, false)
 	case "w":
 		m.toggleWrap()
-	case "alt+a":
+	case "ctrl+p":
 		// cycle availability filter: all → on-disk → in-cache → all
 		switch m.libsAvail {
 		case availAll:
@@ -362,7 +362,7 @@ func (m *Model) renderLibsHeader() string {
 func (m *Model) libsHeaderSuffix() string {
 	suffix := ""
 	if m.libsAvail != availAll {
-		suffix += "  " + m.theme.helpKeyStyle.Render(altKeys("a")) + m.theme.footerStyle.Render(" "+availLabel(m.libsAvail))
+		suffix += "  " + m.theme.helpKeyStyle.Render(ctrlKeys("p")) + m.theme.footerStyle.Render(" "+availLabel(m.libsAvail))
 	}
 	if m.libsTree {
 		suffix += "  " + m.theme.footerStyle.Render("(tree · ←/→ fold · ↵ all below · +/− all · t flat)")

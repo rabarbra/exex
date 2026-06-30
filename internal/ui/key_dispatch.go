@@ -236,11 +236,18 @@ var macOptionGlyph = map[rune]rune{
 }
 
 // keyName derives the canonical key token the handlers match on, robustly across
-// terminals — the documented ⌥ (Option) chords are the hard part on macOS, where
-// Option+letter reaches us in any of three shapes depending on the terminal:
+// terminals. Option+letter on macOS reaches us in any of three shapes depending
+// on the terminal, all folded to a single "alt+<l>" token:
 //   - Alt/Super/Meta modifier + base letter (option-as-alt, or Cmd) → "alt+<l>"
 //   - Alt modifier + a composed Text (Kitty protocol, e.g. ⌥t → "†")  → "alt+<l>"
 //   - no modifier at all, just the composed glyph (ghostty default)   → "alt+<l>"
+//
+// The in-view facet filters moved to Ctrl chords (gnome-terminal eats Alt+letter),
+// so these "alt+<l>" tokens now match no handler in nav mode — a deliberate no-op.
+// Folding them still matters: it stops a stray Option chord from being read as a
+// bare letter that would trip a single-key action. A *focused* filter is
+// unaffected either way, since filterCapture feeds the raw key to the textinput
+// (so composed glyphs like ß/ø/† still type normally).
 //
 // tea.Key.String() returns the composed Text and drops the modifier, so it can't
 // be trusted for these; we read the modifier bits and the glyph table instead.
@@ -361,7 +368,7 @@ func (m *Model) updateGotoInput(msg tea.KeyMsg, key string) (tea.Model, tea.Cmd)
 		m.gotoScope = (m.gotoScope + gsScopeCount - 1) % gsScopeCount
 		m.recomputeGoto()
 		return m, nil
-	case "alt+p":
+	case "ctrl+p":
 		// Toggle physical-address interpretation (only meaningful when LMA differs).
 		if m.file.HasPhysAddrs() {
 			m.gotoAddrPhys = !m.gotoAddrPhys
@@ -563,8 +570,8 @@ func (m *Model) normalizeNavKey(key string) string {
 	//   page down: ctrl+down, option/alt+down, PgDn
 	//   top:       Home, ctrl+a, cmd+up
 	//   bottom:    End,  ctrl+e, cmd+down
-	// (Modals and filter inputs were handled above, so this only affects view
-	// navigation.)
+	// (Only Alt+letter chords were dropped — gnome-terminal grabs those for its
+	// menu mnemonics; option+arrow navigation is unaffected and kept for macOS.)
 	switch key {
 	case "ctrl+a", "cmd+up", "super+up":
 		return "home"

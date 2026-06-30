@@ -129,7 +129,8 @@ each with the originating object and listing any libraries it couldn't resolve.
 
 | Key | Action |
 |-----|--------|
-| `1`–`9` | switch view (Info, Sections, Symbols, Disasm, Hex, Raw, Strings, Libs, Sources) |
+| `1`–`9` / `0` | switch view (Info, Sections, Symbols, Disasm, Hex, Raw, Strings, Libs, Sources · `0` Relocations) |
+| `⇧h` / `⇧f` / `,` / `^o` | raw header overlay · CPU-feature scan · settings · back to the previous file |
 | `↑/↓` `j/k`, `PgUp/PgDn`, `Home/End` | move / page (also `⌘↑`/`⌘↓`, `^A`/`^E` on macOS) |
 | `/` | filter / search the current view |
 | `Enter` | open / follow / jump |
@@ -139,8 +140,8 @@ each with the originating object and listing any libraries it couldn't resolve.
 | `d` / `h` / `m` | go to the address under the cursor in the Disasm / Hex / Raw view |
 | `s` / `r` | cycle sort field · reverse it (Sections, Symbols, Strings, Sources, Relocations; `r` reverses Libs by name) |
 | `x` / `y` | Disasm: find references (xrefs) · list system calls (number + vDSO calls, scoped to the function / whole binary / unique) |
-| `⌥t` / `⌥s` / `⌥b` | Symbols: filter by type / scope / bind · `⌥s` filters Strings by section · `⌥a` filters Libs/Sources by availability (needs Option-as-Alt in the terminal) |
-| `t` (or `Tab`) | toggle the view's mode — Symbols/Sources: namespace/path **tree** ↔ flat list; Sections: sections ↔ segments ↔ **header**; Libs: flat ↔ tree ↔ **relocations**; Hex/Raw: ascii ↔ pointer decode; Info: fat-Mach-O arch slice (`Tab` is the source pane in Disasm) |
+| `^t` / `^s` / `^b` / `^f` / `^p` | column filters (Ctrl chords, same on macOS & Linux) — Symbols: type / scope / bind · Sections: type (`^t`) / flags (`^f`) · Strings: section (`^s`) · Relocations: type (`^t`) / section (`^s`) · Libs/Sources: availability (`^p`) |
+| `t` (or `Tab`) | toggle the view's mode — Symbols/Sources: namespace/path **tree** ↔ flat list; Sections: sections ↔ segments; Libs: flat ↔ tree; Hex/Raw: ascii ↔ pointer decode; Info: fat-Mach-O arch slice (`Tab` is the source pane in Disasm) |
 | `←`/`→` · `Enter` · `+`/`−` | tree: collapse / expand group (`←` on a leaf folds its branch) · expand/collapse all below · all (keys rebindable) |
 | `e` / `.` | collapse long `(…)`/`<…>` argument & template lists to `...` (short ones like `<int>` kept) — `e` all (also from Disasm/Hex/Raw, abbreviating their symbol annotations), `.` current Symbols row |
 | `⇧a` / `⇧s` / `⇧p` / `⇧c` | copy address / name (section, symbol, string, library, path) / pointer (Hex/Raw) / function disassembly (Disasm) |

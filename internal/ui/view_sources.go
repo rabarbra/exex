@@ -319,7 +319,7 @@ func (m *Model) updateSourceList(key string) (tea.Model, tea.Cmd) {
 		m.srcSearchAll = true
 		m.openSearch()
 		return m, nil
-	case "alt+a":
+	case "ctrl+p":
 		// cycle availability filter: all → present → missing → all
 		switch m.sourcesAvail {
 		case availAll:
@@ -633,7 +633,7 @@ func (m *Model) renderSourceList(bodyH int) string {
 			facet = "  tree"
 		}
 		if m.sourcesAvail != availAll {
-			facet += "  " + m.theme.helpKeyStyle.Render(altKeys("a")) + " " + availLabel(m.sourcesAvail)
+			facet += "  " + m.theme.helpKeyStyle.Render(ctrlKeys("p")) + " " + availLabel(m.sourcesAvail)
 		}
 		if !m.sourcesTree {
 			dir := "↑"

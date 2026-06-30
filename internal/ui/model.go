@@ -519,8 +519,12 @@ type searchState struct {
 // settingsState stores state for the on-the-fly settings popup.
 type settingsState struct {
 	settingsActive bool
-	settingsCur    int // selected field (theme, background, default wrap, default view)
+	settingsCur    int // selected field index (0..settingsFieldCount-1)
 	settingsTop    int // first visible field when the list is taller than the window
+	// settingsLineFields maps each rendered list line (from modalListRow) to its
+	// field index, or -1 for a group header / blank separator. Rebuilt every render
+	// so a mouse click lands on the right field despite the interspersed headers.
+	settingsLineFields []int
 	// modalListRow is the content row (within whichever overlay modal is open)
 	// where its scrollable list/fields begin, set by that modal's render so a mouse
 	// click can be mapped to an item. Only one modal is open at a time.

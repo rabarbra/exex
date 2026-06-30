@@ -18,6 +18,49 @@ import (
 
 const settingsFieldCount = 12
 
+// settingsMeta describes one setting for display: which group it belongs to (so
+// the modal can draw section headers), its label and a one-line explanation. The
+// slice order matches the settingsCur / cycleSetting case index, and groups are
+// contiguous so a header is drawn once per block.
+type settingsMeta struct {
+	group, label, desc string
+}
+
+var settingsMetas = [settingsFieldCount]settingsMeta{
+	{"Appearance", "Theme", "colour palette for the whole UI"},
+	{"Appearance", "Panel background", "solid fill behind the view panels"},
+	{"Appearance", "Wrap long lines", "soft-wrap rows wider than the window"},
+	{"Startup", "Open in view", "the view shown when a file loads"},
+	{"Lists & trees", "Symbols as tree", "group symbols by their source path"},
+	{"Lists & trees", "Sources as tree", "nest source files into folders"},
+	{"Lists & trees", "Libraries as tree", "group libraries by directory"},
+	{"Lists & trees", "Start collapsed", "open trees folded to the top level"},
+	{"Disassembly", "Abbreviate args", "shorten long demangled signatures"},
+	{"Disassembly", "Show raw bytes", "the machine-code byte column"},
+	{"Disassembly", "Show annotations", "inline target, reloc & string notes"},
+	{"Disassembly", "Byte spacing", "space-separated vs packed bytes"},
+}
+
+// settingsGroupLead reports whether field i begins a new group (so its header
+// row is drawn before it).
+func settingsGroupLead(i int) bool {
+	return i == 0 || settingsMetas[i].group != settingsMetas[i-1].group
+}
+
+// settingsRowHeight is the rendered height of field i for the scroll geometry:
+// the value row, plus a header line when it leads a group, plus a blank
+// separator before every group but the first.
+func settingsRowHeight(i int) int {
+	h := 1
+	if settingsGroupLead(i) {
+		h++ // group header
+		if i != 0 {
+			h++ // blank separator above the group
+		}
+	}
+	return h
+}
+
 // settingsViewNames is the cycle for the "default view" setting.
 var settingsViewNames = []string{
 	"info", "sections", "symbols", "disasm", "hex", "raw", "strings", "libs", "sources",
@@ -160,76 +203,115 @@ func (m *Model) persistSettings() {
 	m.closeSettings()
 }
 
-func (m *Model) renderSettingsModal() string {
-	themeVal := m.cfg.Theme
-	if themeVal == "" {
-		themeVal = defaultThemeName
-	}
-	bgVal := "off"
-	if m.cfg.Behavior.Background {
-		bgVal = "on"
-	}
-	wrapVal := "off"
-	if m.cfg.Behavior.DefaultWrap {
-		wrapVal = "on"
-	}
-	dv := m.cfg.Behavior.DefaultView
-	if dv == "" {
-		dv = "info"
-	}
+// settingsValue returns field i's current value as a display string.
+func (m *Model) settingsValue(i int) string {
 	onOff := func(b bool) string {
 		if b {
 			return "on"
 		}
 		return "off"
 	}
-	byteSpacing := "compact"
-	if m.cfg.Behavior.SpacedDisasmBytes {
-		byteSpacing = "spaced"
+	switch i {
+	case 0:
+		if m.cfg.Theme == "" {
+			return defaultThemeName
+		}
+		return m.cfg.Theme
+	case 1:
+		return onOff(m.cfg.Behavior.Background)
+	case 2:
+		return onOff(m.cfg.Behavior.DefaultWrap)
+	case 3:
+		if m.cfg.Behavior.DefaultView == "" {
+			return "info"
+		}
+		return m.cfg.Behavior.DefaultView
+	case 4:
+		return onOff(m.cfg.Behavior.TreeSymbols)
+	case 5:
+		return onOff(m.cfg.Behavior.TreeSources)
+	case 6:
+		return onOff(m.cfg.Behavior.TreeLibs)
+	case 7:
+		return onOff(m.cfg.Behavior.TreeCollapsed)
+	case 8:
+		return onOff(m.cfg.Behavior.AbbrevArgs)
+	case 9:
+		return onOff(!m.cfg.Behavior.HideDisasmBytes)
+	case 10:
+		return onOff(!m.cfg.Behavior.HideAnnotations)
+	case 11:
+		if m.cfg.Behavior.SpacedDisasmBytes {
+			return "spaced"
+		}
+		return "compact"
 	}
-	fields := [settingsFieldCount]struct{ label, val string }{
-		{"Theme", themeVal},
-		{"Background", bgVal},
-		{"Default wrap", wrapVal},
-		{"Default view", dv},
-		{"Tree: symbols", onOff(m.cfg.Behavior.TreeSymbols)},
-		{"Tree: sources", onOff(m.cfg.Behavior.TreeSources)},
-		{"Tree: libs", onOff(m.cfg.Behavior.TreeLibs)},
-		{"Tree collapsed", onOff(m.cfg.Behavior.TreeCollapsed)},
-		{"Abbrev args", onOff(m.cfg.Behavior.AbbrevArgs)},
-		{"Disasm bytes", onOff(!m.cfg.Behavior.HideDisasmBytes)},
-		{"Annotations", onOff(!m.cfg.Behavior.HideAnnotations)},
-		{"Byte spacing", byteSpacing},
-	}
+	return ""
+}
 
-	const rowW = 44
+func (m *Model) renderSettingsModal() string {
+	const labelW, valW = 17, 16 // label column, then "‹ value ›"
+	leftW := labelW + valW + 6  // " label ‹ value ›" full control width
+	showDesc := m.width >= 84   // drop the description column on narrow terminals
+
 	// Window the field list to the terminal height (title/hint/border cost ~8
 	// rows) so the popup never overruns a short window; the selection stays
-	// visible as it scrolls.
-	visible := clamp(m.height-8, 3, settingsFieldCount)
-	top := visualTop(m.settingsCur, m.settingsTop, settingsFieldCount, visible, func(int) int { return 1 })
+	// visible as it scrolls. The budget is counted in rendered lines, which
+	// include the per-group headers and separators (settingsRowHeight).
+	total := 0
+	for i := range settingsFieldCount {
+		total += settingsRowHeight(i)
+	}
+	visible := clamp(m.height-8, 5, total)
+	top := visualTop(m.settingsCur, m.settingsTop, settingsFieldCount, visible, settingsRowHeight)
 	m.settingsTop = top
-	m.modalListRow = 2 // title(0) + blank(1) → fields start at content row 2
-	end := min(top+visible, settingsFieldCount)
+	m.modalListRow = 2 // title(0) + blank(1) → list starts at content row 2
+
+	desc := func(s string) string { return m.theme.srcShadowStyle.Render(s) }
+	group := func(s string) string { return m.theme.symbolNameStyle.Render(strings.ToUpper(s)) }
 
 	var b strings.Builder
 	b.WriteString(m.theme.modalTitle("Settings"))
 	b.WriteString("\n\n")
-	for i := top; i < end; i++ {
-		f := fields[i]
-		row := fmt.Sprintf(" %-13s ‹ %s ›", f.label+":", f.val)
-		if i == m.settingsCur {
-			row = m.theme.tableSelStyle.Render(padRight(row, rowW))
-		} else {
-			row = padRight(row, rowW)
-		}
-		b.WriteString(row)
-		b.WriteString("\n")
+
+	m.settingsLineFields = m.settingsLineFields[:0]
+	emit := func(line string, field int) {
+		b.WriteString(line)
+		b.WriteByte('\n')
+		m.settingsLineFields = append(m.settingsLineFields, field)
 	}
+	used := 0
+	for i := top; i < settingsFieldCount; i++ {
+		h := settingsRowHeight(i)
+		if i == top && settingsGroupLead(i) && i != 0 {
+			h-- // the leading blank separator is suppressed at the window top
+		}
+		if used+h > visible {
+			break
+		}
+		used += h
+		if settingsGroupLead(i) {
+			if i != top && i != 0 {
+				emit("", -1) // blank separator above the group
+			}
+			emit("  "+group(settingsMetas[i].group), -1)
+		}
+		left := fmt.Sprintf(" %-*s ‹ %-*s ›", labelW, settingsMetas[i].label, valW, m.settingsValue(i))
+		left = padRight(left, leftW)
+		if i == m.settingsCur {
+			left = m.theme.tableSelStyle.Render(left)
+		}
+		row := left
+		if showDesc {
+			row += "  " + desc(settingsMetas[i].desc)
+		}
+		emit(row, i)
+	}
+
 	b.WriteString("\n")
 	hint := "↑/↓ field · ←/→ change · Enter save · Esc cancel"
-	if visible < settingsFieldCount {
-		hint = fmt.Sprintf("↑/↓ field · ←/→ change · Enter save · Esc cancel   (%d/%d)", m.settingsCur+1, settingsFieldCount)
+	if visible < total {
+		hint += fmt.Sprintf("   (%d/%d)", m.settingsCur+1, settingsFieldCount)
 	}
 	b.WriteString(m.theme.modalHint(hint))
 	return m.theme.modalStyle.Render(b.String())

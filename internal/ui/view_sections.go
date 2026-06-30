@@ -80,7 +80,7 @@ func (m *Model) applySectionSort() {
 }
 
 // buildSectionFacets collects the distinct type names and flag strings of the
-// section table, so the alt+t / alt+f filters can cycle through them.
+// section table, so the ctrl+t / ctrl+f filters can cycle through them.
 func (m *Model) buildSectionFacets() {
 	seenT, seenF := map[string]bool{}, map[string]bool{}
 	m.sectionsTypes = m.sectionsTypes[:0]
@@ -179,7 +179,7 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("filters cleared", false)
 		}
 		return m, nil
-	case "alt+t":
+	case "ctrl+t":
 		if m.showSegments {
 			return m, nil
 		}
@@ -192,7 +192,7 @@ func (m *Model) updateSections(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("section type filter: all", false)
 		}
 		return m, nil
-	case "alt+f":
+	case "ctrl+f":
 		if m.showSegments {
 			return m, nil
 		}
@@ -367,7 +367,7 @@ func (m *Model) renderSections() string {
 			if m.sectionsFlagsOn {
 				ff = m.sectionsFlags
 			}
-			extra = fmt.Sprintf("   %s type:%s   %s flags:%s", altKeys("t"), tf, altKeys("f"), ff)
+			extra = fmt.Sprintf("   %s type:%s   %s flags:%s", ctrlKeys("t"), tf, ctrlKeys("f"), ff)
 		}
 		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   %s (%d / %d)   t: toggle   s: sort:%s%s%s",
 			m.sectionsFilter.Value(), kind, len(m.sectionsFiltered), total, m.sectionsSort.String(), dir, extra))

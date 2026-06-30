@@ -173,6 +173,17 @@ func (m *Model) modalClick(x, y int) bool {
 	if listRow < 0 {
 		return false
 	}
+	// Settings has group headers and separators interleaved, so a rendered line
+	// maps to a field through settingsLineFields (-1 for non-selectable lines).
+	if m.settingsActive {
+		if listRow < len(m.settingsLineFields) {
+			if f := m.settingsLineFields[listRow]; f >= 0 {
+				m.settingsCur = f
+				return true
+			}
+		}
+		return false
+	}
 	sel, top, n, _, ok := m.modalList()
 	if !ok {
 		return false

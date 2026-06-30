@@ -36,6 +36,17 @@ func TestLibsRelocsMode(t *testing.T) {
 	// Relocations are now their own top-level view (key 0).
 	h.goView(modeRelocs, "0")
 	out := h.m().renderRelocs()
+	if len(h.m().file.Relocations()) == 0 {
+		// No decoded relocations (e.g. a Mach-O using dyld chained fixups): the view
+		// shows a clean centred message with no table header, like other empty views.
+		if strings.Contains(out, "Offset") {
+			t.Errorf("empty relocs view should have no table header:\n%s", out)
+		}
+		if !strings.Contains(out, "No relocations") {
+			t.Errorf("empty relocs view missing its message:\n%s", out)
+		}
+		return
+	}
 	if !strings.Contains(out, "Offset") {
 		t.Errorf("relocs view missing header:\n%s", out)
 	}

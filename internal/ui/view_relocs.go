@@ -80,7 +80,7 @@ func (m *Model) recomputeRelocs() {
 }
 
 // buildRelocFacets collects the distinct relocation types and section names, so
-// the alt+t / alt+s facet filters can cycle through them. Built once per scan.
+// the ctrl+t / ctrl+s facet filters can cycle through them. Built once per scan.
 func (m *Model) buildRelocFacets() {
 	rels := m.file.Relocations()
 	seenT, seenS := map[string]bool{}, map[string]bool{}
@@ -159,7 +159,7 @@ func (m *Model) updateRelocs(key string) (tea.Model, tea.Cmd) {
 			dir = "descending"
 		}
 		m.setStatus("sort order: "+dir, false)
-	case "alt+t":
+	case "ctrl+t":
 		cycleStringList(&m.relocTypeOn, &m.relocType, m.relocTypes)
 		m.relocCur, m.relocTop = 0, 0
 		m.recomputeRelocs()
@@ -168,7 +168,7 @@ func (m *Model) updateRelocs(key string) (tea.Model, tea.Cmd) {
 		} else {
 			m.setStatus("reloc type filter: all", false)
 		}
-	case "alt+s":
+	case "ctrl+s":
 		cycleStringList(&m.relocSecOn, &m.relocSec, m.relocSecs)
 		m.relocCur, m.relocTop = 0, 0
 		m.recomputeRelocs()
@@ -236,10 +236,6 @@ func (m *Model) renderRelocs() string {
 	if m.libsFilter.Focused() {
 		filterRow = m.libsFilter.View()
 	} else {
-		note := ""
-		if len(rels) == 0 {
-			note = "   " + relocsEmptyHint(m.file.Format)
-		}
 		tf, sf := "all", "all"
 		if m.relocTypeOn {
 			tf = m.relocType
@@ -248,9 +244,9 @@ func (m *Model) renderRelocs() string {
 			sf = m.relocSec
 		}
 		filterRow = m.theme.footerStyle.Render(fmt.Sprintf(
-			"/ %s   relocations (%d / %d)   s: sort:%s   %s type:%s   %s sec:%s%s",
+			"/ %s   relocations (%d / %d)   s: sort:%s   %s type:%s   %s sec:%s",
 			m.libsFilter.Value(), len(m.relocFiltered), len(rels), m.relocSort.String(),
-			altKeys("t"), tf, altKeys("s"), sf, note))
+			ctrlKeys("t"), tf, ctrlKeys("s"), sf))
 	}
 	desc := m.relocSortDesc
 	header := m.tableHeader(fmt.Sprintf(" %-*s  %-24s %-12s %s",
@@ -268,11 +264,10 @@ func (m *Model) renderRelocs() string {
 	m.pageRows = pageStep(top, len(m.relocFiltered), visible, func(int) int { return 1 })
 
 	if len(m.relocFiltered) == 0 {
-		msg := relocsEmptyHint(m.file.Format)
-		if len(rels) > 0 {
-			msg = "no matching relocations  ·  Esc clears filters"
-		}
-		return m.emptyList(msg, filterRow, header)
+		// rels > 0 here (the no-relocations case returned above), so this is always
+		// a filter with no matches — keep the filter row + header so the user sees
+		// what's narrowing it.
+		return m.emptyList("no matching relocations  ·  Esc clears filters", filterRow, header)
 	}
 	rows := []string{filterRow, header}
 	for i := top; i < len(m.relocFiltered); i++ {
@@ -321,13 +316,13 @@ func (m *Model) relocRowText(ri, addrW int) string {
 	return row
 }
 
-// relocsEmptyHint explains an empty relocation table for the current format.
+// relocsEmptyHint explains why a binary has no relocation table to show.
 func relocsEmptyHint(f binfile.Format) string {
 	switch f {
 	case binfile.FormatMachO:
-		return "none decoded (dyld chained fixups)"
+		return "No relocations to show — this Mach-O uses dyld chained fixups, which aren't decoded yet."
 	case binfile.FormatPE:
-		return "no base-relocation directory"
+		return "No relocations — this PE has no base-relocation directory (it loads at a fixed address)."
 	}
-	return "none"
+	return "No relocations — this binary is fully resolved (statically linked, or no dynamic fixups)."
 }

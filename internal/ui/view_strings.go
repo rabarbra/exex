@@ -75,7 +75,7 @@ func (m *Model) ensureStrings() {
 }
 
 // buildStringSections collects the distinct owning-section names (sorted) so the
-// alt+s filter can cycle through them.
+// ctrl+s filter can cycle through them.
 func (m *Model) buildStringSections() {
 	seen := map[string]bool{}
 	m.stringsSections = m.stringsSections[:0]
@@ -336,11 +336,11 @@ func (m *Model) updateStrings(key string) (tea.Model, tea.Cmd) {
 		if dirty {
 			m.setStatus("filters cleared", false)
 		}
-	case "alt+s":
+	case "ctrl+s":
 		m.cycleStringSectionFilter()
 		m.stringsCur, m.stringsTop = 0, 0
 		m.recomputeStrings()
-	case "alt+p":
+	case "ctrl+p":
 		m.stringsPathsOnly = !m.stringsPathsOnly
 		m.stringsCur, m.stringsTop = 0, 0
 		m.recomputeStrings()
@@ -430,8 +430,8 @@ func (m *Model) renderStrings() string {
 			pathsLabel = "on"
 		}
 		filterRow = m.theme.footerStyle.Render(fmt.Sprintf("/ %s   (%d / %d)   ", m.stringsFilter.Value(), len(m.stringsFiltered), len(m.stringsList))) +
-			m.theme.helpKeyStyle.Render(altKeys("s")) + m.theme.footerStyle.Render(" section:"+secLabel) +
-			m.theme.footerStyle.Render("   ") + m.theme.helpKeyStyle.Render(altKeys("p")) + m.theme.footerStyle.Render(" paths:"+pathsLabel) +
+			m.theme.helpKeyStyle.Render(ctrlKeys("s")) + m.theme.footerStyle.Render(" section:"+secLabel) +
+			m.theme.footerStyle.Render("   ") + m.theme.helpKeyStyle.Render(ctrlKeys("p")) + m.theme.footerStyle.Render(" paths:"+pathsLabel) +
 			m.theme.footerStyle.Render("   ") + m.theme.helpKeyStyle.Render("s") + m.theme.footerStyle.Render(" sort:"+m.stringsSort.String()+dir)
 	}
 

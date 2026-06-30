@@ -290,6 +290,12 @@ view all the strings in single page one after other with middle dot separator
 > with `s`/`r` (Sections index/name/addr/size; Symbols name/addr/size; Strings
 > offset/address/string; Sources project/name; Libs name) — the full spec below is
 > implemented.
+>
+> **Update:** the per-column filters were later moved off `⌥<letter>` to **`^<letter>`**
+> (`^t/^s/^b` symbols; `^t/^f` sections; `^s` strings; `^t/^s` relocations; `^p`
+> libs/sources availability) — gnome-terminal binds `Alt+letter` to its menu
+> mnemonics and swallows the keys, so Ctrl chords are now used identically on
+> macOS and Linux. Only `⌥↑/⌥↓` survive as page-nav aliases (no menu conflict).
 
 == GLOBAL ==
 

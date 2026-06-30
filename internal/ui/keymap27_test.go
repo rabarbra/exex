@@ -84,21 +84,21 @@ func TestStringsSectionFilter(t *testing.T) {
 	if len(m.stringsFiltered) != 3 {
 		t.Fatalf("unfiltered = %d, want 3", len(m.stringsFiltered))
 	}
-	// alt+s turns the section filter on at the first section (.data, sorted).
-	m.updateStrings("alt+s")
+	// ctrl+s turns the section filter on at the first section (.data, sorted).
+	m.updateStrings("ctrl+s")
 	if !m.stringsSecOn || m.stringsSec != ".data" {
-		t.Fatalf("after alt+s: on=%v sec=%q", m.stringsSecOn, m.stringsSec)
+		t.Fatalf("after ctrl+s: on=%v sec=%q", m.stringsSecOn, m.stringsSec)
 	}
 	if len(m.stringsFiltered) != 1 {
 		t.Fatalf(".data filter = %d, want 1", len(m.stringsFiltered))
 	}
-	// alt+s again → .rodata (2 entries).
-	m.updateStrings("alt+s")
+	// ctrl+s again → .rodata (2 entries).
+	m.updateStrings("ctrl+s")
 	if m.stringsSec != ".rodata" || len(m.stringsFiltered) != 2 {
 		t.Fatalf(".rodata filter: sec=%q n=%d", m.stringsSec, len(m.stringsFiltered))
 	}
-	// alt+s past the last section → off.
-	m.updateStrings("alt+s")
+	// ctrl+s past the last section → off.
+	m.updateStrings("ctrl+s")
 	if m.stringsSecOn {
 		t.Fatal("filter should be off after cycling past the last section")
 	}
@@ -131,18 +131,18 @@ func TestSymbolsKeyMigration(t *testing.T) {
 	if m.symbolsKindOn {
 		t.Fatal("y should no longer toggle the type filter")
 	}
-	m.updateSymbols("alt+t")
+	m.updateSymbols("ctrl+t")
 	if !m.symbolsKindOn {
-		t.Fatal("alt+t did not enable the type filter")
+		t.Fatal("ctrl+t did not enable the type filter")
 	}
 
 	// ⌥s cycles scope.
 	if m.symbolsScope != scopeAll {
 		t.Fatalf("precondition scope = %v", m.symbolsScope)
 	}
-	m.updateSymbols("alt+s")
+	m.updateSymbols("ctrl+s")
 	if m.symbolsScope == scopeAll {
-		t.Fatal("alt+s did not advance the scope filter")
+		t.Fatal("ctrl+s did not advance the scope filter")
 	}
 
 	// Esc clears every filter.

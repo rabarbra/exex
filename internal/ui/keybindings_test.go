@@ -7,7 +7,7 @@ package ui
 //
 // kp() builds the tea.KeyPressMsg a real terminal would emit for a given chord,
 // which is the crux: Shift+letter arrives as the uppercase letter (Text "A",
-// String()=="A"), and Option/Alt+letter arrives with ModAlt (String()=="alt+t").
+// String()=="A"), and Option/Alt+letter arrives with ModAlt (String()=="ctrl+t").
 
 import (
 	"strings"
@@ -286,19 +286,19 @@ func TestKeysSymbols(t *testing.T) {
 		t.Fatal("r did not reverse symbol sort")
 	}
 
-	// alt+t / alt+s / alt+b drive the column filters.
-	h.press("alt+t")
+	// ctrl+t / ctrl+s / ctrl+b drive the column filters.
+	h.press("ctrl+t")
 	if !h.m().symbolsKindOn {
-		t.Fatal("alt+t did not enable the type filter")
+		t.Fatal("ctrl+t did not enable the type filter")
 	}
 	sc0 := h.m().symbolsScope
-	h.press("alt+s")
+	h.press("ctrl+s")
 	if h.m().symbolsScope == sc0 {
-		t.Fatal("alt+s did not advance the scope filter")
+		t.Fatal("ctrl+s did not advance the scope filter")
 	}
-	h.press("alt+b")
+	h.press("ctrl+b")
 	if !h.m().symbolsBindOn {
-		t.Fatal("alt+b did not enable the bind filter")
+		t.Fatal("ctrl+b did not enable the bind filter")
 	}
 	// esc clears every filter.
 	h.press("esc")
@@ -363,11 +363,11 @@ func TestKeysStrings(t *testing.T) {
 		t.Skip("binary has no printable strings")
 	}
 
-	// alt+s cycles the section filter (when section info is present).
+	// ctrl+s cycles the section filter (when section info is present).
 	if len(h.m().stringsSections) > 0 {
-		h.press("alt+s")
+		h.press("ctrl+s")
 		if !h.m().stringsSecOn {
-			t.Fatal("alt+s did not enable the section filter")
+			t.Fatal("ctrl+s did not enable the section filter")
 		}
 		h.press("esc")
 		if h.m().stringsSecOn {
@@ -433,14 +433,14 @@ func TestKeysLibs(t *testing.T) {
 		t.Fatal("t did not toggle the libs tree")
 	}
 
-	// alt+a cycles the availability filter.
+	// ctrl+p cycles the availability filter.
 	av0 := h.m().libsAvail
-	h.press("alt+a")
+	h.press("ctrl+p")
 	if h.m().libsAvail == av0 {
-		t.Fatal("alt+a did not change the availability filter")
+		t.Fatal("ctrl+p did not change the availability filter")
 	}
-	h.press("alt+a")
-	h.press("alt+a") // back to all
+	h.press("ctrl+p")
+	h.press("ctrl+p") // back to all
 
 	// Select a leaf and copy the library path.
 	selectLibLeaf(t, h)
@@ -698,14 +698,14 @@ func TestKeysSources(t *testing.T) {
 	}
 	h.press("t")
 
-	// alt+a cycles the availability filter.
+	// ctrl+p cycles the availability filter.
 	av0 := h.m().sourcesAvail
-	h.press("alt+a")
+	h.press("ctrl+p")
 	if h.m().sourcesAvail == av0 {
-		t.Fatal("alt+a did not change the sources availability filter")
+		t.Fatal("ctrl+p did not change the sources availability filter")
 	}
-	h.press("alt+a")
-	h.press("alt+a") // back to all
+	h.press("ctrl+p")
+	h.press("ctrl+p") // back to all
 
 	// Select a leaf file and copy its path.
 	selectSourceLeaf(t, h)
@@ -864,33 +864,23 @@ func TestSourcesSortKeys(t *testing.T) {
 	}
 }
 
-// --- Option/Alt delivery quirks (macOS) ------------------------------------
+// --- Ctrl-chord facet filters vs the bare toggle ---------------------------
 
-// TestKeysOptionDelivery reproduces how terminals actually deliver Option+letter
-// and proves the ⌥ chords fire regardless: as Alt with a composed Text (macOS
-// Kitty protocol, e.g. Option+t → "†"), and as Super (some terminals map Option
-// to Cmd). Both must reach the same "alt+t" action, not the bare "t" toggle.
-func TestKeysOptionDelivery(t *testing.T) {
+// TestKeysFacetChords proves the facet filters fire on their Ctrl chord (the
+// same on macOS and Linux — Alt was dropped because gnome-terminal eats it) and
+// that the bare letter still drives its own action (no regression).
+func TestKeysFacetChords(t *testing.T) {
 	h := newKeyHarness(t, systemBinary(t))
 	if len(h.m().file.Symbols) == 0 {
 		t.Skip("binary has no symbols")
 	}
 	h.goView(modeSymbols, "3")
 
-	// 1) Alt modifier + composed text, the way macOS sends Option+t under the
-	//    Kitty keyboard protocol. String() would return "†" and drop the Alt.
+	// 1) Ctrl+t toggles the type facet filter.
 	h.m().symbolsKindOn = false
-	h.pump(tea.KeyPressMsg(tea.Key{Code: 't', Mod: tea.ModAlt, Text: "†"}))
+	h.press("ctrl+t")
 	if !h.m().symbolsKindOn {
-		t.Fatal("Option+t delivered as Alt+composed-text did not trigger the type filter")
-	}
-
-	// 1b) The ghostty default: the composed glyph with NO modifier at all.
-	h.press("esc")
-	h.m().symbolsKindOn = false
-	h.pump(tea.KeyPressMsg(tea.Key{Code: '†', Text: "†"}))
-	if !h.m().symbolsKindOn {
-		t.Fatal("Option+t delivered as a bare composed glyph did not trigger the type filter")
+		t.Fatal("ctrl+t did not trigger the type filter")
 	}
 
 	// 2) Bare "t" must still toggle the tree, not filter (no regression).
@@ -901,14 +891,6 @@ func TestKeysOptionDelivery(t *testing.T) {
 		t.Fatal("plain t no longer toggles the tree")
 	}
 	h.press("t")
-
-	// 3) Option delivered as Super (the "maybe it's sent as cmd" case).
-	h.press("esc")
-	h.m().symbolsKindOn = false
-	h.pump(tea.KeyPressMsg(tea.Key{Code: 't', Mod: tea.ModSuper}))
-	if !h.m().symbolsKindOn {
-		t.Fatal("Option+t delivered as Super did not map to the type filter")
-	}
 }
 
 // --- Configurability: a user key rebinds the action ------------------------
@@ -1080,7 +1062,7 @@ func TestKeysEscClears(t *testing.T) {
 		h.goView(modeSymbols, "3")
 		h.press("/")
 		h.press("a")
-		h.press("alt+t")
+		h.press("ctrl+t")
 		if h.m().symbolsFilter.Value() == "" && !h.m().symbolsKindOn {
 			t.Skip("could not set symbol filters")
 		}
@@ -1093,7 +1075,7 @@ func TestKeysEscClears(t *testing.T) {
 
 	// Sections: type filter + text, esc clears.
 	h.goView(modeSections, "2")
-	h.press("alt+t")
+	h.press("ctrl+t")
 	h.press("/")
 	h.press("t")
 	h.press("esc")
@@ -1104,7 +1086,7 @@ func TestKeysEscClears(t *testing.T) {
 	// Strings: section filter + text, esc clears.
 	h.goView(modeStrings, "7")
 	if len(h.m().stringsSections) > 0 {
-		h.press("alt+s")
+		h.press("ctrl+s")
 	}
 	h.press("/")
 	h.press("a")
@@ -1116,7 +1098,7 @@ func TestKeysEscClears(t *testing.T) {
 	// Libs: availability + text filter, esc clears.
 	if h.m().file.Info != nil && len(h.m().file.Info.DynamicLibs) > 0 {
 		h.goView(modeLibs, "8")
-		h.press("alt+a")
+		h.press("ctrl+p")
 		h.press("/")
 		h.press("a")
 		h.press("esc")
@@ -1135,9 +1117,9 @@ func TestKeysSectionFilters(t *testing.T) {
 		t.Skip("no section type names")
 	}
 	all := len(h.m().sectionsFiltered)
-	h.press("alt+t")
+	h.press("ctrl+t")
 	if !h.m().sectionsTypeOn {
-		t.Fatal("alt+t did not enable the section type filter")
+		t.Fatal("ctrl+t did not enable the section type filter")
 	}
 	if len(h.m().sectionsFiltered) > all {
 		t.Fatal("type filter did not narrow the list")
@@ -1154,9 +1136,9 @@ func TestKeysSectionFilters(t *testing.T) {
 	}
 	// Flags filter is wired too.
 	if len(h.m().sectionsFlagsList) > 0 {
-		h.press("alt+f")
+		h.press("ctrl+f")
 		if !h.m().sectionsFlagsOn {
-			t.Fatal("alt+f did not enable the section flags filter")
+			t.Fatal("ctrl+f did not enable the section flags filter")
 		}
 	}
 }

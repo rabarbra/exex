@@ -585,18 +585,18 @@ func (m *Model) updateSymbols(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("filters cleared", false)
 		}
 		return m, nil
-	case "alt+t":
+	case "ctrl+t":
 		m.cycleSymbolKindFilter()
 		m.symbolsCur, m.symbolsTop = 0, 0
 		m.recomputeSymbols()
 		return m, nil
-	case "alt+s":
+	case "ctrl+s":
 		m.symbolsScope = (m.symbolsScope + 1) % 3
 		m.symbolsCur, m.symbolsTop = 0, 0
 		m.recomputeSymbols()
 		m.setStatus("symbol scope: "+m.symbolsScope.String(), false)
 		return m, nil
-	case "alt+b":
+	case "ctrl+b":
 		m.cycleSymbolBindFilter()
 		m.symbolsCur, m.symbolsTop = 0, 0
 		m.recomputeSymbols()
@@ -867,9 +867,9 @@ func (m *Model) renderSymbols() string {
 			treeLabel = "view:tree"
 		}
 		plain("/ " + m.symbolsFilter.Value() + "   ")
-		button(altKeys("t"), "type:"+kind, facetType)
-		button(altKeys("s"), "scope:"+m.symbolsScope.String(), facetScope)
-		button(altKeys("b"), "bind:"+bind, facetBind)
+		button(ctrlKeys("t"), "type:"+kind, facetType)
+		button(ctrlKeys("s"), "scope:"+m.symbolsScope.String(), facetScope)
+		button(ctrlKeys("b"), "bind:"+bind, facetBind)
 		button("s", "sort:"+m.symbolsSort.String(), facetSort)
 		dir := "↑asc"
 		if m.symbolsSortDesc {

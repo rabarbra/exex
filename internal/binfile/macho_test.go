@@ -1,6 +1,7 @@
 package binfile
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -147,5 +148,44 @@ func TestFatMagicVsJavaClass(t *testing.T) {
 	}
 	if isFatMachO(class) || isMachO(class) {
 		t.Fatal("a Java .class must not be detected as (fat) Mach-O")
+	}
+}
+
+func TestMachOLayoutRejectsWrappingFatOffset(t *testing.T) {
+	raw := make([]byte, 8+32)
+	binary.BigEndian.PutUint32(raw[0:], machoFatMagic64)
+	binary.BigEndian.PutUint32(raw[4:], 1)
+	binary.BigEndian.PutUint64(raw[16:], ^uint64(0)-4)
+	binary.BigEndian.PutUint64(raw[24:], 16)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("parseMachOLayoutHeader panicked on wrapping fat offset: %v", r)
+		}
+	}()
+	if _, _, _, err := parseMachOLayoutHeader(raw, ""); err == nil {
+		t.Fatal("parseMachOLayoutHeader succeeded for out-of-range fat slice")
+	}
+}
+
+func TestMachOLayoutBoundsLoadCommandsToSelectedFatSlice(t *testing.T) {
+	const off = 64
+	const size = 32
+	raw := make([]byte, off+size+8)
+	binary.BigEndian.PutUint32(raw[0:], machoFatMagic)
+	binary.BigEndian.PutUint32(raw[4:], 1)
+	binary.BigEndian.PutUint32(raw[16:], off)
+	binary.BigEndian.PutUint32(raw[20:], size)
+
+	binary.BigEndian.PutUint32(raw[off:], machoMagic64)
+	binary.BigEndian.PutUint32(raw[off+12:], uint32(2)) // executable
+	binary.BigEndian.PutUint32(raw[off+16:], 1)         // ncmds
+	binary.BigEndian.PutUint32(raw[off+20:], 8)         // sizeofcmds extends past the slice
+	binary.BigEndian.PutUint32(raw[off+size:], lcMain)
+	binary.BigEndian.PutUint32(raw[off+size+4:], 8)
+
+	f := &File{raw: raw}
+	if err := f.loadMachOLayout(); err == nil {
+		t.Fatal("loadMachOLayout succeeded after reading load commands outside the selected fat slice")
 	}
 }

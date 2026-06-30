@@ -74,7 +74,7 @@ func BenchmarkCPUFeatures(b *testing.B) {
 	if path == "" {
 		b.Skip("set EXEX_BENCH_BIN to a real binary")
 	}
-	f, err := binfile.Open(path)
+	f, err := binfile.Open(path, binfile.WithLayoutOnly())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func BenchmarkStringsDump(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for range b.N {
-		f, err := binfile.Open(path)
+		f, err := binfile.Open(path, binfile.WithLayoutOnly())
 		if err != nil {
 			b.Fatal(err)
 		}

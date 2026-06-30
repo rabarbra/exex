@@ -277,6 +277,7 @@ func (f *File) loadMachO() error {
 
 type machoLayoutHeader struct {
 	base       uint64
+	limit      uint64
 	cmdOff     uint64
 	ncmds      uint32
 	sizeofcmds uint32
@@ -311,10 +312,11 @@ func (f *File) loadMachOLayout() error {
 
 	cmdStart := h.cmdOff
 	cmdEnd := cmdStart + uint64(h.sizeofcmds)
-	if cmdStart > uint64(len(f.raw)) || cmdEnd > uint64(len(f.raw)) || cmdEnd < cmdStart {
+	if cmdStart > h.limit || cmdEnd > h.limit || cmdEnd < cmdStart {
 		return fmt.Errorf("truncated Mach-O load commands")
 	}
 	var textAddr, entryOff uint64
+	haveEntry := false
 	for off, i := cmdStart, uint32(0); i < h.ncmds; i++ {
 		if off+8 > cmdEnd {
 			return fmt.Errorf("truncated Mach-O load command")
@@ -340,12 +342,20 @@ func (f *File) loadMachOLayout() error {
 		case lcMain:
 			if len(lc) >= 16 {
 				entryOff = h.bo.Uint64(lc[8:16])
+				haveEntry = true
 			}
 		}
 		off += cmdSize
 	}
-	if entryOff != 0 {
+	if haveEntry {
 		f.entry = textAddr + entryOff
+	} else if h.typ == macho.TypeExec {
+		for _, s := range f.Sections {
+			if s.Name == "__text" {
+				f.entry = s.Addr
+				break
+			}
+		}
 	}
 	f.header = []string{
 		fmt.Sprintf("Path:        %s", f.Path),
@@ -363,6 +373,7 @@ func (f *File) loadMachOLayout() error {
 
 func parseMachOLayoutHeader(raw []byte, want string) (machoLayoutHeader, []FatArchInfo, string, error) {
 	base := uint64(0)
+	limit := uint64(len(raw))
 	var arches []FatArchInfo
 	chosen := ""
 	if isFatMachO(raw) {
@@ -385,9 +396,10 @@ func parseMachOLayoutHeader(raw []byte, want string) (machoLayoutHeader, []FatAr
 			return machoLayoutHeader{}, nil, "", fmt.Errorf("fat Mach-O slice %s is out of range", machoArchName(fa.cpu, fa.sub))
 		}
 		base = fa.offset
+		limit = end
 		chosen = machoArchName(fa.cpu, fa.sub)
 	}
-	h, err := parseMachOThinHeader(raw, base)
+	h, err := parseMachOThinHeader(raw, base, limit)
 	if err != nil {
 		return machoLayoutHeader{}, nil, "", err
 	}
@@ -397,8 +409,8 @@ func parseMachOLayoutHeader(raw []byte, want string) (machoLayoutHeader, []FatAr
 	return h, arches, chosen, nil
 }
 
-func parseMachOThinHeader(raw []byte, base uint64) (machoLayoutHeader, error) {
-	if base+28 > uint64(len(raw)) {
+func parseMachOThinHeader(raw []byte, base, limit uint64) (machoLayoutHeader, error) {
+	if base > limit || limit > uint64(len(raw)) || limit-base < 28 {
 		return machoLayoutHeader{}, fmt.Errorf("truncated Mach-O header")
 	}
 	magic := binary.BigEndian.Uint32(raw[base:])
@@ -419,11 +431,12 @@ func parseMachOThinHeader(raw []byte, base uint64) (machoLayoutHeader, error) {
 	default:
 		return machoLayoutHeader{}, fmt.Errorf("unrecognised Mach-O magic 0x%x", magic)
 	}
-	if base+hdrSize > uint64(len(raw)) {
+	if limit-base < hdrSize {
 		return machoLayoutHeader{}, fmt.Errorf("truncated Mach-O header")
 	}
 	return machoLayoutHeader{
 		base:       base,
+		limit:      limit,
 		cmdOff:     base + hdrSize,
 		ncmds:      bo.Uint32(raw[base+16:]),
 		sizeofcmds: bo.Uint32(raw[base+20:]),
@@ -664,7 +677,7 @@ func parseFatMachOHeaders(raw []byte) ([]fatMachOArch, error) {
 
 func machoSliceSummary(raw []byte, off uint64) (bits int, typ string) {
 	bits = 32
-	if off+16 > uint64(len(raw)) {
+	if off > uint64(len(raw)) || uint64(len(raw))-off < 16 {
 		return bits, ""
 	}
 	magic := binary.BigEndian.Uint32(raw[off:])

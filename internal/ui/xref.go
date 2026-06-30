@@ -119,14 +119,7 @@ func (m *Model) startXrefScan() tea.Cmd {
 		return nil
 	}
 	target := m.disasmInst[m.disasmCur].Addr
-	label := fmt.Sprintf("0x%x", target)
-	if sym, ok := m.file.SymbolAt(target); ok {
-		if off := target - sym.Addr; off == 0 {
-			label = sym.Display()
-		} else {
-			label = fmt.Sprintf("%s+0x%x", sym.Display(), off)
-		}
-	}
+	label := m.xrefLabelForTarget(target)
 	m.stopXrefScan()
 	m.xrefSeq++
 	m.xrefRunning = false
@@ -149,6 +142,18 @@ func (m *Model) startXrefScan() tea.Cmd {
 	m.xrefCancel = done
 	m.setStatus("finding references to "+label+" … (Esc cancels)", false)
 	return m.xrefScanCmd(target, m.xrefSeq, done)
+}
+
+func (m *Model) xrefLabelForTarget(target uint64) string {
+	label := fmt.Sprintf("0x%x", target)
+	if sym, ok := m.file.SymbolAt(target); ok {
+		if off := target - sym.Addr; off == 0 {
+			label = sym.Display()
+		} else {
+			label = fmt.Sprintf("%s+0x%x", sym.Display(), off)
+		}
+	}
+	return label
 }
 
 // xrefScanCmd decodes the whole executable image in chunks (reusing the decode

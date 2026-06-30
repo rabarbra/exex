@@ -612,14 +612,12 @@ func sourceFilesOnly(d *dwarf.Data) []string {
 // build the full address-sorted line-entry table used by source lookup.
 func (f *File) SourceFiles() []string {
 	if f.sourceFiles == nil {
-		if len(f.lineFiles) > 0 {
-			f.sourceFiles = append([]string(nil), f.lineFiles...)
-			sort.Strings(f.sourceFiles)
-		} else {
-			f.ensureDWARF()
-		}
+		f.ensureDWARF()
 		if f.sourceFiles == nil && f.dwarf != nil {
 			f.sourceFiles = sourceFilesOnly(f.dwarf)
+		} else if f.sourceFiles == nil && len(f.lineFiles) > 0 {
+			f.sourceFiles = append([]string(nil), f.lineFiles...)
+			sort.Strings(f.sourceFiles)
 		} else if f.sourceFiles == nil {
 			f.sourceFiles = []string{}
 		}

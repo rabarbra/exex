@@ -258,6 +258,32 @@ func (m *Model) invalidateSymbolNameState() {
 		m.recomputeSymbols()
 	}
 	m.clearSymbolNameCaches()
+	m.refreshModalSymbolNames()
+}
+
+func (m *Model) refreshModalSymbolNames() {
+	m.xrefCache = nil
+	if m.xrefActive {
+		m.xrefLabel = m.xrefLabelForTarget(m.xrefTarget)
+		for i := range m.xrefResults {
+			m.xrefResults[i].sym = m.symbolDisplayAt(m.xrefResults[i].addr)
+		}
+		m.rebuildXrefRows()
+	}
+	m.syscallCached = nil
+	if m.syscallActive {
+		for i := range m.syscallResults {
+			m.syscallResults[i].Sym = m.symbolDisplayAt(m.syscallResults[i].Addr)
+		}
+		m.rebuildSyscallRows()
+	}
+}
+
+func (m *Model) symbolDisplayAt(addr uint64) string {
+	if sym, ok := m.file.SymbolAt(addr); ok {
+		return sym.Display()
+	}
+	return ""
 }
 
 // toggleDemangle flips the demangle preference and applies it live: re-applying

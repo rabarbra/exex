@@ -489,6 +489,11 @@ func Sources(f *binfile.File) string {
 		return "no source files (needs DWARF debug info)\n"
 	}
 	var b strings.Builder
+	size := 0
+	for _, s := range files {
+		size += len(s) + 1
+	}
+	b.Grow(size)
 	for _, s := range files {
 		b.WriteString(s)
 		b.WriteByte('\n')

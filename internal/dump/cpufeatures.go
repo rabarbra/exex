@@ -93,6 +93,9 @@ func ScanCPUFeaturesCancel(f *binfile.File, done <-chan struct{}) (CPUFeatureSet
 				if in.Addr < tk.emitVA {
 					return true // re-sync lead — already counted by the previous chunk
 				}
+				if in.Addr >= tk.emitEndVA {
+					return false
+				}
 				cf.total++
 				if feat := classify(in.Text); feat != "" {
 					if cf.counts[feat] == 0 || in.Addr < cf.first[feat] {
@@ -132,13 +135,15 @@ func cpuFeatureTasks(f *binfile.File, raw []byte) []chunkTask {
 		secOff := int(s.Offset)
 		secEnd := min(secOff+int(s.FileSize), len(raw))
 		for p := secOff; p < secEnd; p += dumpScanChunk {
-			hi := min(p+dumpScanChunk, secEnd)
+			emitEnd := min(p+dumpScanChunk, secEnd)
+			hi := min(emitEnd+dumpScanLead, secEnd)
 			lo := max(secOff, p-dumpScanLead)
 			tasks = append(tasks, chunkTask{
-				lo:     lo,
-				hi:     hi,
-				baseVA: s.Addr + uint64(lo-secOff),
-				emitVA: s.Addr + uint64(p-secOff),
+				lo:        lo,
+				hi:        hi,
+				baseVA:    s.Addr + uint64(lo-secOff),
+				emitVA:    s.Addr + uint64(p-secOff),
+				emitEndVA: s.Addr + uint64(emitEnd-secOff),
 			})
 		}
 	}
@@ -171,6 +176,9 @@ func scanCPUFeaturesARM64(f *binfile.File, done <-chan struct{}) CPUFeatureSet {
 				addr := tk.baseVA + uint64(off)
 				if addr < tk.emitVA {
 					continue
+				}
+				if addr >= tk.emitEndVA {
+					break
 				}
 				cf.total++
 				inst, err := arm64asm.Decode(code[off:])

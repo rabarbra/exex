@@ -165,19 +165,27 @@ func DisasmTo(w io.Writer, f *binfile.File, all bool) error {
 		if secEndAddr < s.Addr {
 			secEndAddr = ^uint64(0)
 		}
-		secSyms := f.SymbolsInRange(s.Addr, secEndAddr)
-		symIdx := 0
+		syms := f.SymbolRangeIter(s.Addr, secEndAddr)
+		nextSym, haveSym := syms.Next()
 		disasm.RangeFunc(dis, raw[s.Offset:end], s.Addr, func(in disasm.Inst) bool {
-			for symIdx < len(secSyms) && secSyms[symIdx].Addr < in.Addr {
-				symIdx++
+			for haveSym && nextSym.Addr < in.Addr {
+				nextSym, haveSym = syms.Next()
 			}
-			if symIdx < len(secSyms) && secSyms[symIdx].Addr == in.Addr {
-				j := symIdx
-				for j+1 < len(secSyms) && secSyms[j+1].Addr == in.Addr {
-					j++
+			if haveSym && nextSym.Addr == in.Addr {
+				sym := nextSym
+				for {
+					var ok bool
+					nextSym, ok = syms.Next()
+					if !ok {
+						haveSym = false
+						break
+					}
+					haveSym = true
+					if nextSym.Addr != in.Addr {
+						break
+					}
+					sym = nextSym
 				}
-				sym := secSyms[j]
-				symIdx = j + 1
 				buf = append(buf[:0], '\n')
 				buf = appendHexPad(buf, in.Addr, addrW)
 				buf = append(buf, " <"...)

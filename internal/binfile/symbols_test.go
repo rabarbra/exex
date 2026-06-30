@@ -69,6 +69,23 @@ func TestSymbolsInRangeHandlesBoundsAndOverlaps(t *testing.T) {
 					t.Fatalf("symbol %d = %q, want %q", i, got[i].Name, want)
 				}
 			}
+			it := f.SymbolRangeIter(tt.from, tt.to)
+			var iterGot []Symbol
+			for {
+				sym, ok := it.Next()
+				if !ok {
+					break
+				}
+				iterGot = append(iterGot, sym)
+			}
+			if len(iterGot) != len(got) {
+				t.Fatalf("SymbolRangeIter length = %d, want %d (%#v)", len(iterGot), len(got), iterGot)
+			}
+			for i := range got {
+				if iterGot[i] != got[i] {
+					t.Fatalf("iterator symbol %d = %#v, want %#v", i, iterGot[i], got[i])
+				}
+			}
 		})
 	}
 }

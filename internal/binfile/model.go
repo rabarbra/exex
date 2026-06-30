@@ -713,15 +713,8 @@ func (f *File) SymbolsInRange(from uint64, to uint64) []Symbol {
 	if len(f.symByAddr) == 0 || to <= from {
 		return []Symbol{}
 	}
-	i := sort.Search(len(f.symByAddr), func(i int) bool { return f.Symbols[f.symByAddr[i]].Addr >= from })
-	if i > 0 {
-		prev := f.Symbols[f.symByAddr[i-1]]
-		prevEnd := prev.Addr + prev.Size
-		if prev.Size > 0 && (prevEnd < prev.Addr || prevEnd > from) {
-			i--
-		}
-	}
 	res := []Symbol{}
+	i := f.symbolRangeStart(from)
 	for ; i < len(f.symByAddr); i++ {
 		s := f.Symbols[f.symByAddr[i]]
 		if s.Addr >= to {
@@ -742,6 +735,52 @@ func (f *File) SymbolsInRange(from uint64, to uint64) []Symbol {
 		}
 	}
 	return res
+}
+
+// SymbolRangeIter walks address-indexed symbols that overlap a half-open address
+// range without allocating a result slice.
+type SymbolRangeIter struct {
+	f  *File
+	i  int
+	to uint64
+}
+
+func (f *File) SymbolRangeIter(from uint64, to uint64) SymbolRangeIter {
+	if len(f.symByAddr) == 0 || to <= from {
+		return SymbolRangeIter{}
+	}
+	return SymbolRangeIter{f: f, i: f.symbolRangeStart(from), to: to}
+}
+
+func (it *SymbolRangeIter) Next() (Symbol, bool) {
+	if it.f == nil {
+		return Symbol{}, false
+	}
+	for ; it.i < len(it.f.symByAddr); it.i++ {
+		s := it.f.Symbols[it.f.symByAddr[it.i]]
+		if s.Addr >= it.to {
+			return Symbol{}, false
+		}
+		if s.Size == 0 {
+			it.i++
+			return s, true
+		}
+		it.i++
+		return s, true
+	}
+	return Symbol{}, false
+}
+
+func (f *File) symbolRangeStart(from uint64) int {
+	i := sort.Search(len(f.symByAddr), func(i int) bool { return f.Symbols[f.symByAddr[i]].Addr >= from })
+	if i > 0 {
+		prev := f.Symbols[f.symByAddr[i-1]]
+		prevEnd := prev.Addr + prev.Size
+		if prev.Size > 0 && (prevEnd < prev.Addr || prevEnd > from) {
+			i--
+		}
+	}
+	return i
 }
 
 // NextSymbol returns the first symbol (by address) strictly after addr that

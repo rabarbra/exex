@@ -135,15 +135,14 @@ func cpuFeatureTasks(f *binfile.File, raw []byte) []chunkTask {
 		secOff := int(s.Offset)
 		secEnd := min(secOff+int(s.FileSize), len(raw))
 		for p := secOff; p < secEnd; p += dumpScanChunk {
-			emitEnd := min(p+dumpScanChunk, secEnd)
-			hi := min(emitEnd+dumpScanLead, secEnd)
+			hi := min(p+dumpScanChunk, secEnd)
 			lo := max(secOff, p-dumpScanLead)
 			tasks = append(tasks, chunkTask{
 				lo:        lo,
 				hi:        hi,
 				baseVA:    s.Addr + uint64(lo-secOff),
 				emitVA:    s.Addr + uint64(p-secOff),
-				emitEndVA: s.Addr + uint64(emitEnd-secOff),
+				emitEndVA: s.Addr + uint64(hi-secOff),
 			})
 		}
 	}

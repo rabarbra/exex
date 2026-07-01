@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -134,14 +133,21 @@ func (m *Model) appendAddrTarget(val string) {
 }
 
 // appendSymbolMatches ranks symbols (raw + demangled name) exact → prefix →
-// substring and appends them.
+// substring and appends bounded buckets. The palette never shows more than
+// gotoMaxResults entries, so keep at most that many per rank instead of
+// collecting/sorting every match on large symbol tables for every keystroke.
 func (m *Model) appendSymbolMatches(needle string) {
-	lowerName, lowerDem := m.file.LowerNames()
-	type ranked struct {
-		t    gotoTarget
-		rank int
+	remain := gotoMaxResults - len(m.gotoResults)
+	if remain <= 0 {
+		return
 	}
-	var matches []ranked
+	lowerName, lowerDem := m.file.LowerNames()
+	var exact, prefix, substr []gotoTarget
+	add := func(dst *[]gotoTarget, t gotoTarget) {
+		if len(*dst) < remain {
+			*dst = append(*dst, t)
+		}
+	}
 	for i := range m.file.Symbols {
 		s := m.file.Symbols[i]
 		if s.Addr == 0 {
@@ -151,26 +157,27 @@ func (m *Model) appendSymbolMatches(needle string) {
 		if !strings.Contains(name, needle) && (dem == "" || !strings.Contains(dem, needle)) {
 			continue
 		}
-		rank := 2
+		t := gotoTarget{kind: gkSymbol, label: s.Display(), addr: s.Addr, sym: s, hasAddr: true}
 		switch {
 		case name == needle || dem == needle:
-			rank = 0
+			add(&exact, t)
+			if len(exact) >= remain {
+				goto flush
+			}
 		case strings.HasPrefix(name, needle) || strings.HasPrefix(dem, needle):
-			rank = 1
+			add(&prefix, t)
+		default:
+			add(&substr, t)
 		}
-		matches = append(matches, ranked{gotoTarget{kind: gkSymbol, label: s.Display(), addr: s.Addr, sym: s, hasAddr: true}, rank})
 	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		if matches[i].rank != matches[j].rank {
-			return matches[i].rank < matches[j].rank
+flush:
+	for _, bucket := range [][]gotoTarget{exact, prefix, substr} {
+		for _, t := range bucket {
+			if len(m.gotoResults) >= gotoMaxResults {
+				return
+			}
+			m.gotoResults = append(m.gotoResults, t)
 		}
-		return matches[i].t.label < matches[j].t.label
-	})
-	for _, mt := range matches {
-		if len(m.gotoResults) >= gotoMaxResults {
-			break
-		}
-		m.gotoResults = append(m.gotoResults, mt.t)
 	}
 }
 

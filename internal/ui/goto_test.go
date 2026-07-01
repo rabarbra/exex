@@ -28,6 +28,42 @@ func TestResolveSymbolGoto(t *testing.T) {
 	}
 }
 
+func TestAppendSymbolMatchesRanksBeforeTableOrder(t *testing.T) {
+	m := &Model{file: &binfile.File{Symbols: []binfile.Symbol{
+		{Name: "zzz_target", Addr: 0x3000},
+		{Name: "target_helper", Addr: 0x2000},
+		{Name: "target", Addr: 0x1000},
+	}}}
+	m.appendSymbolMatches("target")
+	if got := len(m.gotoResults); got != 3 {
+		t.Fatalf("matches = %d, want 3", got)
+	}
+	want := []string{"target", "target_helper", "zzz_target"}
+	for i, w := range want {
+		if got := m.gotoResults[i].label; got != w {
+			t.Fatalf("result[%d] = %q, want %q", i, got, w)
+		}
+	}
+}
+
+func TestAppendSymbolMatchesFlushesWhenExactBucketFillsCap(t *testing.T) {
+	m := &Model{file: &binfile.File{Symbols: []binfile.Symbol{
+		{Name: "needle", Addr: 0x1000},
+		{Name: "needle", Addr: 0x2000},
+		{Name: "needle", Addr: 0x3000},
+	}}}
+	m.gotoResults = make([]gotoTarget, gotoMaxResults-2)
+	m.appendSymbolMatches("needle")
+	if got := len(m.gotoResults); got != gotoMaxResults {
+		t.Fatalf("matches after bounded append = %d, want %d", got, gotoMaxResults)
+	}
+	for i := gotoMaxResults - 2; i < gotoMaxResults; i++ {
+		if got := m.gotoResults[i].label; got != "needle" {
+			t.Fatalf("result[%d] = %q, want needle", i, got)
+		}
+	}
+}
+
 func TestStartupGotoMultipleMatchesOpensSymbols(t *testing.T) {
 	m := &Model{
 		theme:        DefaultTheme(),

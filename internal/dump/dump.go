@@ -63,6 +63,17 @@ func ViewNeedsDemangle(name string) bool {
 	return false
 }
 
+// ViewNeedsLayoutOnly reports whether a view can be rendered from the cheap
+// layout model (sections/segments/raw bytes) without symbols, imports, relocs,
+// DWARF, or computed overview fields.
+func ViewNeedsLayoutOnly(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "sections", "segments", "strings", "cpu-features", "cpufeatures", "features":
+		return true
+	}
+	return false
+}
+
 // View dumps a named view as plain text, or errors for an unknown name.
 func View(f *binfile.File, name string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
@@ -150,8 +161,31 @@ func DisasmTo(w io.Writer, f *binfile.File, all bool) error {
 		}
 		fmt.Fprintf(bw, "Disassembly of section %s:\n", s.Name)
 		stop := false
+		secEndAddr := s.Addr + s.FileSize
+		if secEndAddr < s.Addr {
+			secEndAddr = ^uint64(0)
+		}
+		syms := f.SymbolRangeIter(s.Addr, secEndAddr)
+		nextSym, haveSym := syms.Next()
 		disasm.RangeFunc(dis, raw[s.Offset:end], s.Addr, func(in disasm.Inst) bool {
-			if sym, ok := f.SymbolAt(in.Addr); ok && sym.Addr == in.Addr {
+			for haveSym && nextSym.Addr < in.Addr {
+				nextSym, haveSym = syms.Next()
+			}
+			if haveSym && nextSym.Addr == in.Addr {
+				sym := nextSym
+				for {
+					var ok bool
+					nextSym, ok = syms.Next()
+					if !ok {
+						haveSym = false
+						break
+					}
+					haveSym = true
+					if nextSym.Addr != in.Addr {
+						break
+					}
+					sym = nextSym
+				}
 				buf = append(buf[:0], '\n')
 				buf = appendHexPad(buf, in.Addr, addrW)
 				buf = append(buf, " <"...)
@@ -387,12 +421,19 @@ func appendLeftStr(dst []byte, s string, width int) []byte {
 func Strings(f *binfile.File) string {
 	entries := f.Strings()
 	var b strings.Builder
+	addrW := f.AddrHexWidth()
 	size := 0
 	for i := range entries {
-		size += f.AddrHexWidth() + 5 + int(entries[i].Len) + 1
+		size += addrW + 5 + int(entries[i].Len) + 1
 	}
 	b.Grow(size)
-	_ = StringsTo(&b, f)
+	line := make([]byte, 0, addrW+5)
+	for _, e := range entries {
+		line = appendStringLinePrefix(line[:0], e, addrW)
+		b.Write(line)
+		b.Write(f.StringBytes(e))
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 
@@ -405,32 +446,35 @@ func StringsTo(w io.Writer, f *binfile.File) error {
 	bw := bufio.NewWriter(w)
 	defer bw.Flush()
 	var line []byte
-	for _, e := range f.Strings() {
-		line = line[:0]
-		if e.HasAddr {
-			line = append(line, '0', 'x')
-			line = appendHexPad(line, e.Addr, addrW)
-		} else {
-			// "@0x" + offset left-justified in addrW hex columns (matches "%-*x").
-			line = append(line, '@', '0', 'x')
-			n := len(line)
-			line = appendHexPad(line, e.Offset, 0)
-			for w := len(line) - n; w < addrW; w++ {
-				line = append(line, ' ')
-			}
-		}
-		line = append(line, ' ', ' ')
+	return f.ScanStrings(func(e binfile.StringEntry) error {
+		line = appendStringLinePrefix(line[:0], e, addrW)
 		if _, err := bw.Write(line); err != nil {
-			return nil
+			return io.ErrClosedPipe
 		}
 		if _, err := bw.Write(f.StringBytes(e)); err != nil {
-			return nil
+			return io.ErrClosedPipe
 		}
 		if err := bw.WriteByte('\n'); err != nil {
-			return nil
+			return io.ErrClosedPipe
+		}
+		return nil
+	})
+}
+
+func appendStringLinePrefix(dst []byte, e binfile.StringEntry, addrW int) []byte {
+	if e.HasAddr {
+		dst = append(dst, '0', 'x')
+		dst = appendHexPad(dst, e.Addr, addrW)
+	} else {
+		// "@0x" + offset left-justified in addrW hex columns (matches "%-*x").
+		dst = append(dst, '@', '0', 'x')
+		n := len(dst)
+		dst = appendHexPad(dst, e.Offset, 0)
+		for w := len(dst) - n; w < addrW; w++ {
+			dst = append(dst, ' ')
 		}
 	}
-	return nil
+	return append(dst, ' ', ' ')
 }
 
 // StreamView writes a view straight to w when it has a streaming form (the large
@@ -453,6 +497,11 @@ func Sources(f *binfile.File) string {
 		return "no source files (needs DWARF debug info)\n"
 	}
 	var b strings.Builder
+	size := 0
+	for _, s := range files {
+		size += len(s) + 1
+	}
+	b.Grow(size)
 	for _, s := range files {
 		b.WriteString(s)
 		b.WriteByte('\n')

@@ -21,6 +21,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rabarbra/exex/internal/binfile"
 )
 
 // xrefMaxHits caps how many references are collected (the modal scrolls).
@@ -30,6 +31,18 @@ const xrefMaxHits = 500
 // interactive overlap) since chunks are contiguous, and a multiple of 4 to keep
 // arm64/riscv instruction alignment.
 const xrefLead = 1 << 10
+
+func scanCancelled(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
+}
 
 // xrefHit is one referencing instruction.
 type xrefHit struct {
@@ -43,6 +56,7 @@ type xrefState struct {
 	xrefActive  bool // results modal open
 	xrefRunning bool // background scan in flight
 	xrefSeq     int  // guards against stale async results
+	xrefCancel  chan struct{}
 	xrefTarget  uint64
 	xrefLabel   string // display name of the target (symbol or 0x…)
 	xrefResults []xrefHit
@@ -56,6 +70,17 @@ type xrefState struct {
 	xrefFilter    textinput.Model
 	xrefFiltering bool
 	xrefTotal     int // results before the text filter
+	xrefCache     map[xrefCacheKey]xrefCacheEntry
+}
+
+type xrefCacheKey struct {
+	target uint64
+	all    bool
+}
+
+type xrefCacheEntry struct {
+	label string
+	hits  []xrefHit
 }
 
 // xrefSortKey selects how the modal orders references.
@@ -81,6 +106,7 @@ func (k xrefSortKey) String() string {
 
 // xrefDoneMsg delivers a finished cross-reference scan.
 type xrefDoneMsg struct {
+	file   *binfile.File
 	seq    int
 	target uint64
 	hits   []xrefHit
@@ -95,6 +121,32 @@ func (m *Model) startXrefScan() tea.Cmd {
 		return nil
 	}
 	target := m.disasmInst[m.disasmCur].Addr
+	label := m.xrefLabelForTarget(target)
+	m.stopXrefScan()
+	m.xrefSeq++
+	m.xrefRunning = false
+	key := xrefCacheKey{target: target, all: m.file.DisasmAll()}
+	if cached, ok := m.xrefCache[key]; ok {
+		m.xrefTarget = target
+		m.xrefLabel = cached.label
+		if len(cached.hits) == 0 {
+			m.setStatus("no references to "+cached.label+" (cached)", true)
+			return nil
+		}
+		m.openXrefResults(cached.hits)
+		m.setStatus(fmt.Sprintf("%d references to %s (cached)", len(cached.hits), cached.label), false)
+		return nil
+	}
+	m.xrefRunning = true
+	m.xrefTarget = target
+	m.xrefLabel = label
+	done := make(chan struct{})
+	m.xrefCancel = done
+	m.setStatus("finding references to "+label+" … (Esc cancels)", false)
+	return m.xrefScanCmd(target, m.xrefSeq, done)
+}
+
+func (m *Model) xrefLabelForTarget(target uint64) string {
 	label := fmt.Sprintf("0x%x", target)
 	if sym, ok := m.file.SymbolAt(target); ok {
 		if off := target - sym.Addr; off == 0 {
@@ -103,17 +155,12 @@ func (m *Model) startXrefScan() tea.Cmd {
 			label = fmt.Sprintf("%s+0x%x", sym.Display(), off)
 		}
 	}
-	m.xrefSeq++
-	m.xrefRunning = true
-	m.xrefTarget = target
-	m.xrefLabel = label
-	m.setStatus("finding references to "+label+" … (Esc cancels)", false)
-	return m.xrefScanCmd(target, m.xrefSeq)
+	return label
 }
 
 // xrefScanCmd decodes the whole executable image in chunks (reusing the decode
 // cache) off the UI goroutine and collects instructions that reference target.
-func (m *Model) xrefScanCmd(target uint64, seq int) tea.Cmd {
+func (m *Model) xrefScanCmd(target uint64, seq int, done <-chan struct{}) tea.Cmd {
 	svc := m.disasmService()
 	img := m.file.ExecImage()
 	file := m.file
@@ -143,13 +190,22 @@ func (m *Model) xrefScanCmd(target uint64, seq int) tea.Cmd {
 		sem := make(chan struct{}, workers)
 		var wg sync.WaitGroup
 		for i, start := range starts {
+			if scanCancelled(done) {
+				break
+			}
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(i, start int) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				var hits []xrefHit
+				if scanCancelled(done) {
+					return
+				}
 				for _, inst := range svc.DecodeRange(start, chunk, xrefLead) {
+					if scanCancelled(done) {
+						return
+					}
 					if !instReferences(inst.Text, target) {
 						continue
 					}
@@ -184,7 +240,7 @@ func (m *Model) xrefScanCmd(target uint64, seq int) tea.Cmd {
 		if len(hits) > xrefMaxHits {
 			hits = hits[:xrefMaxHits]
 		}
-		return xrefDoneMsg{seq: seq, target: target, hits: hits}
+		return xrefDoneMsg{file: file, seq: seq, target: target, hits: hits}
 	}
 }
 
@@ -205,23 +261,21 @@ func instReferences(text string, target uint64) bool {
 
 // handleXrefDone stores a finished scan and opens the modal (or reports none).
 func (m *Model) handleXrefDone(msg xrefDoneMsg) (tea.Model, tea.Cmd) {
-	if !m.xrefRunning || msg.seq != m.xrefSeq {
+	if msg.file != m.file || !m.xrefRunning || msg.seq != m.xrefSeq {
 		return m, nil // cancelled or superseded
 	}
 	m.xrefRunning = false
+	m.xrefCancel = nil
+	key := xrefCacheKey{target: msg.target, all: m.file.DisasmAll()}
+	if m.xrefCache == nil {
+		m.xrefCache = map[xrefCacheKey]xrefCacheEntry{}
+	}
+	m.xrefCache[key] = xrefCacheEntry{label: m.xrefLabel, hits: msg.hits}
 	if len(msg.hits) == 0 {
 		m.setStatus("no references to "+m.xrefLabel, true)
 		return m, nil
 	}
-	m.xrefResults = msg.hits
-	m.xrefSel = 0
-	m.xrefTop = 0
-	m.ensureXrefFilter()
-	m.xrefFilter.SetValue("")
-	m.xrefFilter.Blur()
-	m.xrefFiltering = false
-	m.rebuildXrefRows()
-	m.xrefActive = true
+	m.openXrefResults(msg.hits)
 	capped := ""
 	if len(msg.hits) >= xrefMaxHits {
 		capped = "+"
@@ -230,11 +284,31 @@ func (m *Model) handleXrefDone(msg xrefDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) openXrefResults(hits []xrefHit) {
+	m.xrefResults = hits
+	m.xrefSel = 0
+	m.xrefTop = 0
+	m.ensureXrefFilter()
+	m.xrefFilter.SetValue("")
+	m.xrefFilter.Blur()
+	m.xrefFiltering = false
+	m.rebuildXrefRows()
+	m.xrefActive = true
+}
+
 // cancelXref abandons an in-flight scan (its result is ignored by seq).
 func (m *Model) cancelXref() {
 	m.xrefSeq++
 	m.xrefRunning = false
+	m.stopXrefScan()
 	m.setStatus("xref search cancelled", false)
+}
+
+func (m *Model) stopXrefScan() {
+	if m.xrefCancel != nil {
+		close(m.xrefCancel)
+		m.xrefCancel = nil
+	}
 }
 
 // ensureXrefFilter guarantees the filter input is fully constructed before it is

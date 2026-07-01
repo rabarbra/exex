@@ -134,6 +134,75 @@ func TestVsyscallTrampoline(t *testing.T) {
 	}
 }
 
+func TestScanChunkX86Localized(t *testing.T) {
+	dis, err := disasm.For(disasm.ArchAMD64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// mov $0x3c,%eax; syscall
+	code := []byte{0xb8, 0x3c, 0x00, 0x00, 0x00, 0x0f, 0x05}
+	sites := scanChunkX86Localized(dis, code, 0x1000, 0x1000, 0x1000+uint64(len(code)), disasm.ArchAMD64, &binfile.File{}, nil)
+	if len(sites) != 1 {
+		t.Fatalf("sites = %d, want 1 (%#v)", len(sites), sites)
+	}
+	if sites[0].Addr != 0x1005 || !sites[0].HasNum || sites[0].Num != 60 || !strings.Contains(sites[0].Text, "syscall") {
+		t.Fatalf("site = %+v, want syscall at 0x1005 with #60", sites[0])
+	}
+
+	// The same opcode bytes inside a mov immediate are not an instruction boundary.
+	code = []byte{0xb8, 0x0f, 0x05, 0x00, 0x00, 0xc3}
+	if sites := scanChunkX86Localized(dis, code, 0x2000, 0x2000, 0x2000+uint64(len(code)), disasm.ArchAMD64, &binfile.File{}, nil); len(sites) != 0 {
+		t.Fatalf("false positive sites = %#v, want none", sites)
+	}
+}
+
+func TestScanChunkX86LocalizedChunkBoundary(t *testing.T) {
+	dis, err := disasm.For(disasm.ArchAMD64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := make([]byte, dumpScanChunk+dumpScanLead)
+	boundary := dumpScanChunk - 1
+	raw[boundary-1] = 0x90 // nop: makes boundary a valid linear instruction start
+	raw[boundary], raw[boundary+1] = 0x0f, 0x05
+
+	// The first chunk includes a small trailing overlap, so a syscall that starts
+	// at the logical last byte of the chunk is still decoded and emitted there.
+	sites := scanChunkX86Localized(dis, raw[:dumpScanChunk+dumpScanLead], 0, 0, dumpScanChunk, disasm.ArchAMD64, &binfile.File{}, nil)
+	if len(sites) != 1 || sites[0].Addr != uint64(boundary) {
+		t.Fatalf("boundary sites = %+v, want one syscall at %#x", sites, boundary)
+	}
+
+	// The next chunk sees the same bytes in its leading overlap, but must not emit
+	// them again because the instruction starts before emitVA.
+	leadBase := dumpScanChunk - dumpScanLead
+	sites = scanChunkX86Localized(dis, raw[leadBase:], uint64(leadBase), dumpScanChunk, uint64(len(raw)), disasm.ArchAMD64, &binfile.File{}, nil)
+	if len(sites) != 0 {
+		t.Fatalf("leading-overlap duplicate sites = %+v, want none", sites)
+	}
+}
+
+func TestScanChunkX86LocalizedTrailingOverlapDoesNotEmitNextChunk(t *testing.T) {
+	dis, err := disasm.For(disasm.ArchAMD64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := make([]byte, dumpScanChunk+dumpScanLead)
+	next := dumpScanChunk + 1
+	raw[next-1] = 0x90 // nop: makes next a valid linear instruction start
+	raw[next], raw[next+1] = 0x0f, 0x05
+
+	if sites := scanChunkX86Localized(dis, raw[:], 0, 0, dumpScanChunk, disasm.ArchAMD64, &binfile.File{}, nil); len(sites) != 0 {
+		t.Fatalf("trailing-overlap sites = %+v, want none before emitEndVA", sites)
+	}
+
+	leadBase := dumpScanChunk - dumpScanLead
+	sites := scanChunkX86Localized(dis, raw[leadBase:], uint64(leadBase), dumpScanChunk, uint64(len(raw)), disasm.ArchAMD64, &binfile.File{}, nil)
+	if len(sites) != 1 || sites[0].Addr != uint64(next) {
+		t.Fatalf("next-chunk sites = %+v, want one syscall at %#x", sites, next)
+	}
+}
+
 func TestResolveStopsAtWriterAndCall(t *testing.T) {
 	insts := func(texts ...string) []disasm.Inst {
 		out := make([]disasm.Inst, len(texts))

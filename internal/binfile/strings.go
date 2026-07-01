@@ -1,6 +1,7 @@
 package binfile
 
 import (
+	"io"
 	"runtime"
 	"sort"
 	"sync"
@@ -45,6 +46,11 @@ func NewRawFile(raw []byte) *File { return &File{raw: raw} }
 
 // minString is the shortest run of printable bytes reported as a string.
 const minString = 4
+
+const (
+	parallelStringScanMin   = 1 << 20
+	parallelStringScanChunk = 128 << 10
+)
 
 // Strings scans the whole file for runs of printable ASCII at least minString
 // bytes long. The result is cached. Each entry is mapped back to a virtual
@@ -101,8 +107,12 @@ func (f *File) extractStrings() []StringEntry {
 // belongs to the previous chunk and is skipped; a run still open at hi is
 // followed past the boundary so it is captured whole exactly once.
 func (f *File) extractStringsRange(data []byte, secs []*Section, lo, hi int) []StringEntry {
+	return f.extractStringsRangeInto(data, secs, lo, hi, make([]StringEntry, 0, 4096))
+}
+
+func (f *File) extractStringsRangeInto(data []byte, secs []*Section, lo, hi int, out []StringEntry) []StringEntry {
 	printable := func(b byte) bool { return b >= 0x20 && b < 0x7f }
-	out := make([]StringEntry, 0, 4096) // a typical section holds thousands of runs
+	out = out[:0]
 	start := -1
 	flush := func(end int) {
 		if start >= 0 && end-start >= minString {
@@ -141,6 +151,97 @@ func (f *File) extractStringsRange(data []byte, secs []*Section, lo, hi int) []S
 		flush(end)
 	}
 	return out
+}
+
+// ScanStrings walks printable strings in file order and calls emit for each one,
+// without populating the retained Strings cache. Small inputs stream directly;
+// large inputs scan chunks in parallel but emit them in file order using reusable
+// per-worker buffers, so memory is bounded by worker count rather than file size.
+func (f *File) ScanStrings(emit func(StringEntry) error) error {
+	data := f.raw
+	secs := f.fileSectionsByOffset()
+	chunks := (len(data) + parallelStringScanChunk - 1) / parallelStringScanChunk
+	workers := min(runtime.GOMAXPROCS(0), chunks)
+	if len(data) < parallelStringScanMin || workers <= 1 {
+		return f.scanStringsSequential(data, secs, emit)
+	}
+	return f.scanStringsParallel(data, secs, workers, emit)
+}
+
+func (f *File) scanStringsSequential(data []byte, secs []*Section, emit func(StringEntry) error) error {
+	printable := func(b byte) bool { return b >= 0x20 && b < 0x7f }
+	start := -1
+	flush := func(end int) error {
+		if start >= 0 && end-start >= minString {
+			e := StringEntry{Offset: uint64(start), Len: uint32(end - start)}
+			if sec := sectionAtSortedOffset(secs, uint64(start)); sec != nil {
+				e.Section = sec.Name
+				if sec.Alloc {
+					e.Addr = sec.Addr + (uint64(start) - sec.Offset)
+					e.HasAddr = true
+				}
+			}
+			if err := emit(e); err != nil {
+				return err
+			}
+		}
+		start = -1
+		return nil
+	}
+	for i, b := range data {
+		if printable(b) {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if err := flush(i); err != nil {
+			if err == io.ErrClosedPipe {
+				return nil
+			}
+			return err
+		}
+	}
+	if err := flush(len(data)); err != nil && err != io.ErrClosedPipe {
+		return err
+	}
+	return nil
+}
+
+func (f *File) scanStringsParallel(data []byte, secs []*Section, workers int, emit func(StringEntry) error) error {
+	chunks := (len(data) + parallelStringScanChunk - 1) / parallelStringScanChunk
+	bufs := make([][]StringEntry, workers)
+	results := make([][]StringEntry, workers)
+	for base := 0; base < chunks; base += workers {
+		batch := min(workers, chunks-base)
+		var wg sync.WaitGroup
+		for j := 0; j < batch; j++ {
+			chunk := base + j
+			lo := chunk * parallelStringScanChunk
+			hi := min(lo+parallelStringScanChunk, len(data))
+			buf := bufs[j]
+			wg.Add(1)
+			go func(j, lo, hi int, buf []StringEntry) {
+				defer wg.Done()
+				results[j] = f.extractStringsRangeInto(data, secs, lo, hi, buf)
+			}(j, lo, hi, buf)
+		}
+		wg.Wait()
+		for j := 0; j < batch; j++ {
+			rs := results[j]
+			for _, e := range rs {
+				if err := emit(e); err != nil {
+					if err == io.ErrClosedPipe {
+						return nil
+					}
+					return err
+				}
+			}
+			bufs[j] = rs[:0]
+			results[j] = nil
+		}
+	}
+	return nil
 }
 
 // fileSectionsByOffset returns the sections that occupy file bytes, sorted by

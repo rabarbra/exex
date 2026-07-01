@@ -171,6 +171,7 @@ func (m *Model) toggleDisasmAll() {
 // byte image so a re-decode rebuilds them against the new one. Used when the
 // disasm image changes underfoot (disasm-all toggle).
 func (m *Model) resetDisasmImageState() {
+	m.invalidateDisasmDerivedJobs()
 	m.disasmSvc = nil // rebuilt over the new ExecImage()
 	m.disasmInst = nil
 	m.disasmBuilt = false
@@ -181,6 +182,25 @@ func (m *Model) resetDisasmImageState() {
 	m.execSecStarts = nil
 	m.disasmAsmCache = nil
 	m.clearDisasmDisplayCaches()
+}
+
+func (m *Model) invalidateDisasmDerivedJobs() {
+	if m.searchRunning || m.searchCancel != nil {
+		m.searchSeq++
+		m.searchRunning = false
+		m.searchCancelable = false
+		m.stopDisasmSearch()
+	}
+	if m.xrefRunning || m.xrefCancel != nil {
+		m.xrefSeq++
+		m.xrefRunning = false
+		m.stopXrefScan()
+	}
+	if m.syscallRunning || m.syscallCancel != nil {
+		m.syscallSeq++
+		m.syscallRunning = false
+		m.stopSyscallScan()
+	}
 }
 
 // copyFunctionDisasm copies the disassembly of the function under the cursor to

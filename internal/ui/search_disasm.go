@@ -27,6 +27,7 @@ type disasmSearchHit struct {
 }
 
 type disasmSearchStep struct {
+	file      *binfile.File
 	seq       int
 	label     string
 	query     string
@@ -36,9 +37,11 @@ type disasmSearchStep struct {
 	total     int
 	chunk     int
 	base      int
+	cancel    <-chan struct{}
 }
 
 type disasmSearchProgressMsg struct {
+	file      *binfile.File
 	seq       int
 	forward   bool
 	next      disasmSearchStep
@@ -216,9 +219,13 @@ func (m *Model) startDisasmSearch(forward, inclusive, fromCursor bool) tea.Cmd {
 		return nil
 	}
 	m.searchSeq++
+	m.stopDisasmSearch()
 	m.searchRunning = true
 	m.searchCancelable = true
+	done := make(chan struct{})
+	m.searchCancel = done
 	step := disasmSearchStep{
+		file:      m.file,
 		seq:       m.searchSeq,
 		label:     m.searchQuery,
 		query:     canonicalSearchQuery(m.searchQuery),
@@ -227,6 +234,7 @@ func (m *Model) startDisasmSearch(forward, inclusive, fromCursor bool) tea.Cmd {
 		total:     img.Len(),
 		chunk:     m.disasmSearchChunkBytes(),
 		base:      pos,
+		cancel:    done,
 	}
 	if !fromCursor {
 		if forward {
@@ -356,12 +364,24 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 	file := m.file
 	svc := m.disasmService()
 	query := step.query
+	queryASCII := true
+	for i := 0; i < len(query); i++ {
+		if query[i] >= 0x80 {
+			queryASCII = false
+			break
+		}
+	}
+	matchText := func(s string) bool {
+		if queryASCII {
+			return containsFold(s, query)
+		}
+		return strings.Contains(strings.ToLower(s), query)
+	}
 	match := func(instText string, addr uint64) bool {
-		if strings.Contains(strings.ToLower(instText), query) {
+		if matchText(instText) {
 			return true
 		}
-		if sym, ok := file.SymbolAt(addr); ok && sym.Addr == addr &&
-			strings.Contains(strings.ToLower(sym.Display()), query) {
+		if sym, ok := file.SymbolAt(addr); ok && sym.Addr == addr && matchText(sym.Display()) {
 			return true
 		}
 		return false
@@ -373,13 +393,16 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 		hits  []disasmSearchHit
 	}
 	return func() tea.Msg {
+		if scanCancelled(step.cancel) {
+			return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, done: true}
+		}
 		batch := svc.SearchBatchChunks()
 		if batch < 1 {
 			batch = 1
 		}
 		if step.forward {
 			if step.logical >= img.Len() {
-				return disasmSearchProgressMsg{seq: step.seq, forward: step.forward, next: step, scannedLo: step.logical, scannedHi: step.logical, done: true}
+				return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, next: step, scannedLo: step.logical, scannedHi: step.logical, done: true}
 			}
 			var wins []binfile.Window
 			logical := step.logical
@@ -393,11 +416,17 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 			sem := make(chan struct{}, limit)
 			var wg sync.WaitGroup
 			for i, win := range wins {
+				if scanCancelled(step.cancel) {
+					break
+				}
 				wg.Add(1)
 				sem <- struct{}{}
 				go func(i int, win binfile.Window) {
 					defer wg.Done()
 					defer func() { <-sem }()
+					if scanCancelled(step.cancel) {
+						return
+					}
 					insts := svc.DecodeWindow(win)
 					results[i] = chunkResult{order: i, win: win, insts: insts}
 					startPos := step.logical
@@ -405,6 +434,9 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 						startPos = win.Start
 					}
 					for j, inst := range insts {
+						if scanCancelled(step.cancel) {
+							return
+						}
 						instPos, ok := img.PosForAddr(inst.Addr)
 						if !ok || instPos < startPos {
 							continue
@@ -423,14 +455,14 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 				}
 			}
 			if len(found) > 0 {
-				return disasmSearchProgressMsg{seq: step.seq, forward: step.forward, hit: &found[0], found: found, scannedLo: step.logical, scannedHi: logical, done: true}
+				return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, hit: &found[0], found: found, scannedLo: step.logical, scannedHi: logical, done: true}
 			}
 			next := step
 			next.logical = logical
-			return disasmSearchProgressMsg{seq: step.seq, forward: step.forward, next: next, scannedLo: step.logical, scannedHi: logical, status: fmt.Sprintf("searching disasm for %q (%d%%, Esc cancels)", step.label, 100*min(next.logical, next.total)/max(1, next.total))}
+			return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, next: next, scannedLo: step.logical, scannedHi: logical, status: fmt.Sprintf("searching disasm for %q (%d%%, Esc cancels)", step.label, 100*min(next.logical, next.total)/max(1, next.total))}
 		}
 		if step.logical <= 0 {
-			return disasmSearchProgressMsg{seq: step.seq, forward: step.forward, next: step, scannedLo: step.logical, scannedHi: step.logical, done: true}
+			return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, next: step, scannedLo: step.logical, scannedHi: step.logical, done: true}
 		}
 		var wins []binfile.Window
 		logical := step.logical
@@ -445,11 +477,17 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 		sem := make(chan struct{}, limit)
 		var wg sync.WaitGroup
 		for i, win := range wins {
+			if scanCancelled(step.cancel) {
+				break
+			}
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(i int, win binfile.Window) {
 				defer wg.Done()
 				defer func() { <-sem }()
+				if scanCancelled(step.cancel) {
+					return
+				}
 				insts := svc.DecodeWindow(win)
 				results[i] = chunkResult{order: i, win: win, insts: insts}
 				endPos := step.logical
@@ -457,6 +495,9 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 					endPos = win.End
 				}
 				for j := len(insts) - 1; j >= 0; j-- {
+					if scanCancelled(step.cancel) {
+						return
+					}
 					inst := insts[j]
 					instPos, ok := img.PosForAddr(inst.Addr)
 					if !ok || instPos >= endPos {
@@ -476,11 +517,11 @@ func (m *Model) searchDisasmStepCmd(step disasmSearchStep) tea.Cmd {
 			}
 		}
 		if len(found) > 0 {
-			return disasmSearchProgressMsg{seq: step.seq, forward: step.forward, hit: &found[0], found: found, scannedLo: logical, scannedHi: step.logical, done: true}
+			return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, hit: &found[0], found: found, scannedLo: logical, scannedHi: step.logical, done: true}
 		}
 		next := step
 		next.logical = logical
 		progress := 100 * (step.total - max(0, next.logical)) / max(1, step.total)
-		return disasmSearchProgressMsg{seq: step.seq, forward: step.forward, next: next, scannedLo: logical, scannedHi: step.logical, status: fmt.Sprintf("searching disasm for %q (%d%%, Esc cancels)", step.label, progress)}
+		return disasmSearchProgressMsg{file: step.file, seq: step.seq, forward: step.forward, next: next, scannedLo: logical, scannedHi: step.logical, status: fmt.Sprintf("searching disasm for %q (%d%%, Esc cancels)", step.label, progress)}
 	}
 }

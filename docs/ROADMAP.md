@@ -459,15 +459,15 @@ Sources and Libs now mark availability and filter on it (`v` cycles the filter):
   `v` cycles all → on-disk → in-cache (`libAvail` via `explorer.ResolveLibPath`
   / `IsDyldSharedCacheLib`).
 
-## 30. Extract syscalls
+## ✅ 30. Extract syscalls
 
 Extract all the syscalls used in binary
 
-## 31. Extract pathes
+## ✅ 31. Extract pathes
 
 Extract all the pathes from strings
 
-## 32. Search
+## ✅ 32. Search
 
 0x000106b6 should match with $0x106b6
 
@@ -519,13 +519,13 @@ Info view: arch + bits + endianness · OS/ABI (ELF `OSABI`; Mach-O — decode
 only counted) · static/dynamic/PIE · interpreter · needed-library count · CPU
 baseline (from #34).
 
-## 36. Find-anything quick jump
+## ✅ 36. Find-anything quick jump
 
 Broaden the goto modal (#…/`g`) beyond symbols + addresses to also rank sections
 and strings, so one keystroke finds *any* named thing in the binary and jumps to
 it — a single fuzzy "jump to anything" entry point.
 
-## 37. Architecture cleanup (internal)
+## ✅ 37. Architecture cleanup (internal)
 
 Reduce duplication and the cache-invalidation bug surface in `internal/ui`:
 

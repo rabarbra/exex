@@ -76,6 +76,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelSyscall()
 		return m, nil
 	}
+	if m.syscallFullRunning && key == "esc" {
+		m.cancelSyscallFullScan()
+		m.setStatus("syscall scan cancelled", false)
+		return m, nil
+	}
 	if m.cpufeatRunning && key == "esc" {
 		m.cancelCPUFeat()
 		return m, nil
@@ -431,7 +436,7 @@ func (m *Model) captureActiveFilter(key string, msg tea.KeyMsg) (tea.Cmd, bool) 
 	case modeLibs:
 		return filterCapture(&m.libsFilter, key, msg, m.buildLibRows)
 	case modeRelocs:
-		return filterCapture(&m.libsFilter, key, msg, m.recomputeRelocs)
+		return filterCapture(&m.relocFilter, key, msg, m.recomputeRelocs)
 	case modeSources:
 		if m.srcFile == "" {
 			return filterCapture(&m.sourcesFilter, key, msg, m.recomputeSourceFiles)

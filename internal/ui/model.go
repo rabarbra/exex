@@ -140,6 +140,7 @@ type symbolsState struct {
 	symbolsFiltering    bool            // whether a search filter is currently narrowing the tree
 	symbolsRoots        []*treeNode     // built tree; cached so collapse toggles only re-flatten
 	symbolsRows         []treeRow       // flattened visible rows (tree nodes + leaves), nav/render unit
+	symbolsReady        bool            // rows/tree have been built at least once
 	symbolsTreeInit     bool            // collapse-default applied once
 	symbolsByDisplay    []int           // all symbol indices sorted by Display(); built lazily
 	demangledNames      []string        // cached ComputeDemangled result, for the live demangle toggle
@@ -318,18 +319,22 @@ type libsState struct {
 	libsAvailKind map[string]availKind
 	libsFilter    textinput.Model // name search (the `/` filter)
 	libsSortDesc  bool            // reverse the (name) sort
+}
 
-	relocCur      int            // cursor in the relocation table
-	relocTop      int            // viewport top of the relocation table
-	relocFiltered []int          // indices into file.Relocations() after the filter
-	relocSort     relocSortField // sort field for the relocation table
-	relocSortDesc bool           // reverse the relocation sort
-	relocTypeOn   bool           // type-name facet filter active
-	relocType     string         // the relocation type it restricts to
-	relocTypes    []string       // distinct types, for cycling
-	relocSecOn    bool           // section facet filter active
-	relocSec      string         // the section it restricts to
-	relocSecs     []string       // distinct sections, for cycling
+// relocsState stores cursor, filter and cache state for the Relocations view.
+type relocsState struct {
+	relocCur      int             // cursor in the relocation table
+	relocTop      int             // viewport top of the relocation table
+	relocFilter   textinput.Model // symbol/type/section search (the `/` filter)
+	relocFiltered []int           // indices into file.Relocations() after the filter
+	relocSort     relocSortField  // sort field for the relocation table
+	relocSortDesc bool            // reverse the relocation sort
+	relocTypeOn   bool            // type-name facet filter active
+	relocType     string          // the relocation type it restricts to
+	relocTypes    []string        // distinct types, for cycling
+	relocSecOn    bool            // section facet filter active
+	relocSec      string          // the section it restricts to
+	relocSecs     []string        // distinct sections, for cycling
 	relocRowCache rowMemo[rowCacheKey, string]
 }
 
@@ -507,6 +512,7 @@ type searchState struct {
 	searchActive     bool
 	searchQuery      string
 	searchSeq        int
+	searchCancel     chan struct{}
 	searchRunning    bool
 	searchCancelable bool
 	searchResults    disasmSearchCache
@@ -573,6 +579,7 @@ type Model struct {
 	hexState
 	rawState
 	libsState
+	relocsState
 	stringsState
 	sourcesState
 	interactionState

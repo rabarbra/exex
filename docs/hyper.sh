@@ -1,29 +1,30 @@
 #!/bin/sh
 BIN=${1:-/bin/ls}
+EXEX=${2:-exex}
 echo "\n============"
 hyperfine \
     --warmup 5 \
-    "exex '$BIN' -o strings" \
+    "$EXEX '$BIN' -o strings" \
     "strings -a -t x '$BIN'"
 
 echo "\n============"
 hyperfine \
     --warmup 5 \
-    "exex '$BIN' -o syms" \
+    "$EXEX '$BIN' -o syms" \
     "nm -C -n -a '$BIN'"
 
 echo "\n============"
 hyperfine --warmup 5 \
-  "exex '$BIN' -o sections" \
+  "$EXEX '$BIN' -o sections" \
   "objdump -h '$BIN'"
 
 echo "\n============"
 hyperfine \
-    "exex '$BIN' -o disasm" \
+    "$EXEX '$BIN' -o disasm" \
     "objdump -d '$BIN'" \
     "otool -tvV '$BIN'"
 
 echo "\n============"
  hyperfine \
-    "exex '$BIN' -o disasm-all" \
+    "$EXEX '$BIN' -o disasm-all" \
     "objdump -D '$BIN'"

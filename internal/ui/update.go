@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
+	"github.com/rabarbra/exex/internal/binfile"
 )
 
 func (m *Model) Init() tea.Cmd {
@@ -22,29 +23,26 @@ func (m *Model) Init() tea.Cmd {
 	if m.disasmDecoding && !m.disasmBuilt && m.dis != nil {
 		cmds = append(cmds, m.decodeDisasmCmd(m.disasmPendingAddr))
 	}
-	// Pre-warm the deferred work (disasm decode, DWARF/line tables) right after the
-	// first frame so opening those views is instant. The cmd returns immediately,
-	// so its prewarmMsg is processed once the initial render is on screen.
+	// Pre-warm the initial disasm window right after the first frame. This keeps
+	// startup responsive while making the view ready for the common next action.
 	cmds = append(cmds, func() tea.Msg { return prewarmMsg{} })
 	return tea.Batch(cmds...)
 }
 
-// prewarmMsg fires just after the first render to kick the deferred background
-// work (so it's ready before the user navigates to it).
+// prewarmMsg fires just after the first render to kick the deferred disasm decode
+// in the background, so opening the Disasm view is usually instant without
+// blocking the initial screen.
 type prewarmMsg struct{}
 
-// handlePrewarm starts the deferred disasm decode and DWARF/line-table build in
-// the background, unless already done/in-flight (e.g. the default view is disasm).
+// handlePrewarm starts the deferred disasm decode in the background, unless
+// already done/in-flight (e.g. the default view is disasm). DWARF/source parsing
+// remains on-demand because it is large and only source-aware views need it.
 func (m *Model) handlePrewarm() (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if m.dis != nil && !m.disasmBuilt && !m.disasmDecoding {
 		m.disasmDecoding = true
 		m.disasmPendingAddr = m.disasmInitAddr
 		cmds = append(cmds, m.decodeDisasmCmd(m.disasmInitAddr))
-	}
-	if m.file.HasDWARF() {
-		f := m.file
-		cmds = append(cmds, func() tea.Msg { f.WarmDebugInfo(); return nil })
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -100,6 +98,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case demangleDoneMsg:
+		if msg.file != m.file {
+			return m, nil
+		}
 		// Background demangle finished: keep the computed names so the setting can
 		// be toggled later without recomputing, and apply them unless the user has
 		// turned demangling off.
@@ -175,7 +176,7 @@ func (m *Model) resize(width, height int) {
 
 func (m *Model) handleDisasmReady(msg disasmReadyMsg) (tea.Model, tea.Cmd) {
 	// Ignore late delivery if a synchronous jump already loaded a newer span.
-	if !m.disasmDecoding || msg.addr != m.disasmPendingAddr {
+	if (msg.file != nil && msg.file != m.file) || !m.disasmDecoding || msg.addr != m.disasmPendingAddr {
 		return m, nil
 	}
 	m.disasmInst = msg.insts
@@ -203,7 +204,7 @@ func (m *Model) handleDisasmReady(msg disasmReadyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleDisasmSearchProgress(msg disasmSearchProgressMsg) (tea.Model, tea.Cmd) {
-	if !m.searchRunning || msg.seq != m.searchSeq {
+	if msg.file != m.file || !m.searchRunning || msg.seq != m.searchSeq {
 		return m, nil
 	}
 	m.cacheDisasmSearchHits(msg.found, msg.forward)
@@ -211,6 +212,7 @@ func (m *Model) handleDisasmSearchProgress(msg disasmSearchProgressMsg) (tea.Mod
 	if msg.done {
 		m.searchRunning = false
 		m.searchCancelable = false
+		m.searchCancel = nil
 		if msg.hit != nil {
 			m.setDisasmWindow(msg.hit.win, msg.hit.insts)
 			m.disasmCur = msg.hit.idx
@@ -238,7 +240,10 @@ func (m *Model) handleDisasmSearchProgress(msg disasmSearchProgressMsg) (tea.Mod
 }
 
 // demangleDoneMsg carries the result of the background symbol demangle.
-type demangleDoneMsg struct{ names []string }
+type demangleDoneMsg struct {
+	file  *binfile.File
+	names []string
+}
 
 // applyDemangledNames stores the demangled names onto the symbol table, then
 // invalidates the now-stale display order, tree and name-keyed caches.
@@ -256,8 +261,36 @@ func (m *Model) invalidateSymbolNameState() {
 	m.symbolsByDisplay = nil
 	m.symbolsTreeInit = false
 	m.symbolsCollapsed = nil
-	m.recomputeSymbols()
+	if m.symbolsReady {
+		m.recomputeSymbols()
+	}
 	m.clearSymbolNameCaches()
+	m.refreshModalSymbolNames()
+}
+
+func (m *Model) refreshModalSymbolNames() {
+	m.xrefCache = nil
+	if m.xrefActive {
+		m.xrefLabel = m.xrefLabelForTarget(m.xrefTarget)
+		for i := range m.xrefResults {
+			m.xrefResults[i].sym = m.symbolDisplayAt(m.xrefResults[i].addr)
+		}
+		m.rebuildXrefRows()
+	}
+	m.syscallCached = nil
+	if m.syscallActive {
+		for i := range m.syscallResults {
+			m.syscallResults[i].Sym = m.symbolDisplayAt(m.syscallResults[i].Addr)
+		}
+		m.rebuildSyscallRows()
+	}
+}
+
+func (m *Model) symbolDisplayAt(addr uint64) string {
+	if sym, ok := m.file.SymbolAt(addr); ok {
+		return sym.Display()
+	}
+	return ""
 }
 
 // toggleDemangle flips the demangle preference and applies it live: re-applying
@@ -282,7 +315,7 @@ func (m *Model) toggleDemangle() {
 // shows up immediately (with raw names) instead of blocking on startup.
 func (m *Model) demangleCmd() tea.Cmd {
 	f := m.file
-	return func() tea.Msg { return demangleDoneMsg{names: f.ComputeDemangled()} }
+	return func() tea.Msg { return demangleDoneMsg{file: f, names: f.ComputeDemangled()} }
 }
 
 // copyToClipboard puts text on the system clipboard and reports success or
